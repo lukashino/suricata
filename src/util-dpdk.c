@@ -18,17 +18,43 @@
 /**
  * \file
  *
- * \author Lukas Sismis <lukas.sismis@gmail.com>
+ * \author Lukas Sismis <sismis@cesnet.cz>
  */
+
+#ifndef UTIL_DPDK_C
+#define UTIL_DPDK_C
 
 #include "suricata.h"
 #include "util-dpdk.h"
 #include "util-debug.h"
 
+uint32_t ArrayMaxValue(const uint32_t *arr, uint16_t arr_len)
+{
+    uint32_t max = 0;
+    for (uint16_t i = 0; i < arr_len; i++) {
+        max = MAX(arr[i], max);
+    }
+    return max;
+}
+
+// Used to determine size for memory allocation of a string
+uint8_t CountDigits(uint32_t n)
+{
+    uint8_t digits_cnt = 0;
+    if (n == 0)
+        return 1;
+
+    while (n != 0) {
+        n = n / 10;
+        digits_cnt++;
+    }
+    return digits_cnt;
+}
+
 void DPDKCleanupEAL(void)
 {
 #ifdef HAVE_DPDK
-    if (SCRunmodeGet() == RUNMODE_DPDK) {
+    if (run_mode == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
         int retval = rte_eal_cleanup();
         if (retval != 0)
             SCLogError("EAL cleanup failed: %s", strerror(-retval));
@@ -83,3 +109,4 @@ const char *DPDKGetPortNameByPortID(uint16_t pid)
 }
 
 #endif /* HAVE_DPDK */
+#endif /* UTIL_DPDK_C */
