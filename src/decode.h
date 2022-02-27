@@ -42,6 +42,8 @@
 #include "util-napatech.h"
 #endif /* HAVE_NAPATECH */
 
+enum ofldsIdxsPf { IPV4_ID, IPV6_ID, TCP_ID, UDP_ID };
+
 typedef enum {
     CHECKSUM_VALIDATION_DISABLE,
     CHECKSUM_VALIDATION_ENABLE,
@@ -115,6 +117,7 @@ void AppLayerDecoderEventsFreeEvents(AppLayerDecoderEvents **events);
 /* Address */
 typedef struct Address_ {
     char family;
+    uint32_t family_padding : 24;
     union {
         uint32_t        address_un_data32[4]; /* type-specific field */
         uint16_t        address_un_data16[8]; /* type-specific field */
@@ -235,8 +238,6 @@ typedef uint16_t Port;
  *We determine the ip version. */
 #define IP_GET_RAW_VER(pkt) ((((pkt)[0] & 0xf0) >> 4))
 
-#define PKT_IS_TCP(p)       (((p)->tcph != NULL))
-#define PKT_IS_UDP(p)       (((p)->udph != NULL))
 #define PKT_IS_ICMPV4(p)    (((p)->icmpv4h != NULL))
 #define PKT_IS_ICMPV6(p)    (((p)->icmpv6h != NULL))
 #define PKT_IS_TOSERVER(p)  (((p)->flowflags & FLOW_PKT_TOSERVER))

@@ -243,8 +243,6 @@ static int DecodeTCPPacket(
     p->sp = TCP_GET_RAW_SRC_PORT(tcph);
     p->dp = TCP_GET_RAW_DST_PORT(tcph);
 
-    p->proto = IPPROTO_TCP;
-
     p->payload = (uint8_t *)pkt + hlen;
     p->payload_len = len - hlen;
 
@@ -271,6 +269,13 @@ int DecodeTCP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, const uint8_t *p
 {
     StatsIncr(tv, dtv->counter_tcp);
 
+#ifdef BUILD_DPDK_APPS
+    if (p->dpdk_v.metadata_flags & (1 << TCP_ID)) {
+        SCLogDebug("DPDK metadata contains TCP, it could have been predecoded");
+        // p->tcph = (TCPHdr *)pkt;
+        // p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
+    }
+#endif /* BUILD_DPDK_APPS */
     if (unlikely(DecodeTCPPacket(tv, dtv, p, pkt, len) < 0)) {
         SCLogDebug("invalid TCP packet");
         PacketClearL4(p);

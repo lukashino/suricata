@@ -48,6 +48,9 @@
         "icmp_code": {
             "type": "integer"
         },
+        "in_iface": {
+            "type": "string"
+        },
         "icmp_type": {
             "type": "integer"
         },
@@ -3866,6 +3869,34 @@
                         }
                     }
                 },
+                "capture": {
+                    "type": "object",
+                    "properties": {
+                        "packets": {
+                            "type": "integer"
+                        },
+                        "rx_errors": {
+                            "type": "integer"
+                        },
+                        "tx_errors": {
+                            "type": "integer"
+                        },
+                        "dpdk": {
+                            "type": "object",
+                            "properties": {
+                                "imissed": {
+                                    "type": "integer"
+                                },
+                                "no_mbufs": {
+                                    "type": "integer"
+                                },
+                                "ierrors": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                },
                 "app_layer": {
                     "type": "object",
                     "properties": {
@@ -5123,9 +5154,6 @@
                                     },
                                     "rules_failed": {
                                         "type": "integer"
-                                    },
-                                    "rules_skipped": {
-                                        "type": "integer"
                                     }
                                 },
                                 "additionalProperties": false
@@ -5133,27 +5161,19 @@
                         }
                     },
                     "additionalProperties": false
-                },
-                "file_store": {
-                    "type": "object",
-                    "properties": {
-                        "fs_errors": {
-                            "type": "integer"
-                        },
-                        "open_files": {
-                            "type": "integer"
-                        },
-                        "open_files_max_hit": {
-                            "type": "integer"
-                        }
                     },
-                    "additionalProperties": false
-                },
-                "flow": {
-                    "type": "object",
-                    "properties": {
-                        "active": {
-                            "type": "integer"
+                    "file_store": {
+                        "type": "object",
+                        "properties": {
+                            "fs_errors": {
+                                "type": "integer"
+                            },
+                            "open_files": {
+                                "type": "integer"
+                            },
+                            "open_files_max_hit": {
+                                "type": "integer"
+                            }
                         },
                         "emerg_mode_entered": {
                             "type": "integer"
@@ -5216,147 +5236,395 @@
                                     "properties": {
                                         "new": {
                                             "type": "integer"
-                                        },
-                                        "established": {
-                                            "type": "integer"
-                                        },
-                                        "closed": {
-                                            "type": "integer"
-                                        },
-                                        "local_bypassed": {
-                                            "type": "integer"
-                                        },
-                                        "capture_bypassed": {
-                                            "type": "integer"
-                                        }
-                                    },
-                                    "additionalProperties": false
-                                },
-                                "tcp_state": {
-                                    "type": "object",
-                                    "properties": {
-                                        "none": {
-                                            "type": "integer"
-                                        },
-                                        "syn_sent": {
-                                            "type": "integer"
-                                        },
-                                        "syn_recv": {
-                                            "type": "integer"
-                                        },
-                                        "established": {
-                                            "type": "integer"
-                                        },
-                                        "fin_wait1": {
-                                            "type": "integer"
-                                        },
-                                        "fin_wait2": {
-                                            "type": "integer"
-                                        },
-                                        "time_wait": {
-                                            "type": "integer"
-                                        },
-                                        "last_ack": {
-                                            "type": "integer"
-                                        },
-                                        "close_wait": {
-                                            "type": "integer"
-                                        },
-                                        "closing": {
-                                            "type": "integer"
-                                        },
-                                        "closed": {
-                                            "type": "integer"
-                                        }
-                                    },
-                                    "additionalProperties": false
-                                },
-                                "tcp_liberal": {
-                                    "type": "integer"
-                                }
-                            },
-                            "additionalProperties": false
-                        },
-                        "mgr": {
-                            "type": "object",
-                            "properties": {
-                                "flows_checked": {
-                                    "type": "integer"
-                                },
-                                "flows_evicted": {
-                                    "type": "integer"
-                                },
-                                "flows_evicted_needs_work": {
-                                    "type": "integer"
-                                },
-                                "flows_notimeout": {
-                                    "type": "integer"
-                                },
-                                "flows_timeout": {
-                                    "type": "integer"
-                                },
-                                "full_hash_pass": {
-                                    "type": "integer"
-                                },
-                                "rows_maxlen": {
-                                    "type": "integer"
-                                },
-                                "rows_per_sec": {
-                                    "type": "integer"
-                                }
-                            },
-                            "additionalProperties": false
-                        },
-                        "recycler": {
-                            "type": "object",
-                            "properties": {
-                                "recycled": {
-                                    "type": "integer"
-                                },
-                                "queue_avg": {
-                                    "type": "integer"
-                                },
-                                "queue_max": {
-                                    "type": "integer"
-                                }
-                            },
-                            "additionalProperties": false
-                        },
-                        "wrk": {
-                            "type": "object",
-                            "properties": {
-                                "flows_evicted": {
-                                    "type": "integer"
-                                },
-                                "flows_evicted_needs_work": {
-                                    "type": "integer"
-                                },
-                                "flows_evicted_pkt_inject": {
-                                    "type": "integer"
-                                },
-                                "flows_injected": {
-                                    "type": "integer"
-                                },
-                                "flows_injected_max": {
-                                    "type": "integer"
-                                },
-                                "spare_sync": {
-                                    "type": "integer"
-                                },
-                                "spare_sync_avg": {
-                                    "type": "integer"
-                                },
-                                "spare_sync_empty": {
-                                    "type": "integer"
-                                },
-                                "spare_sync_incomplete": {
-                                    "type": "integer"
-                                }
-                            },
-                            "additionalProperties": false
-                        }
+                        "additionalProperties": false
                     },
-                    "additionalProperties": false
+                    "flow": {
+                        "type": "object",
+                        "properties": {
+                            "active": {
+                                "type": "integer"
+                            },
+                            "emerg_mode_entered": {
+                                "type": "integer"
+                            },
+                            "emerg_mode_over": {
+                                "type": "integer"
+                            },
+                            "get_used": {
+                                "type": "integer"
+                            },
+                            "get_used_eval": {
+                                "type": "integer"
+                            },
+                            "get_used_eval_busy": {
+                                "type": "integer"
+                            },
+                            "get_used_eval_reject": {
+                                "type": "integer"
+                            },
+                            "get_used_failed": {
+                                "type": "integer"
+                            },
+                            "icmpv4": {
+                                "type": "integer"
+                            },
+                            "icmpv6": {
+                                "type": "integer"
+                            },
+                            "memcap": {
+                                "type": "integer"
+                            },
+                            "memuse": {
+                                "type": "integer"
+                            },
+                            "spare": {
+                                "type": "integer"
+                            },
+                            "tcp": {
+                                "type": "integer"
+                            },
+                            "tcp_reuse": {
+                                "type": "integer"
+                            },
+                            "total": {
+                                "type": "integer"
+                            },
+                            "udp": {
+                                "type": "integer"
+                            },
+                            "end": {
+                                "type": "object",
+                                "properties": {
+                                    "state": {
+                                        "type": "object",
+                                        "properties": {
+                                            "new": {
+                                                "type": "integer"
+                                            },
+                                            "established": {
+                                                "type": "integer"
+                                            },
+                                            "closed": {
+                                                "type": "integer"
+                                            },
+                                            "local_bypassed": {
+                                                "type": "integer"
+                                            },
+                                            "capture_bypassed": {
+                                                "type": "integer"
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "tcp_state": {
+                                        "type": "object",
+                                        "properties": {
+                                            "none": {
+                                                "type": "integer"
+                                            },
+                                            "syn_sent": {
+                                                "type": "integer"
+                                            },
+                                            "syn_recv": {
+                                                "type": "integer"
+                                            },
+                                            "established": {
+                                                "type": "integer"
+                                            },
+                                            "fin_wait1": {
+                                                "type": "integer"
+                                            },
+                                            "fin_wait2": {
+                                                "type": "integer"
+                                            },
+                                            "time_wait": {
+                                                "type": "integer"
+                                            },
+                                            "last_ack": {
+                                                "type": "integer"
+                                            },
+                                            "close_wait": {
+                                                "type": "integer"
+                                            },
+                                            "closing": {
+                                                "type": "integer"
+                                            },
+                                            "closed": {
+                                                "type": "integer"
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "tcp_liberal": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "mgr": {
+                                "type": "object",
+                                "properties": {
+                                    "flows_checked": {
+                                        "type": "integer"
+                                    },
+                                    "flows_evicted": {
+                                        "type": "integer"
+                                    },
+                                    "flows_evicted_needs_work": {
+                                        "type": "integer"
+                                    },
+                                    "flows_notimeout": {
+                                        "type": "integer"
+                                    },
+                                    "flows_timeout": {
+                                        "type": "integer"
+                                    },
+                                    "full_hash_pass": {
+                                        "type": "integer"
+                                    },
+                                    "rows_maxlen": {
+                                        "type": "integer"
+                                    },
+                                    "rows_per_sec": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "recycler": {
+                                "type": "object",
+                                "properties": {
+                                    "recycled": {
+                                        "type": "integer"
+                                    },
+                                    "queue_avg": {
+                                        "type": "integer"
+                                    },
+                                    "queue_max": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "wrk": {
+                                "type": "object",
+                                "properties": {
+                                    "flows_evicted": {
+                                        "type": "integer"
+                                    },
+                                    "flows_evicted_needs_work": {
+                                        "type": "integer"
+                                    },
+                                    "flows_evicted_pkt_inject": {
+                                        "type": "integer"
+                                    },
+                                    "flows_injected": {
+                                        "type": "integer"
+                                    },
+                                    "flows_injected_max": {
+                                        "type": "integer"
+                                    },
+                                    "spare_sync": {
+                                        "type": "integer"
+                                    },
+                                    "spare_sync_avg": {
+                                        "type": "integer"
+                                    },
+                                    "spare_sync_empty": {
+                                        "type": "integer"
+                                    },
+                                    "spare_sync_incomplete": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "flow_bypassed": {
+                        "type": "object",
+                        "properties": {
+                            "bytes": {
+                                "type": "integer"
+                            },
+                            "closed": {
+                                "type": "integer"
+                            },
+                            "local_bytes": {
+                                "type": "integer"
+                            },
+                            "local_capture_bytes": {
+                                "type": "integer"
+                            },
+                            "local_capture_pkts": {
+                                "type": "integer"
+                            },
+                            "local_pkts": {
+                                "type": "integer"
+                            },
+                            "pkts": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "flow_mgr": {
+                        "type": "object",
+                        "properties": {
+                            "bypassed_pruned": {
+                                "type": "integer"
+                            },
+                            "closed_pruned": {
+                                "type": "integer"
+                            },
+                            "est_pruned": {
+                                "type": "integer"
+                            },
+                            "flows_checked": {
+                                "type": "integer"
+                            },
+                            "flows_notimeout": {
+                                "type": "integer"
+                            },
+                            "flows_removed": {
+                                "type": "integer"
+                            },
+                            "flows_timeout": {
+                                "type": "integer"
+                            },
+                            "new_pruned": {
+                                "type": "integer"
+                            },
+                            "rows_busy": {
+                                "type": "integer"
+                            },
+                            "rows_checked": {
+                                "type": "integer"
+                            },
+                            "rows_empty": {
+                                "type": "integer"
+                            },
+                            "rows_maxlen": {
+                                "type": "integer"
+                            },
+                            "rows_skipped": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "ftp": {
+                        "type": "object",
+                        "properties": {
+                            "memcap": {
+                                "type": "integer"
+                            },
+                            "memuse": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "http": {
+                        "type": "object",
+                        "properties": {
+                            "memcap": {
+                                "type": "integer"
+                            },
+                            "memuse": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "tcp": {
+                        "type": "object",
+                        "properties": {
+                            "ack_unseen_data": {
+                                "type": "integer"
+                            },
+                            "active_sessions": {
+                                "type": "integer"
+                            },
+                            "insert_data_normal_fail": {
+                                "type": "integer"
+                            },
+                            "insert_data_overlap_fail": {
+                                "type": "integer"
+                            },
+                            "insert_list_fail": {
+                                "type": "integer"
+                            },
+                            "invalid_checksum": {
+                                "type": "integer"
+                            },
+                            "memuse": {
+                                "type": "integer"
+                            },
+                            "midstream_pickups": {
+                                "type": "integer"
+                            },
+                            "no_flow": {
+                                "type": "integer"
+                            },
+                            "overlap": {
+                                "type": "integer"
+                            },
+                            "overlap_diff_data": {
+                                "type": "integer"
+                            },
+                            "pkt_on_wrong_thread": {
+                                "type": "integer"
+                            },
+                            "pseudo": {
+                                "type": "integer"
+                            },
+                            "pseudo_failed": {
+                                "type": "integer"
+                            },
+                            "reassembly_gap": {
+                                "type": "integer"
+                            },
+                            "reassembly_memuse": {
+                                "type": "integer"
+                            },
+                            "rst": {
+                                "type": "integer"
+                            },
+                            "segment_memcap_drop": {
+                                "type": "integer"
+                            },
+                            "segment_from_cache": {
+                                "type": "integer"
+                            },
+                            "segment_from_pool": {
+                                "type": "integer"
+                            },
+                            "sessions": {
+                                "type": "integer"
+                            },
+                            "ssn_from_cache": {
+                                "type": "integer"
+                            },
+                            "ssn_from_pool": {
+                                "type": "integer"
+                            },
+                            "ssn_memcap_drop": {
+                                "type": "integer"
+                            },
+                            "stream_depth_reached": {
+                                "type": "integer"
+                            },
+                            "syn": {
+                                "type": "integer"
+                            },
+                            "synack": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
                 },
                 "flow_bypassed": {
                     "type": "object",
@@ -5571,224 +5839,177 @@
                     },
                     "additionalProperties": false
                 }
+                "additionalProperties": false
             },
-            "additionalProperties": false
-        },
-        "tcp": {
-            "type": "object",
-            "properties": {
-                "ack": {
-                    "type": "boolean"
-                },
-                "cwr": {
-                    "type": "boolean"
-                },
-                "ecn": {
-                    "type": "boolean"
-                },
-                "fin": {
-                    "type": "boolean"
-                },
-                "psh": {
-                    "type": "boolean"
-                },
-                "rst": {
-                    "type": "boolean"
-                },
-                "state": {
-                    "type": "string"
-                },
-                "syn": {
-                    "type": "boolean"
-                },
-                "tc_gap": {
-                    "type": "boolean"
-                },
-                "tc_max_regions": {
-                    "type": "integer"
-                },
-                "tcp_flags": {
-                    "type": "string"
-                },
-                "tcp_flags_tc": {
-                    "type": "string"
-                },
-                "tcp_flags_ts": {
-                    "type": "string"
-                },
-                "ts_gap": {
-                    "type": "boolean"
-                },
-                "ts_max_regions": {
-                    "type": "integer"
-                },
-                "urg": {
-                    "type": "boolean"
-                }
-            },
-            "additionalProperties": true
-        },
-        "template": {
-            "type": "object",
-            "properties": {
-                "request": {
-                    "type": "string"
-                },
-                "response": {
-                    "type": "string"
-                }
-            },
-            "additionalProperties": false
-        },
-        "tftp": {
-            "type": "object",
-            "properties": {
-                "file": {
-                    "type": "string"
-                },
-                "mode": {
-                    "type": "string"
-                },
-                "packet": {
-                    "type": "string"
-                }
-            },
-            "additionalProperties": false
-        },
-        "tls": {
-            "type": "object",
-            "properties": {
-                "client": {
-                    "type": "object",
-                    "properties": {
-                        "fingerprint": {
-                            "type": "string"
-                        },
-                        "issuerdn": {
-                            "type": "string"
-                        },
-                        "notafter": {
-                            "$ref": "#/$defs/tls_date"
-                        },
-                        "notbefore": {
-                            "$ref": "#/$defs/tls_date"
-                        },
-                        "serial": {
-                            "type": "string"
-                        },
-                        "subject": {
-                            "type": "string"
-                        }
+            "tcp": {
+                "type": "object",
+                "properties": {
+                    "ack": {
+                        "type": "boolean"
                     },
-                    "additionalProperties": false
-                },
-                "fingerprint": {
-                    "type": "string"
-                },
-                "from_proto": {
-                    "type": "string"
-                },
-                "issuerdn": {
-                    "type": "string"
-                },
-                "notafter": {
-                    "$ref": "#/$defs/tls_date"
-                },
-                "notbefore": {
-                    "$ref": "#/$defs/tls_date"
-                },
-                "serial": {
-                    "type": "string"
-                },
-                "session_resumed": {
-                    "type": "boolean"
-                },
-                "sni": {
-                    "type": "string"
-                },
-                "subject": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                },
-                "ja3": {
-                    "type": "object",
-                    "properties": {
-                        "hash": {
-                            "type": "string"
-                        },
-                        "string": {
-                            "type": "string"
-                        }
+                    "cwr": {
+                        "type": "boolean"
                     },
-                    "additionalProperties": false
-                },
-                "ja3s": {
-                    "type": "object",
-                    "properties": {
-                        "hash": {
-                            "type": "string"
-                        },
-                        "string": {
-                            "type": "string"
-                        }
+                    "ecn": {
+                        "type": "boolean"
                     },
                     "additionalProperties": false
                 },
                 "ja4": {
                     "type": "string"
                 }
+                    "fin": {
+                        "type": "boolean"
+                    },
+                    "psh": {
+                        "type": "boolean"
+                    },
+                    "rst": {
+                        "type": "boolean"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "syn": {
+                        "type": "boolean"
+                    },
+                    "tc_gap": {
+                        "type": "boolean"
+                    },
+                    "tc_max_regions": {
+                        "type": "integer"
+                    },
+                    "tcp_flags": {
+                        "type": "string"
+                    },
+                    "tcp_flags_tc": {
+                        "type": "string"
+                    },
+                    "tcp_flags_ts": {
+                        "type": "string"
+                    },
+                    "ts_gap": {
+                        "type": "boolean"
+                    },
+                    "ts_max_regions": {
+                        "type": "integer"
+                    },
+                    "urg": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": true
             },
-            "additionalProperties": false
-        },
-        "traffic": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
+            "template": {
+                "type": "object",
+                "properties": {
+                    "request": {
+                        "type": "string"
+                    },
+                    "response": {
                         "type": "string"
                     }
                 },
-                "label": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
+                "additionalProperties": false
+            },
+            "tftp": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string"
+                    },
+                    "mode": {
+                        "type": "string"
+                    },
+                    "packet": {
                         "type": "string"
                     }
-                }
+                },
+                "additionalProperties": false
             },
-            "additionalProperties": false
-        },
-        "tunnel": {
-            "type": "object",
-            "properties": {
-                "depth": {
-                    "type": "integer"
+            "tls": {
+                "type": "object",
+                "properties": {
+                    "client": {
+                        "type": "object",
+                        "properties": {
+                            "fingerprint": {
+                                "type": "string"
+                            },
+                            "issuerdn": {
+                                "type": "string"
+                            },
+                            "notafter": {
+                                "$ref": "#/$defs/tls_date"
+                            },
+                            "notbefore": {
+                                "$ref": "#/$defs/tls_date"
+                            },
+                            "serial": {
+                                "type": "string"
+                            },
+                            "subject": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "fingerprint": {
+                        "type": "string"
+                    },
+                    "from_proto": {
+                        "type": "string"
+                    },
+                    "issuerdn": {
+                        "type": "string"
+                    },
+                    "notafter": {
+                        "$ref": "#/$defs/tls_date"
+                    },
+                    "notbefore": {
+                        "$ref": "#/$defs/tls_date"
+                    },
+                    "serial": {
+                        "type": "string"
+                    },
+                    "session_resumed": {
+                        "type": "boolean"
+                    },
+                    "sni": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    },
+                    "ja3": {
+                        "type": "object",
+                        "properties": {
+                            "hash": {
+                                "type": "string"
+                            },
+                            "string": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "ja3s": {
+                        "type": "object",
+                        "properties": {
+                            "hash": {
+                                "type": "string"
+                            },
+                            "string": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
                 },
-                "dest_ip": {
-                    "type": "string"
-                },
-                "dest_port": {
-                    "type": "integer"
-                },
-                "pcap_cnt": {
-                    "type": "integer"
-                },
-                "pkt_src": {
-                    "type": "string"
-                },
-                "proto": {
-                    "type": "string"
-                },
-                "src_ip": {
-                    "type": "string"
-                },
-                "src_port": {
-                    "type": "integer"
-                }
+                "additionalProperties": false
             },
             "additionalProperties": false
         },
@@ -5888,45 +6109,113 @@
                             "How many times app-layer error exception policy was applied, and which one",
                     "$ref": "#/$defs/exceptionPolicy"
                 }
-            },
-            "additionalProperties": false
-        },
-        "tls_date": {
-            "$comment": "Definition for TLS date formats",
-            "type": "string",
-            "pattern": "^[1-2]\\d{3}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
-        },
-        "verdict_type": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string"
+            "traffic": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "label": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "string"
+                        }
+                    }
                 },
-                "reject": {
-                    "type": "array",
-                    "items": {
+                "additionalProperties": false
+            },
+            "tunnel": {
+                "type": "object",
+                "properties": {
+                    "depth": {
+                        "type": "integer"
+                    },
+                    "dest_ip": {
+                        "type": "string"
+                    },
+                    "dest_port": {
+                        "type": "integer"
+                    },
+                    "pcap_cnt": {
+                        "type": "integer"
+                    },
+                    "pkt_src": {
+                        "type": "string"
+                    },
+                    "proto": {
+                        "type": "string"
+                    },
+                    "src_ip": {
+                        "type": "string"
+                    },
+                    "src_port": {
+                        "type": "integer"
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "$defs": {
+            "stats_applayer_error": {
+                "type": "object",
+                "properties": {
+                    "gap": {
+                        "type": "integer"
+                    },
+                    "alloc": {
+                        "type": "integer"
+                    },
+                    "parser": {
+                        "type": "integer"
+                    },
+                    "internal": {
+                        "type": "integer"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "tls_date": {
+                "$comment": "Definition for TLS date formats",
+                "type": "string",
+                "pattern": "^[1-2]\\d{3}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+            },
+            "verdict_type": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string"
+                    },
+                    "reject": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "oneOf": [
+                                {
+                                    "enum": [
+                                        "icmp-prohib",
+                                        "tcp-reset"
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    "reject-target": {
                         "type": "string",
                         "oneOf": [
                             {
                                 "enum": [
-                                    "icmp-prohib",
-                                    "tcp-reset"
+                                    "to_client",
+                                    "to_server",
+                                    "both"
                                 ]
                             }
                         ]
                     }
-                },
-                "reject-target": {
-                    "type": "string",
-                    "oneOf": [
-                        {
-                            "enum": [
-                                "to_client",
-                                "to_server",
-                                "both"
-                            ]
-                        }
-                    ]
                 }
             }
         },
@@ -5960,4 +6249,3 @@
             }
         }
     }
-}

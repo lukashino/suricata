@@ -407,7 +407,7 @@ void FlowHandlePacketUpdate(Flow *f, Packet *p, ThreadVars *tv, DecodeThreadVars
 #ifdef CAPTURE_OFFLOAD
     } else {
         /* still seeing packet, we downgrade to local bypass */
-        if (SCTIME_SECS(p->ts) - SCTIME_SECS(f->lastts) > FLOW_BYPASSED_TIMEOUT / 2) {
+        if (SCTIME_SECS(p->ts) - SCTIME_SECS(f->lastts) > FLOW_BYPASSED_DOWNGRADE_TIMEOUT / 2) {
             SCLogDebug("Downgrading flow to local bypass");
             f->lastts = p->ts;
             FlowUpdateState(f, FLOW_STATE_LOCAL_BYPASSED);
@@ -1158,17 +1158,23 @@ uint8_t FlowGetDisruptionFlags(const Flow *f, uint8_t flags)
 void FlowUpdateState(Flow *f, const enum FlowState s)
 {
     if (s != f->flow_state) {
-        /* set the state */
-        // Explicit cast from the enum type to the compact version
-        f->flow_state = (FlowStateType)s;
+        if (
+#ifdef CAPTURE_OFFLOAD
+                (f->flow_state != FLOW_STATE_CAPTURE_BYPASSED) ||
+#endif /* CAPTURE_OFFLOAD */
+                s == FLOW_STATE_LOCAL_BYPASSED) {
+            /* set the state */
+            // Explicit cast from the enum type to the compact version
+            f->flow_state = (FlowStateType)s;
 
-        /* update timeout policy and value */
-        const uint32_t timeout_policy = FlowGetTimeoutPolicy(f);
-        if (timeout_policy != f->timeout_policy) {
-            f->timeout_policy = timeout_policy;
-            const uint32_t timeout_at = (uint32_t)SCTIME_SECS(f->lastts) + timeout_policy;
-            if (timeout_at != f->timeout_at)
-                f->timeout_at = timeout_at;
+            /* update timeout policy and value */
+            const uint32_t timeout_policy = FlowGetTimeoutPolicy(f);
+            if (timeout_policy != f->timeout_policy) {
+                f->timeout_policy = timeout_policy;
+                const uint32_t timeout_at = (uint32_t)SCTIME_SECS(f->lastts) + timeout_policy;
+                if (timeout_at != f->timeout_at)
+                    f->timeout_at = timeout_at;
+            }
         }
     }
 #ifdef UNITTESTS

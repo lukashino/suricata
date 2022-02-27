@@ -1393,18 +1393,6 @@
             AS_HELP_STRING([--enable-dpdk], [Enable DPDK support [default=no]]),
                         [enable_dpdk=$enableval],[enable_dpdk=no])
     AS_IF([test "x$enable_dpdk" = "xyes"], [
-        AC_CHECK_LIB(numa, numa_available,, [numa_found="no"])
-        if test "$numa_found" = "no"; then
-            echo
-            echo "  ERROR! libnuma not found by pkg-config, go get it"
-            echo "      from http://github.com/numactl/numactl or your distribution:"
-            echo "          Ubuntu: apt-get install libnuma-dev"
-            echo "          Fedora: dnf install numactl-devel"
-            echo "          CentOS/RHEL: yum install numactl-devel"
-            echo
-            exit 1
-        fi
-
         AC_DEFINE([HAVE_DPDK],[1],(DPDK support enabled))
         PKG_CHECK_EXISTS(libdpdk >= 19.11, , [with_pkgconfig_libdpdk=no])
         if test "$with_pkgconfig_libdpdk" = "no"; then
@@ -1419,8 +1407,15 @@
             exit 1
         fi
         CFLAGS="${CFLAGS} `pkg-config --cflags libdpdk`"
-        LIBS="${LIBS} -Wl,-R,`pkg-config --libs-only-L libdpdk | cut -c 3-` -lnuma `pkg-config --libs libdpdk`"
+        # Solves "Cannot initialize tailq: RTE_FIB/RTE_DISTRIBUTOR" startup err
+        dpdk_libs_cut="$(pkg-config --libs-only-L libdpdk | cut -c 3-)"
+        if test "${dpdk_libs_cut}" = ""; then
+            DPDK_RPATH=""
+        else
+            DPDK_RPATH="-Wl,-R,`${dpdk_libs_cut}`"
+        fi
 
+        LIBS="${LIBS} ${DPDK_RPATH} `pkg-config --libs libdpdk`"
         if test ! -z "$(ldconfig -p | grep librte_net_bond)"; then
             AC_DEFINE([HAVE_DPDK_BOND],[1],(DPDK Bond PMD support enabled))
             enable_dpdk_bond_pmd="yes"
@@ -1438,6 +1433,24 @@
             echo
         fi
     ])
+
+    AC_ARG_ENABLE(dpdk-apps,
+                AS_HELP_STRING([--enable-dpdk-apps], [Enable support for DPDK applications [default=no]]),
+                            [enable_dpdk_apps=$enableval],[enable_dpdk_apps=no])
+    AS_IF([test "x$enable_dpdk_apps" = "xyes"], [
+        AC_DEFINE([BUILD_DPDK_APPS],[1],(DPDK apps support enabled))
+        DPDK_PKG_CONFIG_VAR="$(pkg-config --exists libdpdk && echo 0)"
+        LIBDPDK_PC_FILE="$(pkg-config --path libdpdk 2>/dev/null)"
+        AC_SUBST(LIBDPDK_PC_FILE)
+        LIBDPDK_CFLAGS="$(pkg-config --cflags libdpdk)"
+        AC_SUBST(LIBDPDK_CFLAGS)
+        LIBDPDK_LDFLAGS_SHARED="$(pkg-config --libs libdpdk)"
+        AC_SUBST(LIBDPDK_LDFLAGS_SHARED)
+        LIBDPDK_LDFLAGS_STATIC="$(pkg-config --static --libs libdpdk)"
+        AC_SUBST(LIBDPDK_LDFLAGS_STATIC)
+
+    ])
+    AM_CONDITIONAL([BUILD_DPDK_APPS], [test "x$DPDK_PKG_CONFIG_VAR" = x0])
 
   # Netmap support
     AC_ARG_ENABLE(netmap,
@@ -2533,10 +2546,10 @@ return 0;
 # get MAJOR_MINOR version for embedding in configuration file.
     MAJOR_MINOR=`expr "${PACKAGE_VERSION}" : "\([[0-9]]\+\.[[0-9]]\+\).*"`
 
-if test "${enable_ebpf}" = "yes" || test "${enable_unittests}" = "yes"; then
+if test "${enable_dpdk}" = "yes" || "${enable_ebpf}" = "yes" || test "${enable_unittests}" = "yes"; then
   AC_DEFINE([CAPTURE_OFFLOAD_MANAGER], [1],[Building flow bypass manager code])
 fi
-if test "${enable_ebpf}" = "yes" || test "${enable_nfqueue}" = "yes" || test "${enable_pfring}" = "yes" || test "${enable_napatech}" = "yes"  || test "${enable_unittests}" = "yes"; then
+if test "${enable_dpdk}" = "yes" || "${enable_ebpf}" = "yes" || test "${enable_nfqueue}" = "yes" || test "${enable_pfring}" = "yes" || test "${enable_napatech}" = "yes"  || test "${enable_unittests}" = "yes"; then
   AC_DEFINE([CAPTURE_OFFLOAD], [1],[Building flow capture bypass code])
 fi
 
@@ -2652,6 +2665,7 @@ AC_CONFIG_FILES(libsuricata-config)
 AC_CONFIG_FILES(examples/plugins/c-json-filetype/Makefile)
 AC_CONFIG_FILES(examples/plugins/ci-capture/Makefile)
 AC_CONFIG_FILES(examples/lib/simple/Makefile examples/lib/simple/Makefile.example)
+AC_CONFIG_FILES(dpdk/Makefile dpdk/prefilter/Makefile)
 
 AC_OUTPUT
 
@@ -2709,6 +2723,7 @@ SURICATA_BUILD_CONF="Suricata Configuration:
 
   Plugin support (experimental):           ${plugin_support}
   DPDK Bond PMD:                           ${enable_dpdk_bond_pmd}
+  DPDK apps (experimental):                ${enable_dpdk_apps}
 
 Development settings:
   Coccinelle / spatch:                     ${enable_coccinelle}

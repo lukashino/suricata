@@ -35,6 +35,7 @@
 #include "runmode-dpdk.h"
 #include "decode.h"
 #include "source-dpdk.h"
+#include "util-affinity.h"
 #include "util-runmodes.h"
 #include "util-byte.h"
 #include "util-cpu.h"
@@ -49,6 +50,8 @@
 #include "util-conf.h"
 #include "suricata.h"
 #include "util-affinity.h"
+#include "flow-bypass.h"
+#include "util-dpdk-bypass.h"
 
 #ifdef HAVE_DPDK
 
@@ -81,8 +84,13 @@ static void ArgumentsInit(struct Arguments *args, unsigned capacity);
 static void ArgumentsCleanup(struct Arguments *args);
 static void ArgumentsAdd(struct Arguments *args, char *value);
 static void ArgumentsAddOptionAndArgument(struct Arguments *args, const char *opt, const char *arg);
+static void ArgumentsAddLcoreArguments(struct Arguments *args);
+static void ArgumentsLcoreValidate(void);
 static void InitEal(void);
 
+static char *ConfigLcoreArgValGet(void);
+static int ConfigLcoreWorkersSet(uint32_t *cpus, size_t sz);
+static uint32_t ConfigLcoreMainGet(void);
 static void ConfigSetIface(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetRxQueues(DPDKIfaceConfig *iconf, uint16_t nb_queues);
@@ -99,6 +107,7 @@ static int ConfigSetChecksumOffload(DPDKIfaceConfig *iconf, int entry_bool);
 static int ConfigSetCopyIface(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetCopyMode(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface, const char *mode);
+static void ConfigSetOperationMode(DPDKIfaceConfig *iconf, const char *entry_str);
 static void ConfigInit(DPDKIfaceConfig **iconf);
 static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface);
 static DPDKIfaceConfig *ConfigParse(const char *iface);
@@ -109,12 +118,16 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
         const struct rte_eth_conf *port_conf);
 static int DeviceValidateOutIfaceConfig(DPDKIfaceConfig *iconf);
 static int DeviceConfigureIPS(DPDKIfaceConfig *iconf);
-static int DeviceConfigure(DPDKIfaceConfig *iconf);
 static void *ParseDpdkConfigAndConfigureDevice(const char *iface);
 static void DPDKDerefConfig(void *conf);
 
+#define DPDK_CONFIG_OPERATION_MODE_ETHDEV "ethdev"
+#define DPDK_CONFIG_OPERATION_MODE_RING   "ring"
+
 #define DPDK_CONFIG_DEFAULT_THREADS                     "auto"
 #define DPDK_CONFIG_DEFAULT_INTERRUPT_MODE              false
+#define DPDK_CONFIG_DEFAULT_OPERATION_MODE              DPDK_CONFIG_OPERATION_MODE_ETHDEV
+#define DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER         "$QQQ"
 #define DPDK_CONFIG_DEFAULT_MEMPOOL_SIZE                65535
 #define DPDK_CONFIG_DEFAULT_MEMPOOL_CACHE_SIZE          "auto"
 #define DPDK_CONFIG_DEFAULT_RX_DESCRIPTORS              1024
@@ -131,6 +144,7 @@ static void DPDKDerefConfig(void *conf);
 DPDKIfaceConfigAttributes dpdk_yaml = {
     .threads = "threads",
     .irq_mode = "interrupt-mode",
+    .operation_mode = "operation-mode",
     .promisc = "promisc",
     .multicast = "multicast",
     .checksum_checks = "checksum-checks",
@@ -143,7 +157,38 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
+
+#ifdef BUILD_DPDK_APPS
+    .metadata = {
+        .oflds_from_pf_to_suri = {
+                .ipv4 = "IPV4",
+                .ipv6 = "IPV6",
+                .tcp = "TCP",
+                .udp = "UDP",
+        },
+        .oflds_from_suri_to_pf = {
+                .matchRules = "matchRules",
+        },
+    }
+#endif /* BUILD_DPDK_APPS */
 };
+
+char mz_name[RTE_MEMZONE_NAMESIZE] = { 0 };
+
+static int SharedConfNameIsSet()
+{
+    return strnlen(mz_name, sizeof(mz_name)) > 0 ? 1 : 0;
+}
+
+static void SharedConfSetName(const char *mz_name_new)
+{
+    strlcpy(mz_name, mz_name_new, sizeof(mz_name));
+}
+
+static const char *SharedConfGetName(void)
+{
+    return mz_name;
+}
 
 static int GreatestDivisorUpTo(uint32_t num, uint32_t max_num)
 {
@@ -261,6 +306,118 @@ static void ArgumentsAddOptionAndArgument(struct Arguments *args, const char *op
     SCReturn;
 }
 
+/**
+ * Returns the first management core to be used as a main lcore
+ * @return
+ */
+static uint32_t ConfigLcoreMainGet(void)
+{
+    ThreadsAffinityType *taf = GetAffinityTypeFromName("management-cpu-set");
+    for (uint16_t i = 0; i < (uint16_t)sizeof(cpu_set_t); i++) {
+        if (CPU_ISSET(i, &taf->cpu_set)) {
+            return i;
+        }
+    }
+
+    FatalError("No affinity set for management threads");
+}
+
+/**
+ * Convert cpu_set_t mask to an array of numbers.
+ * @param cpus - array to fill in
+ * @param sz - size of the array
+ * @return length of the new array
+ */
+static int ConfigLcoreWorkersSet(uint32_t *cpus, const size_t sz)
+{
+    int cpus_len = 0;
+    memset(cpus, 0, sz);
+    ThreadsAffinityType *taf = GetAffinityTypeFromName("worker-cpu-set");
+
+    for (uint16_t i = 0; i < (uint16_t)sizeof(cpu_set_t); i++) {
+        if (CPU_ISSET(i, &taf->cpu_set)) {
+            cpus[cpus_len++] = i;
+        }
+    }
+
+    return cpus_len;
+}
+
+/**
+ * Function converts cpu_set_t mask to a string of lcores to enable, divided by a comma separator.
+ * Used for EAL initialization together with "-l" parameter (format -l 2,4,6,8).
+ * @return dynamically allocated string
+ */
+static char *ConfigLcoreArgValGet(void)
+{
+    SCEnter();
+    int ret;
+    uint32_t lcore_arr[sizeof(cpu_set_t)];
+    lcore_arr[0] = ConfigLcoreMainGet();
+    uint16_t lcore_arr_len = // using 1 for extra main lcore apart from worker lcores
+            1 + ConfigLcoreWorkersSet(&lcore_arr[1], sizeof(cpu_set_t) - 1);
+    uint32_t max_num = ArrayMaxValue(lcore_arr, lcore_arr_len);
+
+    // lcore_arr_len - how many CPUs are set
+    // CountDigits(max_num) + 1 - the highest number of digits with comma separator
+    // +1 - terminating character
+    uint16_t lcore_arg_size = lcore_arr_len * (CountDigits(max_num) + 1) + 1;
+    char *lcore_arg = AllocArgument(lcore_arg_size);
+    uint16_t lcore_arg_len = 0;
+
+    for (uint16_t i = 0; i < lcore_arr_len; i++) {
+        ret = snprintf(
+                &lcore_arg[lcore_arg_len], lcore_arg_size - lcore_arg_len, "%u,", lcore_arr[i]);
+        if (ret <= 0)
+            FatalError(
+                    "Conversion of threading affinity to lcore argument failed - returned %d from "
+                    "snprintf",
+                    ret);
+        else if (lcore_arg_len + ret > lcore_arg_size)
+            FatalError("Conversion of threading affinity to lcore argument "
+                       "failed - lcore argument buffer insufficiently long");
+
+        lcore_arg_len += ret;
+    }
+    lcore_arg[lcore_arg_len - 1] = '\0'; // trim the last comma separator
+    SCReturnCharPtr(lcore_arg);
+}
+
+static void ArgumentsLcoreValidate(void)
+{
+    if (threading_set_cpu_affinity == false)
+        FatalError("CPU affinity needs to be set");
+
+    ThreadsAffinityType *mngmt_taf = GetAffinityTypeFromName("management-cpu-set");
+    ThreadsAffinityType *wrkr_taf = GetAffinityTypeFromName("worker-cpu-set");
+
+    if (mngmt_taf == NULL)
+        FatalError("Unable to obtain CPU affinity for \"management-cpu-set\"");
+    else if (wrkr_taf == NULL)
+        FatalError("Unable to obtain CPU affinity for \"worker-cpu-set\"");
+
+    cpu_set_t result;
+    CPU_AND(&result, &mngmt_taf->cpu_set, &wrkr_taf->cpu_set);
+    if (CPU_COUNT(&result) != 0)
+        FatalError("Affinity of management and worker threads must not overlap");
+}
+
+static void ArgumentsAddLcoreArguments(struct Arguments *args)
+{
+    ArgumentsLcoreValidate();
+
+    ArgumentsAdd(args, AllocAndSetArgument("-l"));
+    char *lcore_arg = ConfigLcoreArgValGet();
+    ArgumentsAdd(args, lcore_arg);
+
+    ArgumentsAdd(args, AllocAndSetArgument("--main-lcore"));
+    uint32_t main_lcore = ConfigLcoreMainGet();
+    uint16_t main_lcore_str_size = CountDigits(main_lcore) + 1;
+    char *main_lcore_str = AllocArgument(main_lcore_str_size);
+    snprintf(main_lcore_str, main_lcore_str_size, "%u", main_lcore);
+    ArgumentsAdd(args, main_lcore_str);
+}
+
 static void InitEal(void)
 {
     SCEnter();
@@ -276,6 +433,7 @@ static void InitEal(void)
 
     ArgumentsInit(&args, EAL_ARGS);
     ArgumentsAdd(&args, AllocAndSetArgument("suricata"));
+    ArgumentsAddLcoreArguments(&args);
 
     TAILQ_FOREACH (param, &eal_params->head, next) {
         if (ConfNodeIsSequence(param)) {
@@ -318,6 +476,28 @@ static void DPDKDerefConfig(void *conf)
             rte_mempool_free(iconf->pkt_mempool);
         }
 
+        if (iconf->rx_rings != NULL) {
+            SCFree(iconf->rx_rings);
+        }
+        if (iconf->tx_rings != NULL) {
+            SCFree(iconf->tx_rings);
+        }
+        if (iconf->tasks_rings != NULL) {
+            SCFree(iconf->tasks_rings);
+        }
+        if (iconf->results_rings != NULL) {
+            SCFree(iconf->results_rings);
+        }
+        if (iconf->messages_mempools != NULL) {
+            SCFree(iconf->messages_mempools);
+        }
+        if (iconf->cnt_offlds_suri_requested != NULL) {
+            SCFree(iconf->cnt_offlds_suri_requested);
+        }
+        if (iconf->idxes_offlds_suri_requested != NULL) {
+            SCFree(iconf->idxes_offlds_suri_requested);
+        }
+
         SCFree(iconf);
     }
     SCReturn;
@@ -345,14 +525,8 @@ static void ConfigInit(DPDKIfaceConfig **iconf)
 static void ConfigSetIface(DPDKIfaceConfig *iconf, const char *entry_str)
 {
     SCEnter();
-    int retval;
-
     if (entry_str == NULL || entry_str[0] == '\0')
         FatalError("Interface name in DPDK config is NULL or empty");
-
-    retval = rte_eth_dev_get_port_by_name(entry_str, &iconf->port_id);
-    if (retval < 0)
-        FatalError("%s: interface not found: %s", entry_str, rte_strerror(-retval));
 
     strlcpy(iconf->iface, entry_str, sizeof(iconf->iface));
     SCReturn;
@@ -620,20 +794,12 @@ static int ConfigSetChecksumOffload(DPDKIfaceConfig *iconf, int entry_bool)
 static int ConfigSetCopyIface(DPDKIfaceConfig *iconf, const char *entry_str)
 {
     SCEnter();
-    int retval;
-
     if (entry_str == NULL || entry_str[0] == '\0' || strcmp(entry_str, "none") == 0) {
         iconf->out_iface = NULL;
         SCReturnInt(0);
     }
 
-    retval = rte_eth_dev_get_port_by_name(entry_str, &iconf->out_port_id);
-    if (retval < 0) {
-        SCLogError("%s: copy interface (%s) not found: %s", iconf->iface, entry_str,
-                rte_strerror(-retval));
-        SCReturnInt(retval);
-    }
-
+    // check for out_iface cannot be present to support ring names
     iconf->out_iface = entry_str;
     SCReturnInt(0);
 }
@@ -693,6 +859,21 @@ static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface,
     SCReturnInt(0);
 }
 
+static void ConfigSetOperationMode(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    enum rte_proc_type_t process_type = rte_eal_process_type();
+
+    if (strcmp(entry_str, DPDK_CONFIG_OPERATION_MODE_ETHDEV) == 0 &&
+            process_type == RTE_PROC_PRIMARY) {
+        iconf->op_mode = DPDK_ETHDEV_MODE;
+    } else if (strcmp(entry_str, DPDK_CONFIG_OPERATION_MODE_RING) == 0 &&
+               process_type == RTE_PROC_SECONDARY) {
+        iconf->op_mode = DPDK_RING_MODE;
+    } else {
+        FatalError("DPDK operation mode \"%s\" not supported", entry_str);
+    }
+}
+
 static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
 {
     SCEnter();
@@ -738,6 +919,13 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     retval = ConfigSetTxQueues(iconf, (uint16_t)iconf->threads);
     if (retval < 0)
         SCReturnInt(retval);
+
+    retval =
+            ConfGetChildValueWithDefault(if_root, if_default, dpdk_yaml.operation_mode, &entry_str);
+    if (retval != 1)
+        ConfigSetOperationMode(iconf, DPDK_CONFIG_DEFAULT_OPERATION_MODE);
+    else
+        ConfigSetOperationMode(iconf, entry_str);
 
     retval = ConfGetChildValueIntWithDefault(
                      if_root, if_default, dpdk_yaml.mempool_size, &entry_int) != 1
@@ -824,6 +1012,66 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     retval = ConfigSetCopyIfaceSettings(iconf, copy_iface_str, copy_mode_str);
     if (retval < 0)
         SCReturnInt(retval);
+
+#ifdef BUILD_DPDK_APPS
+    ConfNode *config, *next_node;
+    config = ConfGetChildWithDefault(if_root, if_default, "metadata");
+    if (config == NULL) {
+        SCLogInfo("OFFLOADS: Suricata was not able to locate the \"metadata\" node."
+                  " Default values have been set for the offloads: 0, 0");
+        iconf->oflds_suri_requested = 0;
+        iconf->oflds_suri_support = 0;
+        SCReturnInt(0);
+    }
+
+    next_node = ConfNodeLookupChild(config, "offloads-from-pf-to-suri");
+    if (next_node == NULL) {
+        FatalError("failed to find \"offloads-from-pf-to-suri\" for Suricata");
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.ipv4, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= IPV4_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.ipv6, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= IPV6_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.tcp, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= TCP_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.udp, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= UDP_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    next_node = ConfNodeLookupChild(config, "offloads-from-suri-to-pf");
+    if (next_node == NULL) {
+        FatalError("failed to find \"offloads-from-suri-to-pf\" for Suricata");
+    }
+
+    if ((retval = ConfGetChildValueBool(next_node,
+                 dpdk_yaml.metadata.oflds_from_suri_to_pf.matchRules, &entry_bool)) == 1) {
+        iconf->oflds_suri_support |= MATCH_RULES_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    SCLogInfo("OFFLOADS: Suricata reads from conf file offloads: %d, %d",
+            iconf->oflds_suri_requested, iconf->oflds_suri_support);
+#endif /* BUILD_DPDK_APPS */
 
     SCReturnInt(0);
 }
@@ -1084,7 +1332,7 @@ static int DeviceValidateMTU(const DPDKIfaceConfig *iconf, const struct rte_eth_
 #if RTE_VERSION < RTE_VERSION_NUM(21, 11, 0, 0)
     // check if jumbo frames are set and are available
     if (iconf->mtu > RTE_ETHER_MAX_LEN &&
-            !(dev_info->rx_offload_capa & DEV_RX_OFFLOAD_JUMBO_FRAME)) {
+            !(dev_info->rx_offload_capa & RTE_ETH_RX_OFFLOAD_RSS_HASH)) {
         SCLogError("%s: jumbo frames not supported, set MTU to 1500", iconf->iface);
         SCReturnInt(-EINVAL);
     }
@@ -1100,7 +1348,7 @@ static void DeviceSetMTU(struct rte_eth_conf *port_conf, uint16_t mtu)
 #else
     port_conf->rxmode.max_rx_pkt_len = mtu;
     if (mtu > RTE_ETHER_MAX_LEN) {
-        port_conf->rxmode.offloads |= DEV_RX_OFFLOAD_JUMBO_FRAME;
+        port_conf->rxmode.offloads |= RTE_ETH_RX_OFFLOAD_RSS_HASH;
     }
 #endif
 }
@@ -1137,9 +1385,22 @@ static void PortConfSetInterruptMode(const DPDKIfaceConfig *iconf, struct rte_et
 static void PortConfSetRSSConf(const DPDKIfaceConfig *iconf,
         const struct rte_eth_dev_info *dev_info, struct rte_eth_conf *port_conf)
 {
+    DumpRXOffloadCapabilities(dev_info->rx_offload_capa);
+    *port_conf = (struct rte_eth_conf){
+            .rxmode = {
+                    .mq_mode = RTE_ETH_MQ_RX_NONE,
+                    .offloads = 0, // turn every offload off to prevent any packet modification
+            },
+            .txmode = {
+                    .mq_mode = RTE_ETH_MQ_TX_NONE,
+                    .offloads = 0,
+            },
+    };
+
+    // configure RX offloads
     if (dev_info->rx_offload_capa & RTE_ETH_RX_OFFLOAD_RSS_HASH) {
-        if (iconf->nb_rx_queues > 1) {
-            SCLogConfig("%s: RSS enabled for %d queues", iconf->iface, iconf->nb_rx_queues);
+        if (iconf->nb_rx_queues >= 1) {
+            SCLogConfig("RSS enabled on %s for %d queues", iconf->iface, iconf->nb_rx_queues);
             port_conf->rx_adv_conf.rss_conf = (struct rte_eth_rss_conf){
                 .rss_key = rss_hkey,
                 .rss_key_len = RSS_HKEY_LEN,
@@ -1238,7 +1499,7 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
             iconf->iface, mempool_name, iconf->mempool_size, iconf->mempool_cache_size, mbuf_size);
 
     iconf->pkt_mempool = rte_pktmbuf_pool_create(mempool_name, iconf->mempool_size,
-            iconf->mempool_cache_size, 0, mbuf_size, (int)iconf->socket_id);
+            iconf->mempool_cache_size, iconf->private_space_size, mbuf_size, (int)iconf->socket_id);
     if (iconf->pkt_mempool == NULL) {
         retval = -rte_errno;
         SCLogError("%s: rte_pktmbuf_pool_create failed with code %d (mempool: %s): %s",
@@ -1422,16 +1683,267 @@ static int32_t DeviceVerifyPostConfigure(
     return 0;
 }
 
-static int DeviceConfigure(DPDKIfaceConfig *iconf)
+static const char *DeviceRingNameInit(const char *format, uint16_t r_num)
+{
+    static char name[RTE_RING_NAMESIZE];
+    char r_num_str[RTE_RING_NAMESIZE];
+    const char *r_specfier_pos = strstr(format, DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER);
+    uint16_t len_until_specifier = r_specfier_pos - format + 1;
+    snprintf(r_num_str, sizeof(r_num_str), "%" PRIu16, r_num);
+    snprintf(name, len_until_specifier, "%s", format);
+    strlcat(name, r_num_str, sizeof(name));
+    // copy the rest after queue number specifier
+    strlcat(name, r_specfier_pos + strlen(DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER), sizeof(name));
+    return name;
+}
+
+static bool DeviceRingNameIsValid(const char *name, uint16_t rings_cnt)
+{
+    uint16_t len = strlen(name);
+    // checks if ring name is shorted than RTE_RING_NAMESIZE after substituting queue specifier
+    // by the highest count number
+    uint16_t longest_name_len =
+            len - strlen(DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER) + CountDigits(rings_cnt) + 1;
+
+    if (len >= RTE_RING_NAMESIZE) {
+        SCLogError("Ring name (entry \"interface\" %s) cannot be longer than %lu", name,
+                RTE_RING_NAMESIZE);
+        return false;
+    } else if (longest_name_len >= RTE_RING_NAMESIZE) {
+        SCLogError("Ring name (entry \"interface\" %s) longer than %lu when ring number specifier "
+                   "substituted with %u",
+                name, RTE_RING_NAMESIZE, rings_cnt);
+        return false;
+    } else if (strstr(name, DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER) == NULL) {
+        SCLogError("Ring name (entry \"interface\" %s) omits the queue number specifier - \"%s\"",
+                name, DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER);
+        return false;
+    }
+    return true;
+}
+
+static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(
+        const char *mz_name, const char *rx_ring_name)
+{
+    const struct rte_memzone *mz = NULL;
+    struct PFConf *pf_conf;
+    struct PFConfRingEntry *pf_re;
+
+    mz = rte_memzone_lookup(mz_name);
+    if (mz == NULL) {
+        FatalError("Error (%s): Memzone not found", rte_strerror(rte_errno));
+    }
+    pf_conf = (struct PFConf *)mz->addr;
+    for (uint32_t re_id = 0; re_id < pf_conf->ring_entries_cnt; re_id++) {
+        pf_re = &pf_conf->ring_entries[re_id];
+        if (strcmp(rx_ring_name, pf_re->rx_ring_name) == 0) {
+            return pf_re;
+        }
+    }
+    return NULL;
+}
+
+/*
+ * This function contains the main idea of the acceleration
+ * of the setting up of the offloads. Not used offloads are eliminated
+ * and an array with indexes of setting up offloads is created.
+ *
+ * Example:
+ * input: finalOffloads = 0101010000000010 (binary MSB)
+ * output: cntOffloads = 4, indexOffloads = {1, 10, 12, 14}
+ */
+void SetIdxOfFinalOfflds(uint16_t finalOffloads, uint16_t *cntOffloads, uint16_t *indexOffloads)
+{
+    for (int i = 0; i < MAX_CNT_OFFLOADS; i++) {
+        if (((1 << i) & finalOffloads) != 0) {
+            indexOffloads[*cntOffloads] = i;
+            (*cntOffloads)++;
+        }
+    }
+}
+
+int OffloadsAgreement(DPDKIfaceConfig *iconf, struct PFConfRingEntry *pf_re, int rings_cnt)
+{
+    int retval;
+    struct rte_mp_msg req;
+    struct rte_mp_reply reply;
+    memset(&req, 0, sizeof(req));
+    strlcpy(req.name, IPC_ACTION_OFFLOADS_SETUP, RTE_MP_MAX_NAME_LEN);
+    strlcpy((char *)req.param, iconf->iface, RTE_RING_NAMESIZE);
+    const struct timespec tss = { .tv_sec = 5, .tv_nsec = 0 };
+    retval = rte_mp_request_sync(&req, &reply, &tss);
+
+    if (retval != 0 || reply.nb_sent != reply.nb_received) {
+        FatalError(
+                "%s req-response failed (%s)", IPC_ACTION_OFFLOADS_SETUP, rte_strerror(rte_errno));
+    }
+
+    for (int32_t i = 0; i < rings_cnt; ++i) {
+        const char *name;
+        name = DeviceRingNameInit(iconf->iface, i);
+        SCLogDebug("Looking up rx ring: %s", name);
+        iconf->rx_rings[i] = rte_ring_lookup(name);
+        if (iconf->rx_rings[i] == NULL) {
+            SCLogError("rte_ring_lookup(): cannot get rx ring '%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+        pf_re = DeviceRingsFindPFConfRingEntry(mz_name, name);
+        if (pf_re == NULL) {
+            SCLogError("cannot get prefilter ring entry'%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+        if (i == 0) {
+            SCLogInfo("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
+                      "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
+                      "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
+                    iconf->iface, IPV4_ID,
+                    pf_re->oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled", IPV6_ID,
+                    pf_re->oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled", TCP_ID,
+                    pf_re->oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled", UDP_ID,
+                    pf_re->oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
+            SCLogInfo("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
+                      "\tOffload matchedRules (bit %d) is %s",
+                    iconf->iface, MATCH_RULES,
+                    pf_re->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+        }
+
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS, &iconf->cnt_offlds_suri_requested[i],
+                iconf->idxes_offlds_suri_requested[i]);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS, &iconf->cnt_offlds_suri_support,
+                iconf->idxes_offlds_suri_support);
+    }
+
+    SCReturnInt(0);
+}
+
+static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
 {
     SCEnter();
+    uint16_t rings_cnt = iconf->threads;
+    struct PFConfRingEntry *pf_re = NULL;
+    int retval = 0;
+
+    if (!DeviceRingNameIsValid(iconf->iface, rings_cnt))
+        SCReturnInt(-EINVAL);
+    else if (iconf->copy_mode != DPDK_COPY_MODE_NONE) {
+        if (!DeviceRingNameIsValid(iconf->out_iface, rings_cnt))
+            SCReturnInt(-EINVAL);
+    }
+
+    if (!SharedConfNameIsSet()) {
+        FatalError("Suricata shared config not set!");
+    }
+
+    // if fail occurs, these are freed in DPDKDerefConfig
+    iconf->rx_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->rx_rings == NULL) {
+        SCLogError("Failed to calloc rx rings");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->tx_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->tx_rings == NULL) {
+        SCLogError("Failed to calloc tx rings");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->tasks_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->tasks_rings == NULL) {
+        SCLogError("Failed to calloc tasks rings");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->results_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->results_rings == NULL) {
+        SCLogError("Failed to calloc results rings");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->messages_mempools = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->messages_mempools == NULL) {
+        SCLogError("Failed to calloc message mempools");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->cnt_offlds_suri_requested = SCCalloc(rings_cnt, sizeof(uint16_t));
+    if (iconf->cnt_offlds_suri_requested == NULL) {
+        SCLogError("Failed to calloc cnt_offlds_suri_requested");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->idxes_offlds_suri_requested = SCCalloc(rings_cnt, sizeof(uint16_t[16]));
+    if (iconf->idxes_offlds_suri_requested == NULL) {
+        SCLogError("Failed to calloc idxes_offlds_suri_requested");
+        SCReturnInt(-ENOMEM);
+    }
+
+    for (int32_t i = 0; i < rings_cnt; ++i) {
+        const char *name;
+        name = DeviceRingNameInit(iconf->iface, i);
+        SCLogDebug("Looking up rx ring: %s", name);
+        iconf->rx_rings[i] = rte_ring_lookup(name);
+        if (iconf->rx_rings[i] == NULL) {
+            SCLogError("rte_ring_lookup(): cannot get rx ring '%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+        pf_re = DeviceRingsFindPFConfRingEntry(SharedConfGetName(), name);
+        if (pf_re == NULL) {
+            SCLogError("cannot get prefilter ring entry'%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+        iconf->tasks_rings[i] = pf_re->tasks_ring;
+        iconf->results_rings[i] = pf_re->results_ring;
+        iconf->messages_mempools[i] = pf_re->message_mp;
+
+        pf_re->oflds_suri_requested = iconf->oflds_suri_requested;
+        pf_re->oflds_final_IPS = iconf->oflds_suri_support & pf_re->oflds_pf_requested;
+
+        if (iconf->copy_mode == DPDK_COPY_MODE_NONE) {
+            iconf->tx_rings[i] = NULL;
+        } else {
+            name = DeviceRingNameInit(iconf->out_iface, i);
+            SCLogDebug("Looking up tx ring: %s", name);
+            iconf->tx_rings[i] = rte_ring_lookup(name);
+            if (iconf->tx_rings[i] == NULL) {
+                SCLogError("rte_ring_lookup(): cannot get tx ring '%s'", name);
+                SCReturnInt(-ENOENT);
+            }
+        }
+    }
+
+    retval = OffloadsAgreement(iconf, pf_re, rings_cnt);
+    SCReturnInt(retval);
+}
+
+int DeviceConfigure(DPDKIfaceConfig *iconf)
+{
+    SCEnter();
+    int32_t retval = rte_eth_dev_get_port_by_name(iconf->iface, &(iconf->port_id));
+    if (retval < 0) {
+        SCLogError("%s: getting port id failed (err: %s)", iconf->iface, rte_strerror(-retval));
+        SCReturnInt(retval);
+    }
+
+    if (iconf->copy_mode != DPDK_COPY_MODE_NONE) {
+        retval = rte_eth_dev_get_port_by_name(iconf->out_iface, &iconf->out_port_id);
+        if (retval < 0) {
+            SCLogWarning("Name of the copy interface (%s) for the interface %s is not valid, "
+                         "changing to %s",
+                    iconf->out_iface, iconf->iface, DPDK_CONFIG_DEFAULT_COPY_INTERFACE);
+            iconf->out_iface = DPDK_CONFIG_DEFAULT_COPY_INTERFACE;
+        }
+    }
+
     if (!rte_eth_dev_is_valid_port(iconf->port_id)) {
         SCLogError("%s: retrieved port ID \"%d\" is invalid or the device is not attached ",
                 iconf->iface, iconf->port_id);
         SCReturnInt(-ENODEV);
     }
 
-    int32_t retval = DeviceSetSocketID(iconf->port_id, &iconf->socket_id);
+    retval = DeviceSetSocketID(iconf->port_id, &iconf->socket_id);
     if (retval < 0) {
         SCLogError("%s: invalid socket id: %s", iconf->iface, rte_strerror(-retval));
         SCReturnInt(retval);
@@ -1563,19 +2075,39 @@ static int DeviceConfigure(DPDKIfaceConfig *iconf)
 
 static void *ParseDpdkConfigAndConfigureDevice(const char *iface)
 {
-    int retval;
+    int retval = -1;
     DPDKIfaceConfig *iconf = ConfigParse(iface);
     if (iconf == NULL) {
         FatalError("DPDK configuration could not be parsed");
     }
 
-    retval = DeviceConfigure(iconf);
-    if (retval == -EAGAIN) {
-        // for e.g. bonding PMD it needs to be reconfigured
+    if (iconf->op_mode == DPDK_RING_MODE) {
+        retval = DeviceRingsAttach(iconf);
+        if (retval == 0) {
+            RunModeEnablesBypassManager();
+
+            struct DPDKBypassManagerAssistantData *dpdk_vals =
+                    SCCalloc(sizeof(struct DPDKBypassManagerAssistantData), 1);
+            // todo: the index 0 relies on the fact that there should only be 1 results ring per
+            // "ring
+            //  configuration entry" (in prefilter conf.yaml file)
+            dpdk_vals->results_ring = iconf->results_rings[0];
+            dpdk_vals->msg_mp = iconf->messages_mempools[0];
+            // todo: allocating assistant's mempool cache here is probably not sufficient
+            //  for multiple assistants
+            dpdk_vals->msg_mpc = rte_mempool_cache_create(DPDK_MEMPOOL_CACHE_SIZE, rte_socket_id());
+            BypassedFlowManagerRegisterCheckFunc(
+                    DPDKCheckBypassMessages, DPDKBypassManagerAssistantInit, (void *)dpdk_vals);
+        }
+    } else if (iconf->op_mode == DPDK_ETHDEV_MODE) {
         retval = DeviceConfigure(iconf);
+        if (retval == -EAGAIN) {
+            // for e.g. bonding PMD it needs to be reconfigured
+            retval = DeviceConfigure(iconf);
+        }
     }
 
-    if (retval < 0) { // handles both configure attempts
+    if (retval != 0) {
         iconf->DerefFunc(iconf);
         if (rte_eal_cleanup() != 0)
             FatalError("EAL cleanup failed: %s", rte_strerror(-retval));
@@ -1723,6 +2255,20 @@ int RunModeIdsDpdkWorkers(void)
     TimeModeSetLive();
 
     InitEal();
+    if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
+        struct rte_mp_msg req;
+        struct rte_mp_reply reply;
+        memset(&req, 0, sizeof(req));
+        strlcpy(req.name, IPC_ACTION_ATTACH, RTE_MP_MAX_NAME_LEN);
+        const struct timespec ts = { .tv_sec = 1, .tv_nsec = 0 };
+        ret = rte_mp_request_sync(&req, &reply, &ts);
+        if (ret != 0 || reply.nb_sent != reply.nb_received) {
+            FatalError("Attach req-response failed (%s)", rte_strerror(rte_errno));
+        }
+        struct IPCResponseAttach *a = (struct IPCResponseAttach *)reply.msgs[0].param;
+        SharedConfSetName(a->memzone_name);
+        ipc_app_id = (int32_t)a->app_id;
+    }
     ret = RunModeSetLiveCaptureWorkers(ParseDpdkConfigAndConfigureDevice, DPDKConfigGetThreadsCount,
             "ReceiveDPDK", "DecodeDPDK", thread_name_workers, NULL);
     if (ret != 0) {

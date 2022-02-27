@@ -25,9 +25,11 @@
 #define SURICATA_FLOW_HASH_H
 
 #include "flow.h"
+#include "flow-storage.h"
 
 /** Spinlocks or Mutex for the flow buckets. */
 //#define FBLOCK_SPIN
+#include "flow-storage.h"
 #define FBLOCK_MUTEX
 
 #ifdef FBLOCK_SPIN
@@ -83,12 +85,29 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, FlowLookupStruct *tctx, Packet *, Flow
 
 Flow *FlowGetFromFlowKey(FlowKey *key, struct timespec *ttime, const uint32_t hash);
 Flow *FlowGetExistingFlowFromFlowId(int64_t flow_id);
+Flow *FlowGetExistingLockedFlowFromHash(FlowKey *key, const uint32_t hash);
 uint32_t FlowKeyGetHash(FlowKey *flow_key);
 uint32_t FlowGetIpPairProtoHash(const Packet *p);
 
 /** \note f->fb must be locked */
 static inline void RemoveFromHash(Flow *f, Flow *prev_f)
 {
+    FlowBypassInfo *fc = FlowGetStorageById(f, GetFlowBypassInfoID());
+    if (fc != NULL && fc->bypass_data != NULL) {
+        if (fc->bypass_data != NULL) {
+            f->flags |= FLOW_END_FLAG_STATE_RELEASE_BYPASS;
+            fc->BypassUpdate(f, fc->bypass_data, 0, NULL);
+        }
+        if (fc->BypassFree != NULL) {
+            fc->BypassFree(fc->bypass_data);
+            fc->bypass_data = NULL;
+            fc->BypassFree = NULL;
+        }
+        FlowFreeStorageById(f, GetFlowBypassInfoID());
+        // release the bypass data, release the bypass info
+        // send force delete to prefilter
+    }
+
     FlowBucket *fb = f->fb;
 
     /* remove from the hash */

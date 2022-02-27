@@ -42,6 +42,8 @@
 #include "tmqh-packetpool.h"
 #include "util-privs.h"
 #include "action-globals.h"
+#include "util-dpdk.h"
+#include "detect.h"
 
 #ifndef HAVE_DPDK
 
@@ -90,8 +92,10 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
 #include "util-dpdk-i40e.h"
 #include "util-dpdk-bonding.h"
 #include <numa.h>
+#include "flow-storage.h"
+#include "util-dpdk-bypass.h"
+#include "flow-hash.h"
 
-#define BURST_SIZE 32
 static struct timeval machine_start_time = { 0, 0 };
 // interrupt mode constants
 #define MIN_ZERO_POLL_COUNT          10U
@@ -101,46 +105,12 @@ static struct timeval machine_start_time = { 0, 0 };
 #define MAX_EPOLL_TIMEOUT_MS         500U
 static rte_spinlock_t intr_lock[RTE_MAX_ETHPORTS];
 
-/**
- * \brief Structure to hold thread specific variables.
- */
-typedef struct DPDKThreadVars_ {
-    /* counters */
-    uint64_t pkts;
-    ThreadVars *tv;
-    TmSlot *slot;
-    LiveDevice *livedev;
-    ChecksumValidationMode checksum_mode;
-    bool intr_enabled;
-    /* references to packet and drop counters */
-    uint16_t capture_dpdk_packets;
-    uint16_t capture_dpdk_rx_errs;
-    uint16_t capture_dpdk_imissed;
-    uint16_t capture_dpdk_rx_no_mbufs;
-    uint16_t capture_dpdk_ierrors;
-    uint16_t capture_dpdk_tx_errs;
-    unsigned int flags;
-    int threads;
-    /* for IPS */
-    DpdkCopyModeEnum copy_mode;
-    uint16_t out_port_id;
-    /* Entry in the peers_list */
-
-    uint64_t bytes;
-    uint64_t accepted;
-    uint64_t dropped;
-    uint16_t port_id;
-    uint16_t queue_id;
-    int32_t port_socket_id;
-    struct rte_mempool *pkt_mempool;
-    struct rte_mbuf *received_mbufs[BURST_SIZE];
-    DPDKWorkerSync *workers_sync;
-} DPDKThreadVars;
-
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *, const void *, void **);
 static void ReceiveDPDKThreadExitStats(ThreadVars *, void *);
 static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *, void *);
 static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot);
+static void ReceiveDPDKSetRings(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf, uint16_t queue_id);
+static void ReceiveDPDKSetMempool(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf);
 
 static TmEcode DecodeDPDKThreadInit(ThreadVars *, const void *, void **);
 static TmEcode DecodeDPDKThreadDeinit(ThreadVars *tv, void *data);
@@ -244,56 +214,6 @@ static uint64_t DPDKGetSeconds(void)
     return CyclesToSeconds(rte_get_tsc_cycles());
 }
 
-static void DevicePostStartPMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name)
-{
-    if (strcmp(driver_name, "net_bonding") == 0) {
-        driver_name = BondingDeviceDriverGet(ptv->port_id);
-    }
-
-    // The PMD Driver i40e has a special way to set the RSS, it can be set via rte_flow rules
-    // and only after the start of the port
-    if (strcmp(driver_name, "net_i40e") == 0)
-        i40eDeviceSetRSS(ptv->port_id, ptv->threads);
-}
-
-static void DevicePreClosePMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name)
-{
-    if (strcmp(driver_name, "net_bonding") == 0) {
-        driver_name = BondingDeviceDriverGet(ptv->port_id);
-    }
-
-    if (strcmp(driver_name, "net_i40e") == 0) {
-#if RTE_VERSION > RTE_VERSION_NUM(20, 0, 0, 0)
-        // Flush the RSS rules that have been inserted in the post start section
-        struct rte_flow_error flush_error = { 0 };
-        int32_t retval = rte_flow_flush(ptv->port_id, &flush_error);
-        if (retval != 0) {
-            SCLogError("%s: unable to flush rte_flow rules: %s Flush error msg: %s",
-                    ptv->livedev->dev, rte_strerror(-retval), flush_error.message);
-        }
-#endif /* RTE_VERSION > RTE_VERSION_NUM(20, 0, 0, 0) */
-    }
-}
-
-/**
- * Attempts to retrieve NUMA node id on which the caller runs
- * @return NUMA id on success, -1 otherwise
- */
-static int GetNumaNode(void)
-{
-    int cpu = 0;
-    int node = -1;
-
-#if defined(__linux__)
-    cpu = sched_getcpu();
-    node = numa_node_of_cpu(cpu);
-#else
-    SCLogWarning("NUMA node retrieval is not supported on this OS.");
-#endif
-
-    return node;
-}
-
 /**
  * \brief Registration Function for ReceiveDPDK.
  * \todo Unit tests are needed for this module.
@@ -313,7 +233,6 @@ void TmModuleReceiveDPDKRegister(void)
 
 /**
  * \brief Registration Function for DecodeDPDK.
- * \todo Unit tests are needed for this module.
  */
 void TmModuleDecodeDPDKRegister(void)
 {
@@ -326,7 +245,7 @@ void TmModuleDecodeDPDKRegister(void)
     tmm_modules[TMM_DECODEDPDK].flags = TM_FLAG_DECODE_TM;
 }
 
-static inline void DPDKDumpCounters(DPDKThreadVars *ptv)
+static inline void DPDKDumpCountersEthDev(DPDKThreadVars *ptv)
 {
     /* Some NICs (e.g. Intel) do not support queue statistics and the drops can be fetched only on
      * the port level. Therefore setting it to the first worker to have at least continuous update
@@ -356,7 +275,36 @@ static inline void DPDKDumpCounters(DPDKThreadVars *ptv)
     }
 }
 
-static void DPDKReleasePacket(Packet *p)
+static inline void DPDKDumpCountersRing(DPDKThreadVars *ptv)
+{
+    uint64_t pkts;
+#ifdef RTE_LIBRTE_RING_DEBUG
+    pkts = ptv->rings.rx_ring.stats[ptv->queue_id].enq_fail_objs +
+           ptv->rings.rx_ring.stats[ptv->queue_id].enq_success_objs;
+    StatsSetUI64(ptv->tv, ptv->capture_dpdk_imissed,
+            pkts - ptv->rings.rx_ring.stats[ptv->queue_id].deq_success_objs);
+    StatsSetUI64(ptv->tv, ptv->capture_dpdk_tx_errs,
+            ptv->rings.tx_ring.stats[ptv->queue_id.enq_fail_objs]);
+#else
+    pkts = ptv->pkts;
+#endif
+    StatsSetUI64(ptv->tv, ptv->capture_dpdk_packets, pkts);
+}
+
+static inline void DPDKDumpCounters(DPDKThreadVars *ptv)
+{
+    if (ptv->op_mode == DPDK_RING_MODE)
+        DPDKDumpCountersRing(ptv);
+    else
+        DPDKDumpCountersEthDev(ptv);
+}
+
+/**
+ * Tries to transmit packet over the selected device if Suricata is configured in copy mode.
+ * @param p Packet structure
+ * @return 0 on transmit, 1 otherwise
+ */
+static inline int DPDKReleasePacketEthDevTx(Packet *p)
 {
     int retval;
     /* Need to be in copy mode and need to detect early release
@@ -384,14 +332,70 @@ static void DPDKReleasePacket(Packet *p)
                 SCLogDebug("Unable to transmit the packet on port %u queue %u",
                         p->dpdk_v.out_port_id, p->dpdk_v.out_queue_id);
                 rte_pktmbuf_free(p->dpdk_v.mbuf);
-                p->dpdk_v.mbuf = NULL;
             }
         }
+        return 0;
     } else {
-        rte_pktmbuf_free(p->dpdk_v.mbuf);
-        p->dpdk_v.mbuf = NULL;
+        return 1;
     }
+}
 
+static inline void SetMetadataToMbuf(Packet *p, uint16_t num_offlds, uint16_t *idx_offlds)
+{
+    metadata_from_suri_t *metadata_from_suri =
+            (metadata_from_suri_t *)rte_mbuf_to_priv(p->dpdk_v.mbuf);
+    uint16_t max_cnt;
+
+    for (int t = 0; t < num_offlds; t++) {
+        switch (idx_offlds[t]) {
+            case MATCH_RULES:
+                max_cnt = p->alerts.cnt > MAX_CNT_MATCHED_RULES ? MAX_CNT_MATCHED_RULES
+                                                                : p->alerts.cnt;
+                metadata_from_suri->metadata_set[MATCH_RULES] = max_cnt;
+
+                metadata_from_suri->rules_metadata.cnt = max_cnt;
+                for (int i = 0; i < max_cnt; i++) {
+                    metadata_from_suri->rules_metadata.rules[i] = p->alerts.alerts[i].s->id;
+                }
+
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+static inline void DPDKReleasePacketTxOrFree(Packet *p)
+{
+    int ret;
+
+    if (p->dpdk_v.tx_ring == NULL) {
+        if (DPDKReleasePacketEthDevTx(p) != 0) {
+            rte_pktmbuf_free(p->dpdk_v.mbuf);
+        }
+    } else if (p->dpdk_v.copy_mode != DPDK_COPY_MODE_IPS || !PacketCheckAction(p, ACTION_DROP)) {
+        // in IDS ring mode the tx ring is not set
+        BUG_ON(PKT_IS_PSEUDOPKT(p));
+
+#ifdef BUILD_DPDK_APPS
+        // TODO: add a check if metadata is needed
+        // send packet mbuf, cnt of offloads, array of offloads
+        uint16_t tmp_arr[1] = { 0 };
+        SetMetadataToMbuf(p, 1, tmp_arr);
+#endif /* BUILD_DPDK_APPS */
+
+        ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
+        if (ret != 0) {
+            SCLogDebug("Error (%s): Unable to enqueue packet to TX ring", rte_strerror(-ret));
+            rte_pktmbuf_free(p->dpdk_v.mbuf);
+        }
+    }
+}
+
+static void DPDKReleasePacket(Packet *p)
+{
+    DPDKReleasePacketTxOrFree(p);
+    p->dpdk_v.mbuf = NULL;
     PacketFreeOrRelease(p);
 }
 
@@ -403,8 +407,10 @@ static TmEcode ReceiveDPDKLoopInit(ThreadVars *tv, DPDKThreadVars *ptv)
     TmThreadsSetFlag(tv, THV_RUNNING);
     PacketPoolWait();
 
-    rte_eth_stats_reset(ptv->port_id);
-    rte_eth_xstats_reset(ptv->port_id);
+    if (ptv->op_mode == DPDK_ETHDEV_MODE) {
+        rte_eth_stats_reset(ptv->port_id);
+        rte_eth_xstats_reset(ptv->port_id);
+    }
 
     if (ptv->intr_enabled && !InterruptsRXEnable(ptv->port_id, ptv->queue_id))
         SCReturnInt(TM_ECODE_FAILED);
@@ -563,12 +569,268 @@ static void PeriodicDPDKDumpCounters(DPDKThreadVars *ptv)
     }
 }
 
+static void DPDKBypassHardDelete(
+        Flow *f, struct DPDKFlowBypassData *d, struct rte_mempool_cache *mpc)
+{
+    int ret;
+    struct PFMessage *msg = NULL;
+
+    ret = rte_mempool_generic_get(d->msg_mp, (void **)&msg, 1, NULL);
+    if (ret != 0) {
+        rte_mempool_dump(stdout, d->msg_mp);
+        SCLogWarning("Error (%s): Unable to get message object", rte_strerror(-ret));
+        return;
+    }
+    PFMessageHardDeleteBypassInit(msg);
+    ret = FlowKeyInitFromFlow(&msg->fk, f);
+    if (ret != 0) {
+        SCLogWarning("Error (%s): Unable to init FlowKey structure from Flow", rte_strerror(-ret));
+        goto cleanup;
+    }
+
+    ret = rte_ring_enqueue(d->tasks_ring, msg);
+    if (ret != 0) {
+        SCLogDebug("Error (%s): Unable to enqueue message object", rte_strerror(-ret));
+        goto cleanup;
+    }
+
+    if (d->pending_msgs < UINT8_MAX)
+        d->pending_msgs++;
+
+    f->flags |= FLOW_LOCK_FOR_WORKERS;
+
+    if (msg->fk.src.family == AF_INET) {
+        SCLogDebug("Hard Delete bypass msg src ip %u dst ip %u src port %u dst port %u ipproto %u "
+                   "outervlan "
+                   "%u innervlan %u",
+                msg->fk.src.address.address_un_data32[0], msg->fk.dst.address.address_un_data32[0],
+                msg->fk.sp, msg->fk.dp, msg->fk.proto, msg->fk.vlan_id[0], msg->fk.vlan_id[1]);
+    } else {
+        uint32_t *src_ptr = (uint32_t *)msg->fk.src.address.address_un_data32;
+        uint32_t *dst_ptr = (uint32_t *)msg->fk.dst.address.address_un_data32;
+        (void *)src_ptr; // to avoid unused complains
+        (void *)dst_ptr;
+        SCLogDebug("Hard Delete bypass msg src ip %u %u %u %u dst ip %u %u %u %u src port %u dst "
+                   "port %u ipproto %u outervlan "
+                   "%u innervlan %u",
+                src_ptr[0], src_ptr[1], src_ptr[2], src_ptr[3], dst_ptr[0], dst_ptr[1], dst_ptr[2],
+                dst_ptr[3], msg->fk.sp, msg->fk.dp, msg->fk.proto, msg->fk.vlan_id[0],
+                msg->fk.vlan_id[0]);
+    }
+
+    return;
+
+cleanup:
+    if (msg != NULL) {
+        msg->use_cnt--;
+        rte_mempool_generic_put(d->msg_mp, (void **)&msg, 1, NULL);
+    }
+}
+
+static void DPDKBypassSoftDelete(
+        Flow *f, struct DPDKFlowBypassData *d, time_t tsec, struct rte_mempool_cache *mpc)
+{
+    int ret;
+    struct PFMessage *msg = NULL;
+    int64_t msg_pressure_timeout;
+
+    msg_pressure_timeout = f->timeout_policy * (1 + d->pending_msgs) * d->pending_msgs / 2;
+    SCLogDebug("cur time %ld next upd %ld f lastts %ld pending calls %d timeout policy %d", tsec,
+            SCTIME_SECS(f->lastts) + msg_pressure_timeout, SCTIME_SECS(f->lastts), d->pending_msgs,
+            f->timeout_policy);
+    if (tsec < SCTIME_SECS(f->lastts) + msg_pressure_timeout) {
+        // Suri couldn't send message, the message channel is overloaded
+        d->pending_msgs = d->pending_msgs > 0 ? d->pending_msgs - 1 : 0;
+        return;
+    }
+
+    ret = rte_mempool_generic_get(d->msg_mp, (void **)&msg, 1, NULL);
+    if (ret != 0) {
+        rte_mempool_dump(stdout, d->msg_mp);
+        SCLogWarning("Error (%s): Unable to get message object", rte_strerror(-ret));
+        return;
+    }
+    PFMessageDeleteBypassInit(msg);
+    ret = FlowKeyInitFromFlow(&msg->fk, f);
+    if (ret != 0) {
+        SCLogWarning("Error (%s): Unable to init FlowKey structure from Flow", rte_strerror(-ret));
+        goto cleanup;
+    }
+
+    ret = rte_ring_enqueue(d->tasks_ring, msg);
+    if (ret != 0) {
+        SCLogDebug("Error (%s): Unable to enqueue message object", rte_strerror(-ret));
+        goto cleanup;
+    }
+
+    if (d->pending_msgs < UINT8_MAX)
+        d->pending_msgs++;
+
+    f->flags |= FLOW_LOCK_FOR_WORKERS;
+
+    if (msg->fk.src.family == AF_INET) {
+        SCLogDebug("Soft Delete bypass msg src ip %u dst ip %u src port %u dst port %u ipproto %u "
+                   "outervlan "
+                   "%u innervlan %u",
+                msg->fk.src.address.address_un_data32[0], msg->fk.dst.address.address_un_data32[0],
+                msg->fk.sp, msg->fk.dp, msg->fk.proto, msg->fk.vlan_id[0], msg->fk.vlan_id[1]);
+    } else {
+        uint32_t *src_ptr = (uint32_t *)msg->fk.src.address.address_un_data32;
+        uint32_t *dst_ptr = (uint32_t *)msg->fk.dst.address.address_un_data32;
+        (void *)src_ptr; // to avoid unused complains
+        (void *)dst_ptr;
+        SCLogDebug("Soft Delete bypass msg src ip %u %u %u %u dst ip %u %u %u %u src port %u dst "
+                   "port %u ipproto %u outervlan "
+                   "%u innervlan %u",
+                src_ptr[0], src_ptr[1], src_ptr[2], src_ptr[3], dst_ptr[0], dst_ptr[1], dst_ptr[2],
+                dst_ptr[3], msg->fk.sp, msg->fk.dp, msg->fk.proto, msg->fk.vlan_id[0],
+                msg->fk.vlan_id[0]);
+    }
+
+    return;
+
+cleanup:
+    if (msg != NULL) {
+        msg->use_cnt--;
+        rte_mempool_generic_put(d->msg_mp, (void **)&msg, 1, NULL);
+    }
+}
+
+// todo: change function prototype to also pass FlowManagerThreadVars or at least part of it
+static bool DPDKBypassUpdate(Flow *f, void *data, time_t tsec, void *mpc)
+{
+    struct PFMessage *msg = NULL;
+    int ret;
+    struct DPDKFlowBypassData *d = (struct DPDKFlowBypassData *)data;
+    int64_t msg_pressure_timeout;
+
+    if (mpc == NULL) {
+        SCLogDebug("No mempool cache initialized for DPDK bypass");
+    }
+
+    FlowBypassInfo *fc = FlowGetStorageById(f, GetFlowBypassInfoID());
+    if (fc == NULL) {
+        return false;
+    }
+
+    if (f->flags & FLOW_END_FLAG_STATE_RELEASE_BYPASS) {
+        DPDKBypassHardDelete(f, d, mpc);
+        return false;
+    }
+
+    DPDKBypassSoftDelete(f, d, tsec, mpc);
+    return true;
+}
+
+static void DPDKBypassFree(void *data)
+{
+    SCFree(data);
+}
+
+static int DPDKBypassCallback(Packet *p)
+{
+    // for use cases to support bypass drop and bypass pass in the prefilter you might want to check
+    //    p->action;
+    //    p->flow->flags & FLOW_ACTION_DROP; // more so this, because packet can be dropped alone
+
+    struct PFMessage *msg = NULL;
+
+    /* Only bypass TCP and UDP */
+    if (!(PacketIsTCP(p) || PacketIsUDP(p))) {
+        return 0;
+    }
+
+    /* If we don't have a flow attached to packet the eBPF map entries
+     * will be destroyed at first flow bypass manager pass as we won't
+     * find any associated entry */
+    if (p->flow == NULL) {
+        return 0;
+    }
+
+    /* Bypassing tunneled packets currently not supported */
+    if (PacketIsTunnel(p)) {
+        return 0;
+    }
+
+    FlowBypassInfo *fc = FlowGetStorageById(p->flow, GetFlowBypassInfoID());
+    if (fc == NULL || fc->bypass_data != NULL) {
+        return 0;
+    }
+
+    int ret = rte_mempool_generic_get(p->dpdk_v.message_mp, (void **)&msg, 1, NULL);
+    if (ret != 0) {
+        SCLogDebug("Unable to get flow key object from mempool");
+        if (PacketIsIPv4(p))
+            LiveDevAddBypassFail(p->livedev, 1, AF_INET);
+        else if (PacketIsIPv6(p))
+            LiveDevAddBypassFail(p->livedev, 1, AF_INET6);
+        return 0;
+    }
+    PFMessageAddBypassInit(msg);
+    ret = FlowKeyInitFromFlow(&msg->fk, p->flow);
+    if (ret != 0) {
+        if (ret >= 1) {
+            SCLogDebug("Flow init from given packet not supported");
+        } else if (ret < 0) {
+            SCLogDebug("Flow init from given packet failed!");
+        }
+        goto cleanup;
+    }
+
+    if (msg->fk.src.family == AF_INET) {
+        SCLogDebug(
+                "Add bypass msg src ip %u dst ip %u src port %u dst port %u ipproto %u outervlan "
+                "%u innervlan %u",
+                msg->fk.src.address.address_un_data32[0], msg->fk.dst.address.address_un_data32[0],
+                msg->fk.sp, msg->fk.dp, msg->fk.proto, msg->fk.vlan_id[0], msg->fk.vlan_id[1]);
+    } else {
+        uint32_t *src_ptr = (uint32_t *)msg->fk.src.address.address_un_data32;
+        uint32_t *dst_ptr = (uint32_t *)msg->fk.dst.address.address_un_data32;
+        SCLogDebug("Add bypass msg src ip %u %u %u %u dst ip %u %u %u %u src port %u dst port %u "
+                   "ipproto %u outervlan "
+                   "%u innervlan %u",
+                src_ptr[0], src_ptr[1], src_ptr[2], src_ptr[3], dst_ptr[0], dst_ptr[1], dst_ptr[2],
+                dst_ptr[3], msg->fk.sp, msg->fk.dp, msg->fk.proto, msg->fk.vlan_id[0],
+                msg->fk.vlan_id[0]);
+    }
+
+    ret = rte_ring_enqueue(p->dpdk_v.tasks_ring, msg);
+    if (ret != 0) {
+        SCLogDebug("Enqueueing flow key to PF FAILED > %s", rte_strerror(-ret));
+        goto cleanup;
+    }
+
+    struct DPDKFlowBypassData *d = SCCalloc(1, sizeof(struct DPDKFlowBypassData));
+    d->tasks_ring = p->dpdk_v.tasks_ring;
+    d->msg_mp = p->dpdk_v.message_mp;
+    d->pending_msgs = 0;
+    fc->bypass_data = (void *)d;
+    fc->BypassUpdate = DPDKBypassUpdate;
+    fc->BypassFree = DPDKBypassFree;
+
+    // stats for a successful bypass will be after the bypass is completely evicted
+    return 1;
+
+cleanup:
+    if (PacketIsIPv4(p))
+        LiveDevAddBypassFail(p->livedev, 1, AF_INET);
+    else if (PacketIsIPv6(p))
+        LiveDevAddBypassFail(p->livedev, 1, AF_INET6);
+
+    if (msg != NULL) {
+        msg->use_cnt--;
+        rte_mempool_generic_put(p->dpdk_v.message_mp, (void **)&msg, 1, NULL);
+    }
+    return 0;
+}
+
 /**
  *  \brief Main DPDK reading Loop function
  */
 static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 {
     SCEnter();
+    uint16_t nb_rx;
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
     ptv->slot = ((TmSlot *)slot)->slot_next;
     TmEcode ret = ReceiveDPDKLoopInit(tv, ptv);
@@ -577,14 +839,31 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
     }
     while (true) {
         if (unlikely(suricata_ctl_flags != 0)) {
-            HandleShutdown(ptv);
-            break;
+            // do not stop until you clean the ring in the secondary mode
+            if (!(ptv->op_mode == DPDK_RING_MODE) || rte_ring_empty(ptv->rings.rx_ring)) {
+                if (!(ptv->op_mode == DPDK_RING_MODE)) {
+                    HandleShutdown(ptv);
+                    break;
+                }
+                SCLogDebug("Stopping Suricata!");
+                DPDKDumpCounters(ptv);
+                break;
+            }
         }
 
-        uint16_t nb_rx =
+        if (ptv->op_mode == DPDK_ETHDEV_MODE) {
+            nb_rx =
                 rte_eth_rx_burst(ptv->port_id, ptv->queue_id, ptv->received_mbufs, BURST_SIZE);
-        if (RXPacketCountHeuristic(tv, ptv, nb_rx)) {
-            continue;
+            if (RXPacketCountHeuristic(tv, ptv, nb_rx)) {
+                continue;
+            }
+        } else if (ptv->op_mode == DPDK_RING_MODE) {
+            nb_rx = rte_ring_dequeue_burst(
+                    ptv->rings.rx_ring, (void **)ptv->received_mbufs, BURST_SIZE, NULL);
+            if (nb_rx == 0) {
+                LoopHandleTimeoutOnIdle(tv);
+                continue;
+            }
         }
 
         ptv->pkts += (uint64_t)nb_rx;
@@ -595,6 +874,65 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 continue;
             }
             DPDKSegmentedMbufWarning(ptv->received_mbufs[i]);
+            if (ptv->op_mode == DPDK_RING_MODE) {
+                p->BypassPacketsFlow = DPDKBypassCallback;
+                // should this be in or out this if loop?
+                p->dpdk_v.tx_ring = ptv->rings.tx_ring;
+                p->dpdk_v.tasks_ring = ptv->rings.tasks_ring;
+                p->dpdk_v.message_mp = ptv->rings.msg_mp;
+            }
+
+#ifdef BUILD_DPDK_APPS
+            uint16_t offset;
+            p->dpdk_v.PF_l4_len = 0;
+            p->dpdk_v.metadata_flags = 0;
+            metadata_to_suri_t *metadata =
+                    (metadata_to_suri_t *)rte_mbuf_to_priv(ptv->received_mbufs[i]);
+            p->events = metadata->events;
+
+            for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
+                switch (ptv->rings.idxes_offlds_suri_requested[t]) {
+                    case IPV4_ID:
+                        if (!metadata->metadata_set[IPV4_ID])
+                            continue;
+
+                        p->src = metadata->metadata_ipv4.src_addr;
+                        p->dst = metadata->metadata_ipv4.dst_addr;
+                        // p->ip4vars = metadata->metadata_ipv4.ipv4Vars;
+                        p->dpdk_v.metadata_flags |= IPV4_OFFLOAD(1);
+                        break;
+                    case IPV6_ID:
+                        if (!metadata->metadata_set[IPV6_ID])
+                            continue;
+
+                        p->src = metadata->metadata_ipv6.src_addr;
+                        p->dst = metadata->metadata_ipv6.dst_addr;
+                        p->dpdk_v.metadata_flags |= IPV6_OFFLOAD(1);
+                        break;
+                    case TCP_ID:
+                        if (!metadata->metadata_set[TCP_ID])
+                            continue;
+
+                        p->sp = metadata->metadata_tcp.src_port;
+                        p->dp = metadata->metadata_tcp.dst_port;
+                        p->payload_len = metadata->metadata_tcp.payload_len;
+                        p->dpdk_v.PF_l4_len = metadata->metadata_tcp.l4_len;
+                        // p->tcpvars = metadata->metadata_tcp.tcpVars;
+                        p->dpdk_v.metadata_flags |= TCP_OFFLOAD(1);
+                        break;
+                    case UDP_ID:
+                        if (!metadata->metadata_set[UDP_ID])
+                            continue;
+
+                        p->sp = metadata->metadata_udp.src_port;
+                        p->dp = metadata->metadata_udp.dst_port;
+                        p->payload_len = metadata->metadata_udp.payload_len;
+                        p->dpdk_v.PF_l4_len = metadata->metadata_udp.l4_len;
+                        p->dpdk_v.metadata_flags |= UDP_OFFLOAD(1);
+                        break;
+                }
+            }
+#endif /* BUILD_DPDK_APPS */
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
                     rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
@@ -611,6 +949,38 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
     SCReturnInt(TM_ECODE_OK);
 }
 
+void ReceiveDPDKSetMempool(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf)
+{
+    // pass the pointer to the mempool and then forget about it. Mempool is freed in thread deinit.
+    ptv->pkt_mempool = iconf->pkt_mempool;
+    iconf->pkt_mempool = NULL;
+}
+
+void ReceiveDPDKSetRings(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf, uint16_t queue_id)
+{
+    ptv->rings.rx_ring = iconf->rx_rings[queue_id];
+    iconf->rx_rings[queue_id] = NULL;
+    ptv->rings.tx_ring = iconf->tx_rings[queue_id];
+    iconf->tx_rings[queue_id] = NULL;
+    ptv->rings.tasks_ring = iconf->tasks_rings[queue_id];
+    iconf->tasks_rings[queue_id] = NULL;
+    ptv->rings.results_ring = iconf->results_rings[queue_id];
+    iconf->results_rings[queue_id] = NULL;
+    ptv->rings.msg_mp = iconf->messages_mempools[queue_id];
+    iconf->messages_mempools[queue_id] = NULL;
+    ptv->rings.cnt_offlds_suri_requested = iconf->cnt_offlds_suri_requested[queue_id];
+    iconf->cnt_offlds_suri_requested[queue_id] = 0;
+    memcpy(ptv->rings.idxes_offlds_suri_requested, iconf->idxes_offlds_suri_requested[queue_id],
+            sizeof(ptv->rings.idxes_offlds_suri_requested));
+    memset(iconf->idxes_offlds_suri_requested[queue_id], 0,
+            sizeof(iconf->idxes_offlds_suri_requested[queue_id]));
+    ptv->rings.cnt_offlds_pf_requested = iconf->cnt_offlds_suri_support;
+    iconf->cnt_offlds_suri_support = 0;
+    memcpy(ptv->rings.idxes_offlds_pf_requested, iconf->idxes_offlds_suri_support,
+            sizeof(ptv->rings.idxes_offlds_pf_requested));
+    memset(iconf->idxes_offlds_suri_support, 0, sizeof(iconf->idxes_offlds_suri_support));
+}
+
 /**
  * \brief Init function for ReceiveDPDK.
  *
@@ -622,7 +992,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void **data)
 {
     SCEnter();
-    int retval, thread_numa;
+    int retval;
     DPDKThreadVars *ptv = NULL;
     DPDKIfaceConfig *dpdk_config = (DPDKIfaceConfig *)initdata;
 
@@ -661,7 +1031,7 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     ptv->pkt_mempool = dpdk_config->pkt_mempool;
     dpdk_config->pkt_mempool = NULL;
 
-    thread_numa = GetNumaNode();
+    int thread_numa = (int)rte_socket_id();
     if (thread_numa >= 0 && ptv->port_socket_id != SOCKET_ID_ANY &&
             thread_numa != ptv->port_socket_id) {
         SC_ATOMIC_ADD(dpdk_config->inconsistent_numa_cnt, 1);
@@ -672,14 +1042,29 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     ptv->workers_sync = dpdk_config->workers_sync;
     uint16_t queue_id = SC_ATOMIC_ADD(dpdk_config->queue_id, 1);
     ptv->queue_id = queue_id;
+    ReceiveDPDKSetMempool(ptv, dpdk_config);
 
-    // the last thread starts the device
-    if (queue_id == dpdk_config->threads - 1) {
-        retval = rte_eth_dev_start(ptv->port_id);
-        if (retval < 0) {
-            SCLogError("%s: error (%s) during device startup", dpdk_config->iface,
-                    rte_strerror(-retval));
-            goto fail;
+    ptv->op_mode = dpdk_config->op_mode;
+    if (ptv->op_mode == DPDK_ETHDEV_MODE) {
+        // the last thread starts the device
+        if (queue_id == dpdk_config->threads - 1) {
+            retval = rte_eth_dev_start(ptv->port_id);
+            if (retval < 0) {
+                SCLogError("Error (%s) during device startup of %s", rte_strerror(-retval),
+                        dpdk_config->iface);
+                goto fail;
+            }
+
+            struct rte_eth_dev_info dev_info;
+            retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
+            if (retval != 0) {
+                SCLogError("Error (%s) when getting device info of %s", rte_strerror(-retval),
+                        dpdk_config->iface);
+                goto fail;
+            }
+
+            // some PMDs requires additional actions only after the device has started
+            DevicePostStartPMDSpecificActions(ptv, dev_info.driver_name);
         }
 
         struct rte_eth_dev_info dev_info;
@@ -705,6 +1090,8 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
         if (ptv->intr_enabled) {
             rte_spinlock_init(&intr_lock[ptv->port_id]);
         }
+    } else if (ptv->op_mode == DPDK_RING_MODE) {
+        ReceiveDPDKSetRings(ptv, dpdk_config, queue_id);
     }
 
     *data = (void *)ptv;
@@ -766,12 +1153,10 @@ static void PrintDPDKPortXstats(uint32_t port_id, const char *port_name)
  * \param tv pointer to ThreadVars
  * \param data pointer that gets cast into DPDKThreadVars for ptv
  */
-static void ReceiveDPDKThreadExitStats(ThreadVars *tv, void *data)
+static void ReceiveDPDKThreadExitStatsEthDev(DPDKThreadVars *ptv)
 {
     SCEnter();
     int retval;
-    DPDKThreadVars *ptv = (DPDKThreadVars *)data;
-
     if (ptv->queue_id == 0) {
         struct rte_eth_stats eth_stats;
         PrintDPDKPortXstats(ptv->port_id, ptv->livedev->dev);
@@ -788,9 +1173,36 @@ static void ReceiveDPDKThreadExitStats(ThreadVars *tv, void *data)
             SCLogPerf("%s: total TX stats: packets %" PRIu64 " bytes: %" PRIu64 " errors: %" PRIu64,
                     ptv->livedev->dev, eth_stats.opackets, eth_stats.obytes, eth_stats.oerrors);
     }
+    SCReturn;
+}
 
+static void ReceiveDPDKThreadExitStatsRing(DPDKThreadVars *ptv)
+{
+    SCEnter();
+    uint64_t pkts = StatsGetLocalCounterValue(ptv->tv, ptv->capture_dpdk_packets);
+    SC_ATOMIC_ADD(ptv->livedev->pkts, pkts);
+    SCLogPerf("(%s): Total RX stats of %s: packets %" PRIu64, ptv->tv->name,
+            ptv->rings.rx_ring->name, pkts);
+
+    SCReturn;
+}
+
+/**
+ * \brief This function prints stats to the screen at exit.
+ * \param tv pointer to ThreadVars
+ * \param data pointer that gets cast into DPDKThreadVars for ptv
+ */
+static void ReceiveDPDKThreadExitStats(ThreadVars *tv, void *data)
+{
+    SCEnter();
+    DPDKThreadVars *ptv = (DPDKThreadVars *)data;
     DPDKDumpCounters(ptv);
-    SCLogPerf("(%s) received packets %" PRIu64, tv->name, ptv->pkts);
+    if (ptv->op_mode == DPDK_ETHDEV_MODE)
+        ReceiveDPDKThreadExitStatsEthDev(ptv);
+    else
+        ReceiveDPDKThreadExitStatsRing(ptv);
+
+    SCReturn;
 }
 
 /**
@@ -803,23 +1215,28 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
     SCEnter();
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
 
-    if (ptv->queue_id == 0) {
-        struct rte_eth_dev_info dev_info;
-        int retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
-        if (retval != 0) {
-            SCLogError("%s: error (%s) when getting device info", ptv->livedev->dev,
-                    rte_strerror(-retval));
-            SCReturnInt(TM_ECODE_FAILED);
-        }
-
-        DevicePreClosePMDSpecificActions(ptv, dev_info.driver_name);
-
+    if (ptv->op_mode == DPDK_ETHDEV_MODE) {
         if (ptv->workers_sync) {
             SCFree(ptv->workers_sync);
         }
-    }
+        if (ptv->queue_id == 0) {
+            struct rte_eth_dev_info dev_info;
+            int retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
+            if (retval != 0) {
+                SCLogError("%s: error (%s) when getting device info", ptv->livedev->dev,
+                        rte_strerror(-retval));
+                SCReturnInt(TM_ECODE_FAILED);
+            }
 
-    ptv->pkt_mempool = NULL; // MP is released when device is closed
+            DevicePreStopPMDSpecificActions(ptv, dev_info.driver_name);
+            rte_eth_dev_stop(ptv->port_id);
+            if (ptv->copy_mode == DPDK_COPY_MODE_TAP || ptv->copy_mode == DPDK_COPY_MODE_IPS) {
+                rte_eth_dev_stop(ptv->out_port_id);
+            }
+
+            ptv->pkt_mempool = NULL; // MP is released when device is closed
+        }
+    }
 
     SCFree(ptv);
     SCReturnInt(TM_ECODE_OK);

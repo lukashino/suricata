@@ -25,6 +25,7 @@
 #define SURICATA_FLOW_BYPASS_H
 
 #include "flow.h"
+extern uint16_t bypass_mgr_delay_multiplier;
 
 struct flows_stats {
     uint64_t count;

@@ -30,8 +30,6 @@
 #include <rte_ethdev.h>
 #endif
 
-typedef enum { DPDK_COPY_MODE_NONE, DPDK_COPY_MODE_TAP, DPDK_COPY_MODE_IPS } DpdkCopyModeEnum;
-
 #define DPDK_BURST_TX_WAIT_US 1
 
 /* DPDK Flags */
@@ -49,41 +47,6 @@ typedef struct DPDKWorkerSync_ {
     SC_ATOMIC_DECLARE(uint16_t, worker_checked_in);
 } DPDKWorkerSync;
 
-typedef struct DPDKIfaceConfig_ {
-#ifdef HAVE_DPDK
-    char iface[RTE_ETH_NAME_MAX_LEN];
-    uint16_t port_id;
-    int32_t socket_id;
-    /* number of threads - zero means all available */
-    int threads;
-    /* IPS mode */
-    DpdkCopyModeEnum copy_mode;
-    const char *out_iface;
-    uint16_t out_port_id;
-    /* DPDK flags */
-    uint32_t flags;
-    ChecksumValidationMode checksum_mode;
-    uint64_t rss_hf;
-    /* set maximum transmission unit of the device in bytes */
-    uint16_t mtu;
-    uint16_t nb_rx_queues;
-    uint16_t nb_rx_desc;
-    uint16_t nb_tx_queues;
-    uint16_t nb_tx_desc;
-    uint32_t mempool_size;
-    uint32_t mempool_cache_size;
-    struct rte_mempool *pkt_mempool;
-    SC_ATOMIC_DECLARE(unsigned int, ref);
-    /* threads bind queue id one by one */
-    SC_ATOMIC_DECLARE(uint16_t, queue_id);
-    SC_ATOMIC_DECLARE(uint16_t, inconsistent_numa_cnt);
-    DPDKWorkerSync *workers_sync;
-    void (*DerefFunc)(void *);
-
-    struct rte_flow *flow[100];
-#endif
-} DPDKIfaceConfig;
-
 /**
  * \brief per packet DPDK vars
  *
@@ -94,9 +57,16 @@ typedef struct DPDKPacketVars_ {
     uint16_t out_port_id;
     uint16_t out_queue_id;
     uint8_t copy_mode;
+    uint16_t PF_l4_len;
+    uint8_t metadata_flags;
+    struct rte_ring *tx_ring; // pkt is sent to this ring (same as out_port_*)
+    struct rte_ring *tasks_ring;    // in case we want to bypass the packet
+    struct rte_mempool *message_mp; // get message object for the bypass message
+    // TODO: Try to make out_port_id, copy_mode, rings/mempools as a global thread-local variables.
 } DPDKPacketVars;
 
 void TmModuleReceiveDPDKRegister(void);
 void TmModuleDecodeDPDKRegister(void);
+void DPDKSetTimevalOfMachineStart(void);
 
 #endif /* SURICATA_SOURCE_DPDK_H */

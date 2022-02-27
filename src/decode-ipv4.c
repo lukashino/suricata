@@ -527,7 +527,14 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
     if (!PacketIncreaseCheckLayers(p)) {
         return TM_ECODE_FAILED;
     }
+
+#ifdef BUILD_DPDK_APPS
     /* do the actual decoding */
+    if (p->dpdk_v.metadata_flags & (1 << IPV4_ID)) {
+        SCLogDebug("DPDK metadata contains IPv4, it could have been predecoded");
+        // p->ip4h = (IPV4Hdr *)pkt;
+    }
+#endif /* BUILD_DPDK_APPS */
     const IPV4Hdr *ip4h = DecodeIPV4Packet(p, pkt, len);
     if (unlikely(ip4h == NULL)) {
         SCLogDebug("decoding IPv4 packet failed");
