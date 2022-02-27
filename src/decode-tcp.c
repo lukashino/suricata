@@ -243,8 +243,6 @@ static int DecodeTCPPacket(
     p->sp = TCP_GET_RAW_SRC_PORT(tcph);
     p->dp = TCP_GET_RAW_DST_PORT(tcph);
 
-    p->proto = IPPROTO_TCP;
-
     p->payload = (uint8_t *)pkt + hlen;
     p->payload_len = len - hlen;
 

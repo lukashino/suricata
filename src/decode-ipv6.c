@@ -565,13 +565,14 @@ int DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, const uint8_t *
     if (!PacketIncreaseCheckLayers(p)) {
         return TM_ECODE_FAILED;
     }
-    /* do the actual decoding */
+
     const IPV6Hdr *ip6h = DecodeIPV6Packet(tv, dtv, p, pkt, len);
     if (unlikely(ip6h == NULL)) {
         PacketClearL3(p);
         return TM_ECODE_FAILED;
     }
     p->proto = IPV6_GET_RAW_NH(ip6h);
+
 
 #ifdef DEBUG
     if (SCLogDebugEnabled()) { /* only convert the addresses if debug is really enabled */

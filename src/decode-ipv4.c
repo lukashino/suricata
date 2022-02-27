@@ -527,7 +527,7 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
     if (!PacketIncreaseCheckLayers(p)) {
         return TM_ECODE_FAILED;
     }
-    /* do the actual decoding */
+
     const IPV4Hdr *ip4h = DecodeIPV4Packet(p, pkt, len);
     if (unlikely(ip4h == NULL)) {
         SCLogDebug("decoding IPv4 packet failed");

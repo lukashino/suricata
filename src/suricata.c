@@ -149,6 +149,8 @@
 #include "decode-sll.h"
 #include "win32-syscall.h"
 #endif
+#include "rust.h"
+#include "util-dpdk-bypass.h"
 
 /*
  * we put this here, because we only use it here in main.
@@ -2286,6 +2288,11 @@ void PostRunDeinit(const int runmode, struct timeval *start_time)
      * threads and the packet threads */
     FlowDisableFlowManagerThread();
     TmThreadDisableReceiveThreads();
+
+#ifdef BUILD_DPDK_APPS
+    DpdkIpcDumpStats();
+#endif /* BUILD_DPDK_APPS */
+
     FlowForceReassembly();
     TmThreadDisablePacketThreads();
     SCPrintElapsedTime(start_time);
@@ -2834,7 +2841,10 @@ void SuricataMainLoop(void)
     SCInstance *suri = &suricata;
     while(1) {
         if (sigterm_count || sigint_count) {
-            suricata_ctl_flags |= SURICATA_STOP;
+            // suricata_ctl_flags |= SURICATA_STOP;
+            // don't issue stop command unless user signalled
+            // (e.g. Suricata received shutdown command)
+            DpdkIpcStop();
         }
 
         if (suricata_ctl_flags & SURICATA_STOP) {
@@ -3010,6 +3020,7 @@ void SuricataShutdown(void)
     PostRunDeinit(suricata.run_mode, &suricata.start_time);
     /* kill remaining threads */
     TmThreadKillThreads();
+    DpdkIpcDetach();
 }
 
 void SuricataPostInit(void)
@@ -3072,5 +3083,10 @@ void SuricataPostInit(void)
         SystemHugepageSnapshotDestroy(prerun_snap);
         SystemHugepageSnapshotDestroy(postrun_snap);
     }
+
+#ifdef BUILD_DPDK_APPS
+    DpdkIpcRegisterActions();
+    DpdkIpcStart();
+#endif /* BUILD_DPDK_APPS */
     SCPledge();
 }

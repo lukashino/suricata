@@ -1714,6 +1714,7 @@ void TmThreadClearThreadsFamily(int family)
 
 static void TmThreadSpawnPthreadCreate(ThreadVars *tv)
 {
+    int rc;
     pthread_attr_t attr;
     if (tv->tm_func == NULL) {
         FatalError("No thread function set");
@@ -1721,7 +1722,6 @@ static void TmThreadSpawnPthreadCreate(ThreadVars *tv)
 
     /* Initialize and set thread detached attribute */
     pthread_attr_init(&attr);
-
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
     /* Adjust thread stack size if configured */
@@ -1733,7 +1733,7 @@ static void TmThreadSpawnPthreadCreate(ThreadVars *tv)
         }
     }
 
-    int rc = pthread_create(&tv->t, &attr, tv->tm_func, (void *)tv);
+    rc = pthread_create(&tv->t, &attr, tv->tm_func, (void *)tv);
     if (rc) {
         FatalError("Unable to create thread with pthread_create(): retval %d: %s", rc,
                 strerror(errno));

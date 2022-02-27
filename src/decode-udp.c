@@ -67,8 +67,6 @@ static int DecodeUDPPacket(ThreadVars *t, Packet *p, const uint8_t *pkt, uint16_
     p->payload = (uint8_t *)pkt + UDP_HEADER_LEN;
     p->payload_len = UDP_GET_RAW_LEN(udph) - UDP_HEADER_LEN;
 
-    p->proto = IPPROTO_UDP;
-
     return 0;
 }
 
@@ -84,7 +82,6 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 
     SCLogDebug("UDP sp: %u -> dp: %u - HLEN: %" PRIu32 " LEN: %" PRIu32 "", p->sp, p->dp,
             UDP_HEADER_LEN, p->payload_len);
-
     if (DecodeTeredoEnabledForPort(p->sp, p->dp) &&
             likely(DecodeTeredo(tv, dtv, p, p->payload, p->payload_len) == TM_ECODE_OK)) {
         /* Here we have a Teredo packet and don't need to handle app
