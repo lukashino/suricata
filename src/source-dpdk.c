@@ -232,25 +232,6 @@ static void DevicePreStopPMDSpecificActions(DPDKThreadVars *ptv, const char *dri
 }
 
 /**
- * Attempts to retrieve NUMA node id on which the caller runs
- * @return NUMA id on success, -1 otherwise
- */
-static int GetNumaNode(void)
-{
-    int cpu = 0;
-    int node = -1;
-
-#if defined(__linux__)
-    cpu = sched_getcpu();
-    node = numa_node_of_cpu(cpu);
-#else
-    SCLogWarning("NUMA node retrieval is not supported on this OS.");
-#endif
-
-    return node;
-}
-
-/**
  * \brief Registration Function for ReceiveDPDK.
  * \todo Unit tests are needed for this module.
  */
@@ -483,7 +464,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void **data)
 {
     SCEnter();
-    int retval, thread_numa;
+    int retval;
     DPDKThreadVars *ptv = NULL;
     DPDKIfaceConfig *dpdk_config = (DPDKIfaceConfig *)initdata;
 
@@ -521,7 +502,7 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     ptv->pkt_mempool = dpdk_config->pkt_mempool;
     dpdk_config->pkt_mempool = NULL;
 
-    thread_numa = GetNumaNode();
+    int thread_numa = (int)rte_socket_id();
     if (thread_numa >= 0 && ptv->port_socket_id != SOCKET_ID_ANY &&
             thread_numa != ptv->port_socket_id) {
         SC_ATOMIC_ADD(dpdk_config->inconsitent_numa_cnt, 1);

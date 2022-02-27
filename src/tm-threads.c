@@ -76,6 +76,20 @@ thread_local uint64_t rwr_lock_cnt;
 static int SetCPUAffinity(uint16_t cpu);
 static void TmThreadDeinitMC(ThreadVars *tv);
 
+#ifdef HAVE_DPDK
+struct dpdk_callback {
+    void *(*func)(void *); // function pointer to the tm_func
+    ThreadVars *tv;        // tm_func argument
+};
+
+static int TmThreadSpawnDpdkThread(void *callback)
+{
+    struct dpdk_callback *cb = (struct dpdk_callback *)callback;
+    cb->func(cb->tv);
+    SCReturnInt(0);
+}
+#endif /* HAVE_DPDK */
+
 /* root of the threadvars list */
 ThreadVars *tv_root[TVT_MAX] = { NULL };
 
@@ -227,6 +241,28 @@ static int TmThreadTimeoutLoop(ThreadVars *tv, TmSlot *s)
 
  */
 
+/**
+ * \brief Exits running pthread with the given exit code
+ *
+ *
+ * With DPDK enabled, the function encapsulates pthread exit with a check for DPDK worker threads.
+ * If the thread has lcore_id attribute set to a different value than LCORE_ID_ANY, it does not
+ * exit because it is identified as a DPDK worker. DPDK worker threads are joined at a single point.
+ * Threads other than DPDK workers exit with pthred_exit.
+ *
+ */
+static void TmThreadExit(ThreadVars *tv, int64_t exit_code)
+{
+#ifdef HAVE_DPDK
+    if (tv->lcore_id == LCORE_ID_ANY) {
+        pthread_exit((void *)exit_code);
+    }
+#else
+    (void)tv;
+    pthread_exit((void *)exit_code);
+#endif /* HAVE_DPDK */
+}
+
 static void *TmThreadsSlotPktAcqLoop(void *td)
 {
     ThreadVars *tv = (ThreadVars *)td;
@@ -252,7 +288,7 @@ static void *TmThreadsSlotPktAcqLoop(void *td)
                    " tmqh_out=%p",
                 s, s ? s->PktAcqLoop : NULL, tv->tmqh_in, tv->tmqh_out);
         TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-        pthread_exit((void *) -1);
+        TmThreadExit(tv, -1);
         return NULL;
     }
 
@@ -281,7 +317,7 @@ static void *TmThreadsSlotPktAcqLoop(void *td)
             tv->flow_queue = FlowQueueNew();
             if (tv->flow_queue == NULL) {
                 TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-                pthread_exit((void *) -1);
+                TmThreadExit(tv, -1);
                 return NULL;
             }
         /* setup a queue */
@@ -296,7 +332,7 @@ static void *TmThreadsSlotPktAcqLoop(void *td)
             tv->flow_queue = FlowQueueNew();
             if (tv->flow_queue == NULL) {
                 TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-                pthread_exit((void *) -1);
+                TmThreadExit(tv, -1);
                 return NULL;
             }
         }
@@ -355,12 +391,12 @@ static void *TmThreadsSlotPktAcqLoop(void *td)
     tv->stream_pq = NULL;
     SCLogDebug("%s ending", tv->name);
     TmThreadsSetFlag(tv, THV_CLOSED);
-    pthread_exit((void *) 0);
+    TmThreadExit(tv, 0);
     return NULL;
 
 error:
     tv->stream_pq = NULL;
-    pthread_exit((void *) -1);
+    TmThreadExit(tv, -1);
     return NULL;
 }
 
@@ -542,7 +578,7 @@ static void *TmThreadsManagement(void *td)
         r = s->SlotThreadInit(tv, s->slot_initdata, &slot_data);
         if (r != TM_ECODE_OK) {
             TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-            pthread_exit((void *) -1);
+            TmThreadExit(tv, -1);
             return NULL;
         }
         (void)SC_ATOMIC_SET(s->slot_data, slot_data);
@@ -573,13 +609,13 @@ static void *TmThreadsManagement(void *td)
         r = s->SlotThreadDeinit(tv, SC_ATOMIC_GET(s->slot_data));
         if (r != TM_ECODE_OK) {
             TmThreadsSetFlag(tv, THV_CLOSED);
-            pthread_exit((void *) -1);
+            TmThreadExit(tv, -1);
             return NULL;
         }
     }
 
     TmThreadsSetFlag(tv, THV_CLOSED);
-    pthread_exit((void *) 0);
+    TmThreadExit(tv, 0);
     return NULL;
 }
 
@@ -849,7 +885,14 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
         SCLogPerf("Setting affinity for thread \"%s\"to cpu/core "
                   "%"PRIu16", thread id %lu", tv->name, tv->cpu_affinity,
                   SCGetThreadIdLong());
-        SetCPUAffinity(tv->cpu_affinity);
+#ifdef HAVE_DPDK
+        // DPDK sets affinity during EAL initialization
+        if (run_mode != RUNMODE_DPDK && tv->type != TVT_PPT) {
+#endif /* HAVE_DPDK */
+            SetCPUAffinity(tv->cpu_affinity);
+#ifdef HAVE_DPDK
+        }
+#endif /* HAVE_DPDK */
     }
 
 #if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined sun
@@ -926,6 +969,13 @@ ThreadVars *TmThreadCreate(const char *name, const char *inq_name, const char *i
     /* default state for every newly created thread */
     TmThreadsSetFlag(tv, THV_PAUSE);
     TmThreadsSetFlag(tv, THV_USE);
+
+#ifdef HAVE_DPDK
+    /* Value of lcore_id of DPDK worker threads are later reassigned to the respective lcore number,
+     * other (e.g. management) threads are left with value of LCORE_ID_ANY. This is useful on the
+     * thread shutdown as it provides a clear indication of worker in contrast to other threads. */
+    tv->lcore_id = LCORE_ID_ANY;
+#endif /* HAVE_DPDK */
 
     /* set the incoming queue */
     if (inq_name != NULL && strcmp(inq_name, "packetpool") != 0) {
@@ -1260,7 +1310,17 @@ static int TmThreadKillThread(ThreadVars *tv)
     }
 
     /* join it and flag it as dead */
-    pthread_join(tv->t, NULL);
+#ifdef HAVE_DPDK
+    if (tv->lcore_id != LCORE_ID_ANY) {
+        SCLogDebug("tv with lcore %d named %s killed with dpdk", tv->lcore_id, tv->name);
+        /* wait for DPDK worker threads */
+        rte_eal_wait_lcore(tv->lcore_id);
+    } else {
+#endif /* HAVE_DPDK */
+        pthread_join(tv->t, NULL);
+#ifdef HAVE_DPDK
+    }
+#endif /* HAVE_DPDK */
     SCLogDebug("thread %s stopped", tv->name);
     TmThreadsSetFlag(tv, THV_DEAD);
     return 1;
@@ -1643,13 +1703,9 @@ void TmThreadClearThreadsFamily(int family)
     SCMutexUnlock(&tv_root_lock);
 }
 
-/**
- * \brief Spawns a thread associated with the ThreadVars instance tv
- *
- * \retval TM_ECODE_OK on success and TM_ECODE_FAILED on failure
- */
-TmEcode TmThreadSpawn(ThreadVars *tv)
+static void TmThreadSpawnPthreadCreate(ThreadVars *tv)
 {
+    int rc;
     pthread_attr_t attr;
     if (tv->tm_func == NULL) {
         FatalError("No thread function set");
@@ -1657,7 +1713,6 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
 
     /* Initialize and set thread detached attribute */
     pthread_attr_init(&attr);
-
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
     /* Adjust thread stack size if configured */
@@ -1669,7 +1724,7 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
         }
     }
 
-    int rc = pthread_create(&tv->t, &attr, tv->tm_func, (void *)tv);
+    rc = pthread_create(&tv->t, &attr, tv->tm_func, (void *)tv);
     if (rc) {
         FatalError("Unable to create thread with pthread_create(): retval %d: %s", rc,
                 strerror(errno));
@@ -1689,7 +1744,45 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
         }
     }
 #endif
+}
 
+#ifdef HAVE_DPDK
+static void TmThreadSpawnDPDKCreate(ThreadVars *tv)
+{
+    if (tv->lcore_id == LCORE_ID_ANY) {
+        TmThreadSpawnPthreadCreate(tv);
+        return;
+    }
+    int rc;
+    struct dpdk_callback cb = { .func = tv->tm_func, .tv = tv };
+
+    rc = rte_eal_remote_launch(&TmThreadSpawnDpdkThread, (void *)&cb, tv->lcore_id);
+    if (rc != 0)
+        FatalError("Error (%s): can not launch function on lcore", rte_strerror(-rc));
+}
+#endif /* HAVE_DPDK */
+
+static void TmThreadSpawnCreate(ThreadVars *tv)
+{
+#ifdef HAVE_DPDK
+    TmThreadSpawnDPDKCreate(tv);
+#else
+    TmThreadSpawnPthreadCreate(tv);
+#endif
+}
+
+/**
+ * \brief Spawns a thread associated with the ThreadVars instance tv
+ *
+ * \retval TM_ECODE_OK on success and TM_ECODE_FAILED on failure
+ */
+TmEcode TmThreadSpawn(ThreadVars *tv)
+{
+    if (tv->tm_func == NULL) {
+        FatalError("No thread function set");
+    }
+
+    TmThreadSpawnCreate(tv);
     TmThreadWaitForFlag(tv, THV_INIT_DONE | THV_RUNNING_DONE);
 
     TmThreadAppend(tv, tv->type);
