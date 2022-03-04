@@ -53,6 +53,29 @@ uint8_t CountDigits(uint32_t n)
     return digits_cnt;
 }
 
+uint32_t ArrayMaxValue(const uint32_t *arr, uint16_t arr_len)
+{
+    uint32_t max = 0;
+    for (uint16_t i = 0; i < arr_len; i++) {
+        max = MAX(arr[i], max);
+    }
+    return max;
+}
+
+// Used to determine size for memory allocation of a string
+uint8_t CountDigits(uint32_t n)
+{
+    uint8_t digits_cnt = 0;
+    if (n == 0)
+        return 1;
+
+    while (n != 0) {
+        n = n / 10;
+        digits_cnt++;
+    }
+    return digits_cnt;
+}
+
 void DPDKCleanupEAL(void)
 {
 #ifdef HAVE_DPDK

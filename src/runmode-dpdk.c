@@ -348,6 +348,7 @@ static char *ConfigLcoreArgValGet(void)
         ret = snprintf(
                 &lcore_arg[lcore_arg_len], lcore_arg_size - lcore_arg_len, "%u,", lcore_arr[i]);
         if (ret <= 0)
+
             FatalError(
                     "Conversion of threading affinity to lcore argument failed - returned %d from "
                     "snprintf",
