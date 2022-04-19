@@ -210,7 +210,7 @@ static uint64_t DPDKGetSeconds(void)
     return CyclesToSeconds(rte_get_tsc_cycles());
 }
 
-static void DevicePostStartPMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name)
+void DevicePostStartPMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name)
 {
     if (strcmp(driver_name, "net_bonding") == 0) {
         driver_name = BondingDeviceDriverGet(ptv->port_id);
@@ -219,10 +219,10 @@ static void DevicePostStartPMDSpecificActions(DPDKThreadVars *ptv, const char *d
     // The PMD Driver i40e has a special way to set the RSS, it can be set via rte_flow rules
     // and only after the start of the port
     if (strcmp(driver_name, "net_i40e") == 0)
-        i40eDeviceSetRSS(ptv->port_id, ptv->threads);
+        i40eDeviceSetRSS(port_id, nb_rx_queues);
 }
 
-static void DevicePreStopPMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name)
+void DevicePreStopPMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name)
 {
     if (strcmp(driver_name, "net_bonding") == 0) {
         driver_name = BondingDeviceDriverGet(ptv->port_id);
@@ -616,7 +616,7 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
             }
 
             // some PMDs requires additional actions only after the device has started
-            DevicePostStartPMDSpecificActions(ptv, dev_info.driver_name);
+            DevicePostStartPMDSpecificActions(ptv->port_id, ptv->threads, dev_info.driver_name);
         }
 
         uint16_t inconsistent_numa_cnt = SC_ATOMIC_GET(dpdk_config->inconsitent_numa_cnt);
@@ -753,6 +753,7 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
 
     if (ptv->op_mode == DPDK_ETHDEV_MODE) {
+<<<<<<< HEAD
         struct rte_eth_dev_info dev_info;
         int retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
         if (retval != 0) {
@@ -768,6 +769,25 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
         }
 
         ptv->pkt_mempool = NULL; // MP is released when device is closed
+=======
+        if (ptv->queue_id == 0) {
+            struct rte_eth_dev_info dev_info;
+            int retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
+            if (retval != 0) {
+                SCLogError("%s: error (%s) when getting device info", ptv->livedev->dev,
+                        rte_strerror(-retval));
+                SCReturnInt(TM_ECODE_FAILED);
+            }
+
+            DevicePreStopPMDSpecificActions(ptv, dev_info.driver_name);
+            rte_eth_dev_stop(ptv->port_id);
+            if (ptv->copy_mode == DPDK_COPY_MODE_TAP || ptv->copy_mode == DPDK_COPY_MODE_IPS) {
+                rte_eth_dev_stop(ptv->out_port_id);
+            }
+
+            ptv->pkt_mempool = NULL; // MP is released when device is closed
+        }
+>>>>>>> 80cb55e69 (dpdk: make functions available for Suricata library)
     }
 
     SCFree(ptv);

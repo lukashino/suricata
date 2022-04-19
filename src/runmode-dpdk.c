@@ -113,7 +113,6 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
         const struct rte_eth_conf *port_conf);
 static int DeviceValidateOutIfaceConfig(DPDKIfaceConfig *iconf);
 static int DeviceConfigureIPS(DPDKIfaceConfig *iconf);
-static int DeviceConfigure(DPDKIfaceConfig *iconf);
 static void *ParseDpdkConfigAndConfigureDevice(const char *iface);
 static void DPDKDerefConfig(void *conf);
 
@@ -1248,9 +1247,9 @@ static void DeviceInitPortConf(const DPDKIfaceConfig *iconf,
     };
 
     // configure RX offloads
-    if (dev_info->rx_offload_capa & RTE_ETH_RX_OFFLOAD_RSS_HASH) {
-        if (iconf->nb_rx_queues > 1) {
-            SCLogConfig("%s: RSS enabled for %d queues", iconf->iface, iconf->nb_rx_queues);
+    if (dev_info->rx_offload_capa & DEV_RX_OFFLOAD_RSS_HASH) {
+        if (iconf->nb_rx_queues >= 1) {
+            SCLogConfig("RSS enabled on %s for %d queues", iconf->iface, iconf->nb_rx_queues);
             port_conf->rx_adv_conf.rss_conf = (struct rte_eth_rss_conf){
                 .rss_key = rss_hkey,
                 .rss_key_len = RSS_HKEY_LEN,
@@ -1590,7 +1589,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     SCReturnInt(0);
 }
 
-static int DeviceConfigure(DPDKIfaceConfig *iconf)
+int DeviceConfigure(DPDKIfaceConfig *iconf)
 {
     SCEnter();
     int32_t retval = rte_eth_dev_get_port_by_name(iconf->iface, &(iconf->port_id));

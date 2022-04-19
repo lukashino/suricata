@@ -23,6 +23,8 @@
 #ifndef __RUNMODE_DPDK_H__
 #define __RUNMODE_DPDK_H__
 
+#include "util-dpdk.h"
+
 typedef struct DPDKIfaceConfigAttributes_ {
     const char *threads;
     const char *operation_mode;
@@ -40,6 +42,7 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *copy_iface;
 } DPDKIfaceConfigAttributes;
 
+int DeviceConfigure(DPDKIfaceConfig *iconf);
 int RunModeIdsDpdkWorkers(void);
 void RunModeDpdkRegister(void);
 const char *RunModeDpdkGetDefaultMode(void);
