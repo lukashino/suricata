@@ -125,6 +125,8 @@ typedef struct DPDKThreadVars_ {
     uint16_t port_id;
     uint16_t queue_id;
     struct rte_mbuf *received_mbufs[BURST_SIZE];
+
+    struct timeval machine_start_time;
     DpdkOperationMode op_mode;
     union {
         struct rte_mempool *pkt_mempool;
@@ -910,6 +912,7 @@ static void PrintDPDKPortXstats(uint32_t port_id, const char *port_name)
  * \param tv pointer to ThreadVars
  * \param data pointer that gets cast into DPDKThreadVars for ptv
  */
+
 static void ReceiveDPDKThreadExitStatsEthDev(DPDKThreadVars *ptv)
 {
     SCEnter();
@@ -1001,7 +1004,6 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
                         retval, iface);
                 SCReturnInt(TM_ECODE_FAILED);
             }
-
             DevicePreStopPMDSpecificActions(ptv->port_id, dev_info.driver_name);
         }
 

@@ -454,6 +454,7 @@ static void DPDKDerefConfig(void *conf)
         if (iconf->tx_rings != NULL) {
             SCFree(iconf->tx_rings);
         }
+<<<<<<< HEAD
         if (iconf->tasks_rings != NULL) {
             SCFree(iconf->tasks_rings);
         }
@@ -463,6 +464,8 @@ static void DPDKDerefConfig(void *conf)
         if (iconf->messages_mempools != NULL) {
             SCFree(iconf->messages_mempools);
         }
+=======
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
 
         SCFree(iconf);
     }
@@ -492,7 +495,11 @@ static void ConfigSetIface(DPDKIfaceConfig *iconf, const char *entry_str)
 {
     SCEnter();
     if (entry_str == NULL || entry_str[0] == '\0')
+<<<<<<< HEAD
         FatalError("Interface name in DPDK config is NULL or empty");
+=======
+        FatalError(SC_ERR_INVALID_VALUE, "Interface name in DPDK config is NULL or empty");
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
 
     strlcpy(iconf->iface, entry_str, sizeof(iconf->iface));
     SCReturn;
@@ -1356,28 +1363,46 @@ static const char *DeviceRingNameInit(const char *format, uint16_t r_num)
 static bool DeviceRingNameIsValid(const char *name, uint16_t rings_cnt)
 {
     uint16_t len = strlen(name);
+<<<<<<< HEAD
     // checks if ring name is shorted than RTE_RING_NAMESIZE after substituting queue specifier
     // by the highest count number
+=======
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
     uint16_t longest_name_len =
             len - strlen(DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER) + CountDigits(rings_cnt) + 1;
 
     if (len >= RTE_RING_NAMESIZE) {
+<<<<<<< HEAD
         SCLogError("Ring name (entry \"interface\" %s) cannot be longer than %lu",
                 name, RTE_RING_NAMESIZE);
         return false;
     } else if (longest_name_len >= RTE_RING_NAMESIZE) {
         SCLogError("Ring name (entry \"interface\" %s) longer than %lu when ring number specifier "
+=======
+        SCLogError(SC_ERR_DPDK_CONF, "Ring name (entry \"interface\" %s) cannot be longer than %lu",
+                name, RTE_RING_NAMESIZE);
+        return false;
+    } else if (longest_name_len >= RTE_RING_NAMESIZE) {
+        SCLogError(SC_ERR_DPDK_CONF,
+                "Ring name (entry \"interface\" %s) longer than %lu when ring number specifier "
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
                 "substituted with %u",
                 name, RTE_RING_NAMESIZE, rings_cnt);
         return false;
     } else if (strstr(name, DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER) == NULL) {
+<<<<<<< HEAD
         SCLogError("Ring name (entry \"interface\" %s) omits the queue number specifier - \"%s\"",
+=======
+        SCLogError(SC_ERR_DPDK_CONF,
+                "Ring name (entry \"interface\" %s) omits the queue number specifier - \"%s\"",
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
                 name, DPDK_CONFIG_DEFAULT_QUEUE_NUM_SPECIFIER);
         return false;
     }
     return true;
 }
 
+<<<<<<< HEAD
 static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(const char *memzone_name, const char *rx_ring_name)
 {
     const struct rte_memzone *mz = NULL;
@@ -1398,13 +1423,18 @@ static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(const char *memzon
     return NULL;
 }
 
+=======
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
 static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
 {
     SCEnter();
     uint16_t rings_cnt = iconf->threads;
+<<<<<<< HEAD
     struct PFConfRingEntry *pf_re;
     int retval;
 
+=======
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
     if (!DeviceRingNameIsValid(iconf->iface, rings_cnt))
         SCReturnInt(-EINVAL);
     else if (iconf->copy_mode != DPDK_COPY_MODE_NONE) {
@@ -1412,6 +1442,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
             SCReturnInt(-EINVAL);
     }
 
+<<<<<<< HEAD
     if (!SharedConfNameIsSet()) {
         FatalError("Suricata shared config not set!");
     }
@@ -1420,11 +1451,18 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     iconf->rx_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
     if (iconf->rx_rings == NULL) {
         SCLogError("Failed to calloc rx rings");
+=======
+    // if fail occurs, these are freed in DPDKDerefConfig
+    iconf->rx_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->rx_rings == NULL) {
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc rx rings");
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
         SCReturnInt(-ENOMEM);
     }
 
     iconf->tx_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
     if (iconf->tx_rings == NULL) {
+<<<<<<< HEAD
         SCLogError("Failed to calloc tx rings");
         SCReturnInt(-ENOMEM);
     }
@@ -1444,6 +1482,9 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     iconf->messages_mempools = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
     if (iconf->messages_mempools == NULL) {
         SCLogError("Failed to calloc message mempools");
+=======
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc tx rings");
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
         SCReturnInt(-ENOMEM);
     }
 
@@ -1453,6 +1494,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         SCLogDebug("Looking up rx ring: %s", name);
         iconf->rx_rings[i] = rte_ring_lookup(name);
         if (iconf->rx_rings[i] == NULL) {
+<<<<<<< HEAD
             SCLogError("rte_ring_lookup(): cannot get rx ring '%s'", name);
             SCReturnInt(-ENOENT);
         }
@@ -1466,6 +1508,12 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         iconf->results_rings[i] = pf_re->results_ring;
         iconf->messages_mempools[i] = pf_re->message_mp;
 
+=======
+            SCLogError(SC_ERR_DPDK_INIT, "rte_ring_lookup(): cannot get rx ring '%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
         if (iconf->copy_mode == DPDK_COPY_MODE_NONE) {
             iconf->tx_rings[i] = NULL;
         } else {
@@ -1473,7 +1521,11 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
             SCLogDebug("Looking up tx ring: %s", name);
             iconf->tx_rings[i] = rte_ring_lookup(name);
             if (iconf->tx_rings[i] == NULL) {
+<<<<<<< HEAD
                 SCLogError("rte_ring_lookup(): cannot get tx ring '%s'", name);
+=======
+                SCLogError(SC_ERR_DPDK_INIT, "rte_ring_lookup(): cannot get tx ring '%s'", name);
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
                 SCReturnInt(-ENOENT);
             }
         }
@@ -1482,7 +1534,11 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     SCReturnInt(0);
 }
 
+<<<<<<< HEAD
 int DeviceConfigure(DPDKIfaceConfig *iconf)
+=======
+static int DeviceConfigure(DPDKIfaceConfig *iconf)
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
 {
     SCEnter();
     // configure device
@@ -1499,8 +1555,14 @@ int DeviceConfigure(DPDKIfaceConfig *iconf)
     if (iconf->copy_mode != DPDK_COPY_MODE_NONE) {
         retval = rte_eth_dev_get_port_by_name(iconf->out_iface, &iconf->out_port_id);
         if (retval < 0) {
+<<<<<<< HEAD
             SCLogWarning("Name of the copy interface (%s) for the interface %s is not valid, "
                          "changing to %s",
+=======
+            SCLogWarning(SC_ERR_DPDK_CONF,
+                    "Name of the copy interface (%s) for the interface %s is not valid, changing "
+                    "to %s",
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
                     iconf->out_iface, iconf->iface, DPDK_CONFIG_DEFAULT_COPY_INTERFACE);
             iconf->out_iface = DPDK_CONFIG_DEFAULT_COPY_INTERFACE;
         }
@@ -1647,6 +1709,7 @@ static void *ParseDpdkConfigAndConfigureDevice(const char *iface)
     if (iconf->op_mode == DPDK_RING_MODE) {
         if (DeviceRingsAttach(iconf) != 0) {
             iconf->DerefFunc(iconf);
+<<<<<<< HEAD
             FatalError("Device %s fails to configure", iface);
         }
 
@@ -1672,6 +1735,18 @@ static void *ParseDpdkConfigAndConfigureDevice(const char *iface)
                 SCLogError("EAL cleanup failed: %s", strerror(-retval));
 
             FatalError("Device %s fails to configure", iface);
+=======
+            FatalError(SC_ERR_DPDK_CONF, "Device %s fails to configure", iface);
+        }
+    } else if (iconf->op_mode == DPDK_ETHDEV_MODE) {
+        if (DeviceConfigure(iconf) != 0) {
+            iconf->DerefFunc(iconf);
+            retval = rte_eal_cleanup();
+            if (retval != 0)
+                SCLogError(SC_ERR_DPDK_EAL_INIT, "EAL cleanup failed: %s", strerror(-retval));
+
+            FatalError(SC_ERR_DPDK_CONF, "Device %s fails to configure", iface);
+>>>>>>> b8e8b464e (dpdk: introduce support for DPDK secondary mode for workers runmode)
         }
     }
 
