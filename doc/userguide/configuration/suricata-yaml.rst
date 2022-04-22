@@ -1945,7 +1945,7 @@ stores the packets. As a result, neither DPDK nor the application copies the
 packets for the inspection. The application directly processes packets via
 passed packet descriptors.
 
-
+.. _dpdk-high-lvl:
 .. figure:: suricata-yaml/dpdk.png
     :align: center
     :alt: DPDK basic architecture
@@ -2026,6 +2026,47 @@ settings such as `mempool-size` or `rx-descriptors`. These settings adjust
 individual parameters of EAL. One of the entries in `dpdk.interfaces` is
 the `default` interface. When loading interface configuration and some entry is
 missing, the corresponding value of the `default` interface is used.
+
+DPDK has a concept of primary and secondary processes. 
+`Multi-process support 
+<https://doc.dpdk.org/guides/prog_guide/multi_proc_support.html>`_ 
+allows a group of DPDK processes to work together. 
+
+The responsibility of a primary process is to allocate and free up shared 
+resources. There can only be one primary process per given file-prefix 
+(i.e. namespace). Processes with different file-prefix are not able to communicate.
+The number of secondary processes are not strictly limited. After the memory is 
+initialized, secondary processes can attach to these memory zones and work within 
+them.
+This means that a secondary process typically needs that a primary process exists 
+before it can be created.
+Additionally, the primary and any other secondary processes must not share 
+logical cores.
+For data exchange with the primary process, secondary processes often use 
+`DPDK rings <https://doc.dpdk.org/guides/prog_guide/ring_lib.html>`_.
+The type of the process is specified using the DPDK `proc-type` parameter at 
+the start of the application.
+
+Suricata is able to work both as a primary or a secondary process. However, 
+initialization of Suricata varies greatly depending on the process type.
+This is also covered in the following subsections.
+
+.. _sub-dpdk-primary-process:
+  Suricata as a primary process (ethdev mode)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+As shown at the Figure :numref:`dpdk-high-lvl`, DPDK applications do not use kernel layer. As a result, they can achieve greater processing speeds.
+On the other hand, the drawback of this approach can be seen in the configuration process. NICs are commonly configured by the user through external tools (e.g. `ethtool`)
+and capture interfaces of the applications (e.g. `AF_PACKET`) only need to capture packets from the interface. Since this layer is cut out when using the DPDK applications,
+it is the responsibility of the application to configure the NICs appropriately. 
+So, before the start of Suricata, NICs that Suricata uses must undergo the process of initialization.
+As a result, there are extra configuration options (how NICs can be configured) in the items (`interface:`) of the `dpdk.interfaces` list.
+At the start of the configuration process, all NIC offloads are disabled to prevent any packet modification.
+According to the configuration, checksum validation offload can be enabled to drop invalid packets.
+Other offloads cannot be currently enabled.
+Additionally, the list items of `dpdk.interfaces` contains DPDK specific settings such as `mempool-size` or `rx-descriptors`.
+These settings adjust individual parameters of EAL. One of the entries of the `dpdk.interfaces` is the `default` interface.
+When loading interface configuration and some entry is missing, the corresponding value of the `default` interface is used.
 
 The worker threads must be assigned to specific cores. The configuration
 module `threading` must be used to set thread affinity.
@@ -2129,6 +2170,86 @@ This can be tested by querying DPDK version as:
 ::
 
     pkg-config --modversion libdpdk
+
+Suricata as a secondary process (ring mode)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+As mentioned previously, secondary processes must run alongside a primary process. The primary process must allocate resources. 
+These are later shared with the secondary processes. Therefore, when running Suricata as a secondary process, it needs to cooperate with a primary process.
+The main responsibilities of the primary process placed in front of Suricata should include:
+
+- allocation of memory resources
+- configuration of NICs
+- creation of communication rings
+- transfering packets from the NIC to the Suricata rings
+- transmitting packets in IPS mode
+
+Secondary applications typically do not operate with ports directly but instead, attempt to attach to DPDK rings that should be created by the primary application. 
+Suricata supports arbitrary name of the receiving / transmitting rings.
+The name of the rings specifies the `- interface:` list entry or the `copy-iface` entry. 
+As each Suricata worker reads incoming packets from a unique ring, the ring name contains static and dynamic parts.
+The dynamic part, designated as `$QQQ` must be included in the ring name format. The remaining part of the ring name format is static.
+On Suricata startup, workers use the ring name format to look up DPDK rings.
+During this process, the dynamic part is substituted with worker's corresponding queue number (starting at 0, going upwards up to the count of Suricata worker threads). 
+
+Suricata in secondary mode does not consider configuration entries related to NIC setup (e.g. `mempool-size`, `mempool-cache`).
+Instead, it relies on the primary application to do the initialization routines.
+
+Suricata can operate both in IDS and IPS mode. At the same time, Suricata can be configured in various ways to accomplish different use-cases.
+Figure :numref:`dpdk-secondary-ids` depicts a basic IDS use-case. 
+Primary application placed in front of Suricata receives packets and sends them to Suricata via DPDK rings.
+Each worker has one individual ring. It is expected from the primary application that both directions of the flow are sent to the same worker.
+After Suricata workers process the received packets, they return them to the original packet memory pool.
+
+.. _dpdk-secondary-ids:
+.. figure:: suricata-yaml/dpdk-secondary-ids.png
+    :align: center
+    :alt: Suricata as a secondary process in IDS mode
+    :figclass: align-center
+
+    `Suricata as a secondary process in IDS mode`
+
+As mentioned, Suricata supports IPS mode even when running as a secondary process.
+The basic concept is depicted in Figure :numref:`dpdk-secondary-ips-full`. The application running as a primary process
+creates a number of rx/tx pairs of DPDK rings. The number of DPDK ring pairs depends on the number of Suricata workers.
+Each Suricata worker is receiving packets from one RX ring and transmits them to one TX ring.
+In this use-case, the primary application receives a packet on the NIC#1. The primary application then enqueues this
+packet to one of the Suricata workers through DPDK RX ring. After analyzing the packet, Suricata worker enqueues this
+packet through DPDK TX ring in direction to the primary application. In the final step, the primary application dequeues
+the packet from the ring and transmits the packet to NIC#2.
+
+.. _dpdk-secondary-ips-full:
+.. figure:: suricata-yaml/dpdk-secondary-ips-full.png
+    :align: center
+    :alt: Suricata as a secondary process in IPS mode
+    :figclass: align-center
+
+    `Suricata as a secondary process in IPS mode`
+
+
+Alternatively, thanks to the abstraction that the rings provide, there can also be other uses of rings.
+Local IPS mode (Figure :numref:`dpdk-secondary-ips-local`) can be used to sift through the traffic based on Suricata DROP rules. The remaining traffic can be processed afterwards by the primary application or forwarded to another secondary application.
+
+.. _dpdk-secondary-ips-local:
+.. figure:: suricata-yaml/dpdk-secondary-ips-local.png
+    :align: center
+    :alt: Suricata as a secondary process in local IPS mode
+    :figclass: align-center
+
+    `Suricata as a secondary process in local IPS mode`
+
+
+The pipeline IPS mode (Figure :numref:`dpdk-secondary-ips-pipeline`) extends the previous use-case by chaining multiple applications one after another.
+Suricata could receive packets from rings of one application but enqueue them to a ring leading to a different application. 
+The last application has the responsibility to free the mbufs (packets).
+
+.. _dpdk-secondary-ips-pipeline:
+.. figure:: suricata-yaml/dpdk-secondary-ips-pipeline.png
+    :align: center
+    :alt: Suricata as a secondary process in IPS pipeline mode
+    :figclass: align-center
+
+    `Suricata as a secondary process in IPS pipeline mode`
 
 Pf-ring
 ~~~~~~~

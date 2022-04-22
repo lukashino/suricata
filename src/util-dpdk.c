@@ -18,8 +18,11 @@
 /**
  * \file
  *
- * \author Lukas Sismis <lukas.sismis@gmail.com>
+ * \author Lukas Sismis <sismis@cesnet.cz>
  */
+
+#ifndef UTIL_DPDK_C
+#define UTIL_DPDK_C
 
 #include "suricata.h"
 #include "util-dpdk.h"
@@ -52,7 +55,7 @@ uint8_t CountDigits(uint32_t n)
 void DPDKCleanupEAL(void)
 {
 #ifdef HAVE_DPDK
-    if (run_mode == RUNMODE_DPDK) {
+    if (run_mode == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
         int retval = rte_eal_cleanup();
         if (retval != 0)
             SCLogError("EAL cleanup failed: %s", strerror(-retval));
@@ -66,7 +69,7 @@ void DPDKCloseDevice(LiveDevice *ldev)
 #ifdef HAVE_DPDK
     uint16_t port_id;
     int retval;
-    if (run_mode == RUNMODE_DPDK) {
+    if (run_mode == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
         retval = rte_eth_dev_get_port_by_name(ldev->dev, &port_id);
         if (retval < 0) {
             SCLogError("%s: failed get port id, error: %s", ldev->dev, rte_strerror(-retval));
@@ -161,3 +164,4 @@ const char *DPDKGetPortNameByPortID(uint16_t pid)
 }
 
 #endif /* HAVE_DPDK */
+#endif /* UTIL_DPDK_C */
