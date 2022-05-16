@@ -99,6 +99,8 @@ void RunModeEnablesBypassManager(void);
 int RunModeNeedsBypassManager(void);
 
 extern bool threading_set_cpu_affinity;
+#define DPDK_MEMPOOL_CACHE_SIZE 247
+
 extern float threading_detect_ratio;
 extern uint64_t threading_set_stack_size;
 

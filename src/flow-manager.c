@@ -127,6 +127,55 @@ typedef struct FlowTimeoutCounters_ {
     uint64_t bypassed_bytes;
 } FlowTimeoutCounters;
 
+typedef struct FlowQueueTimeoutCounters {
+    uint32_t flows_removed;
+    uint32_t flows_timeout;
+} FlowQueueTimeoutCounters;
+
+typedef struct FlowCounters_ {
+    uint16_t flow_mgr_full_pass;
+    uint16_t flow_mgr_rows_sec;
+
+    uint16_t flow_mgr_spare;
+    uint16_t flow_emerg_mode_enter;
+    uint16_t flow_emerg_mode_over;
+
+    uint16_t flow_mgr_flows_checked;
+    uint16_t flow_mgr_flows_notimeout;
+    uint16_t flow_mgr_flows_timeout;
+    uint16_t flow_mgr_flows_timeout_inuse;
+    uint16_t flow_mgr_flows_aside;
+    uint16_t flow_mgr_flows_aside_needs_work;
+
+    uint16_t flow_mgr_rows_maxlen;
+
+    uint16_t flow_bypassed_cnt_clo;
+    uint16_t flow_bypassed_pkts;
+    uint16_t flow_bypassed_bytes;
+
+    uint16_t memcap_pressure;
+    uint16_t memcap_pressure_max;
+} FlowCounters;
+
+typedef struct FlowManagerTimeoutThread {
+    /* used to temporarily store flows that have timed out and are
+     * removed from the hash */
+    FlowQueuePrivate aside_queue;
+} FlowManagerTimeoutThread;
+
+typedef struct FlowManagerThreadData_ {
+    uint32_t instance;
+    uint32_t min;
+    uint32_t max;
+
+    FlowCounters cnt;
+
+    FlowManagerTimeoutThread timeout;
+    void *mpcache; // DPDK: messsage mempool user cache for non-registered non-EAL thread
+} FlowManagerThreadData;
+
+thread_local FlowManagerThreadData *ftd_local;
+
 /**
  * \brief Used to disable flow manager thread(s).
  *
@@ -228,7 +277,7 @@ static inline int FlowBypassedTimeout(Flow *f, SCTime_t ts, FlowTimeoutCounters 
         uint64_t bytes_tosrc = fc->tosrcbytecnt;
         uint64_t pkts_todst = fc->todstpktcnt;
         uint64_t bytes_todst = fc->todstbytecnt;
-        bool update = fc->BypassUpdate(f, fc->bypass_data, SCTIME_SECS(ts));
+        bool update = fc->BypassUpdate(f, fc->bypass_data, SCTIME_SECS(ts), ftd_local->mpcache);
         if (update) {
             SCLogDebug("Updated flow: %"PRId64"", FlowGetId(f));
             pkts_tosrc = fc->tosrcpktcnt - pkts_tosrc;
@@ -258,12 +307,6 @@ static inline int FlowBypassedTimeout(Flow *f, SCTime_t ts, FlowTimeoutCounters 
 #endif /* CAPTURE_OFFLOAD */
     return 1;
 }
-
-typedef struct FlowManagerTimeoutThread {
-    /* used to temporarily store flows that have timed out and are
-     * removed from the hash */
-    FlowQueuePrivate aside_queue;
-} FlowManagerTimeoutThread;
 
 static uint32_t ProcessAsideQueue(FlowManagerTimeoutThread *td, FlowTimeoutCounters *counters)
 {
@@ -583,45 +626,6 @@ static uint32_t FlowCleanupHash(void)
     return cnt;
 }
 
-typedef struct FlowQueueTimeoutCounters {
-    uint32_t flows_removed;
-    uint32_t flows_timeout;
-} FlowQueueTimeoutCounters;
-
-typedef struct FlowCounters_ {
-    uint16_t flow_mgr_full_pass;
-    uint16_t flow_mgr_rows_sec;
-
-    uint16_t flow_mgr_spare;
-    uint16_t flow_emerg_mode_enter;
-    uint16_t flow_emerg_mode_over;
-
-    uint16_t flow_mgr_flows_checked;
-    uint16_t flow_mgr_flows_notimeout;
-    uint16_t flow_mgr_flows_timeout;
-    uint16_t flow_mgr_flows_aside;
-    uint16_t flow_mgr_flows_aside_needs_work;
-
-    uint16_t flow_mgr_rows_maxlen;
-
-    uint16_t flow_bypassed_cnt_clo;
-    uint16_t flow_bypassed_pkts;
-    uint16_t flow_bypassed_bytes;
-
-    uint16_t memcap_pressure;
-    uint16_t memcap_pressure_max;
-} FlowCounters;
-
-typedef struct FlowManagerThreadData_ {
-    uint32_t instance;
-    uint32_t min;
-    uint32_t max;
-
-    FlowCounters cnt;
-
-    FlowManagerTimeoutThread timeout;
-} FlowManagerThreadData;
-
 static void FlowCountersInit(ThreadVars *t, FlowCounters *fc)
 {
     fc->flow_mgr_full_pass = StatsRegisterCounter("flow.mgr.full_hash_pass", t);
@@ -667,6 +671,22 @@ static void FlowCountersUpdate(
 static TmEcode FlowManagerThreadInit(ThreadVars *t, const void *initdata, void **data)
 {
     FlowManagerThreadData *ftd = SCCalloc(1, sizeof(FlowManagerThreadData));
+    ftd_local = ftd;
+    // todo: prefilter: this should be solved better with added IPC channel
+    //  IPC tells Suricata the name of the shared configuration, Suricata then
+    //  attaches to the memory zone and uses Conf* like functions to retrieve
+    //  necessary data (e.g. size of the message mempool cache).
+    if (run_mode != RUNMODE_DPDK) {
+        ftd_local->mpcache = NULL;
+    } else {
+#ifdef HAVE_DPDK
+        ftd_local->mpcache =
+                rte_mempool_cache_create(DPDK_MEMPOOL_CACHE_SIZE, (int)rte_socket_id());
+        if (ftd_local->mpcache == NULL) {
+            rte_panic("Mempool cache create not created");
+        }
+#endif
+    }
     if (ftd == NULL)
         return TM_ECODE_FAILED;
 
@@ -702,6 +722,11 @@ static TmEcode FlowManagerThreadDeinit(ThreadVars *t, void *data)
     StreamTcpThreadCacheCleanup();
     PacketPoolDestroy();
     SCFree(data);
+#ifdef HAVE_DPDK
+    if (ftd_local->mpcache != NULL) {
+        rte_mempool_cache_free(ftd_local->mpcache);
+    }
+#endif
     return TM_ECODE_OK;
 }
 

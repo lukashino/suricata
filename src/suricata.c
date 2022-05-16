@@ -149,6 +149,8 @@
 #include "decode-sll.h"
 #include "win32-syscall.h"
 #endif
+#include "rust.h"
+#include "util-dpdk-bypass.h"
 
 /*
  * we put this here, because we only use it here in main.
@@ -2286,6 +2288,9 @@ void PostRunDeinit(const int runmode, struct timeval *start_time)
      * threads and the packet threads */
     FlowDisableFlowManagerThread();
     TmThreadDisableReceiveThreads();
+
+    DpdkIpcDumpStats();
+
     FlowForceReassembly();
     TmThreadDisablePacketThreads();
     SCPrintElapsedTime(start_time);
@@ -3010,6 +3015,7 @@ void SuricataShutdown(void)
     PostRunDeinit(suricata.run_mode, &suricata.start_time);
     /* kill remaining threads */
     TmThreadKillThreads();
+    DpdkIpcDetach();
 }
 
 void SuricataPostInit(void)
@@ -3072,5 +3078,8 @@ void SuricataPostInit(void)
         SystemHugepageSnapshotDestroy(prerun_snap);
         SystemHugepageSnapshotDestroy(postrun_snap);
     }
+
+    DpdkIpcRegisterActions();
+    DpdkIpcStart();
     SCPledge();
 }

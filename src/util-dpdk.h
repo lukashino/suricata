@@ -24,7 +24,7 @@
 #ifndef UTIL_DPDK_H
 #define UTIL_DPDK_H
 
-#include "suricata-common.h"
+#include "autoconf.h"
 
 #ifdef HAVE_DPDK
 
@@ -46,8 +46,12 @@
 #include <rte_tcp.h>
 
 #include "util-device.h"
+#include "util-atomic.h"
 #include "decode.h"
+#include "tm-threads.h"
 
+#define PREFILTER_CONF_MEMZONE_NAME "prefilter_conf"
+#define BURST_SIZE                  32
 #define RSS_HKEY_LEN 40
 
 #if RTE_VERSION < RTE_VERSION_NUM(22, 0, 0, 0)
@@ -151,6 +155,9 @@ typedef struct DPDKIfaceConfig_ {
     // Holds reference to all rx/tx rings, later assigned to workers
     struct rte_ring **rx_rings;
     struct rte_ring **tx_rings;
+    struct rte_ring **tasks_rings;
+    struct rte_ring **results_rings;
+    struct rte_mempool **messages_mempools;
     /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;
@@ -180,6 +187,54 @@ typedef struct DPDKIfaceConfig_ {
 #endif
 } DPDKIfaceConfig;
 
+/**
+ * \brief Structure to hold thread specific variables.
+ */
+typedef struct DPDKThreadVars_ {
+    /* counters */
+    uint64_t pkts;
+    ThreadVars *tv;
+    TmSlot *slot;
+    LiveDevice *livedev;
+    ChecksumValidationMode checksum_mode;
+    /* references to packet and drop counters */
+    uint16_t capture_dpdk_packets;
+    uint16_t capture_dpdk_rx_errs;
+    uint16_t capture_dpdk_imissed;
+    uint16_t capture_dpdk_rx_no_mbufs;
+    uint16_t capture_dpdk_ierrors;
+    uint16_t capture_dpdk_tx_errs;
+    unsigned int flags;
+    int threads;
+    /* for IPS */
+    DpdkCopyModeEnum copy_mode;
+    uint16_t out_port_id;
+    /* Entry in the peers_list */
+
+    uint64_t bytes;
+    uint64_t accepted;
+    uint64_t dropped;
+    uint16_t port_id;
+    uint16_t queue_id;
+    int32_t port_socket_id;
+    struct rte_mbuf *received_mbufs[BURST_SIZE];
+    DpdkOperationMode op_mode;
+    union {
+        struct rte_mempool *pkt_mempool;
+        struct {
+            struct rte_ring *rx_ring;
+            struct rte_ring *tx_ring;
+            struct rte_ring *tasks_ring;
+            struct rte_ring *results_ring;
+            struct rte_mempool *msg_mp;
+            uint16_t cnt_offlds_suri_requested;
+            uint16_t idxes_offlds_suri_requested[MAX_CNT_OFFLOADS];
+            uint16_t cnt_offlds_pf_requested;
+            uint16_t idxes_offlds_pf_requested[MAX_CNT_OFFLOADS];
+        } rings;
+    };
+} DPDKThreadVars;
+
 uint32_t ArrayMaxValue(const uint32_t *arr, uint16_t arr_len);
 uint8_t CountDigits(uint32_t n);
 void DPDKCleanupEAL(void);
@@ -189,6 +244,47 @@ void DPDKFreeDevice(LiveDevice *ldev);
 
 #ifdef HAVE_DPDK
 const char *DPDKGetPortNameByPortID(uint16_t pid);
+struct PFConfRingEntry {
+    char rx_ring_name[RTE_RING_NAMESIZE];
+    uint16_t pf_lcores;
+    struct rte_ring *tasks_ring;
+    struct rte_ring *results_ring;
+    struct rte_mempool *message_mp;
+};
+
+struct PFConf {
+    uint32_t ring_entries_cnt;
+    struct PFConfRingEntry *ring_entries;
+};
+
+enum PFMessageType {
+    PF_MESSAGE_BYPASS_ADD,
+    PF_MESSAGE_BYPASS_SOFT_DELETE,
+    PF_MESSAGE_BYPASS_HARD_DELETE,
+    PF_MESSAGE_BYPASS_UPDATE,
+    PF_MESSAGE_BYPASS_FORCE_EVICT,
+    PF_MESSAGE_BYPASS_EVICT,
+    PF_MESSAGE_BYPASS_FLOW_NOT_FOUND,
+    PF_MESSAGE_CNT,
+};
+
+struct DPDKBypassManagerAssistantData {
+    struct rte_ring *results_ring;
+    struct rte_mempool *msg_mp;
+    struct rte_mempool_cache *msg_mpc;
+};
+
+struct DPDKFlowBypassData {
+    struct rte_ring *tasks_ring;
+    struct rte_mempool *msg_mp;
+    struct rte_mempool_cache *msg_mp_cache;
+    uint8_t pending_msgs;
+};
+
+void DPDKCloseDevice(LiveDevice *ldev);
+void DevicePostStartPMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name);
+void DevicePreStopPMDSpecificActions(DPDKThreadVars *ptv, const char *driver_name);
+
 #endif /* HAVE_DPDK */
 
 #endif /* UTIL_DPDK_H */
