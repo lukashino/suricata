@@ -1004,7 +1004,7 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
                         retval, iface);
                 SCReturnInt(TM_ECODE_FAILED);
             }
-            
+
             DevicePreStopPMDSpecificActions(ptv->port_id, dev_info.driver_name);
         }
 
