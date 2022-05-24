@@ -25,6 +25,7 @@
 #define __FLOW_BYPASS_H__
 
 #include "flow.h"
+extern uint16_t bypass_mgr_delay_multiplier;
 
 struct flows_stats {
     uint64_t count;
