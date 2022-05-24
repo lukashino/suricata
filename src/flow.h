@@ -114,6 +114,8 @@ typedef struct AppLayerParserState_ AppLayerParserState;
 
 #define FLOW_TS_APP_UPDATED BIT_U32(29)
 #define FLOW_TC_APP_UPDATED BIT_U32(30)
+/** Workers should not be able to access the flow only the flow managers */
+#define FLOW_LOCK_FOR_WORKERS BIT_U32(29)
 
 /* File flags */
 

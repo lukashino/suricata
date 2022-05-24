@@ -83,6 +83,7 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, FlowLookupStruct *tctx, Packet *, Flow
 
 Flow *FlowGetFromFlowKey(FlowKey *key, struct timespec *ttime, const uint32_t hash);
 Flow *FlowGetExistingFlowFromFlowId(int64_t flow_id);
+Flow *FlowGetExistingLockedFlowFromHash(FlowKey *key, const uint32_t hash);
 uint32_t FlowKeyGetHash(FlowKey *flow_key);
 uint32_t FlowGetIpPairProtoHash(const Packet *p);
 
