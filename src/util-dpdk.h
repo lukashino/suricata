@@ -45,6 +45,7 @@
 #include "util-atomic.h"
 #include "decode.h"
 
+#define PREFILTER_CONF_MEMZONE_NAME "prefilter_conf"
 #define RSS_HKEY_LEN 40
 
 #if RTE_VER_YEAR < 22

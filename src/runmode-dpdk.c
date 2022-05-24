@@ -1447,6 +1447,24 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         SCReturnInt(-ENOMEM);
     }
 
+    iconf->tasks_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->tasks_rings == NULL) {
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc tasks rings");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->results_rings = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->results_rings == NULL) {
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc results rings");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->messages_mempools = SCCalloc(rings_cnt, sizeof(struct rte_ring *));
+    if (iconf->messages_mempools == NULL) {
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc message mempools");
+        SCReturnInt(-ENOMEM);
+    }
+
     for (int32_t i = 0; i < rings_cnt; ++i) {
         const char *name;
         name = DeviceRingNameInit(iconf->iface, i);
