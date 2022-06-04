@@ -308,6 +308,12 @@ void PFMessageForceEvictBypassInit(struct PFMessage *msg)
     msg->use_cnt = 1;
 }
 
+void PFMessageForceEvictBypassInit(struct PFMessage *msg)
+{
+    msg->msg_type = PF_MESSAGE_BYPASS_FORCE_EVICT;
+    msg->next_msg = NULL;
+}
+
 void PFMessageErrorFlowNotFoundBypassInit(struct PFMessage *msg)
 {
     if (msg->use_cnt != 0)
