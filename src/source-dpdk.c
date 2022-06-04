@@ -589,7 +589,6 @@ static int DPDKBypassCallback(Packet *p)
         } else if (ret < 0) {
             SCLogDebug("Flow init from given packet failed!");
         }
-        ret = 0;
         goto cleanup;
     }
 
@@ -613,7 +612,6 @@ static int DPDKBypassCallback(Packet *p)
     ret = rte_ring_enqueue(p->dpdk_v.tasks_ring, msg);
     if (ret != 0) {
         SCLogDebug("Enqueueing flow key to PF FAILED > %s", rte_strerror(-ret));
-        ret = 0;
         goto cleanup;
     }
 
@@ -637,8 +635,7 @@ cleanup:
     if (msg != NULL) {
         rte_mempool_generic_put(p->dpdk_v.message_mp, (void **)&msg, 1, NULL);
     }
-
-    return ret;
+    return 0;
 }
 
 /**
@@ -665,9 +662,12 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
     while (1) {
         if (unlikely(suricata_ctl_flags != 0)) {
-            SCLogDebug("Stopping Suricata!");
-            DPDKDumpCounters(ptv);
-            break;
+            // do not stop until you clean the ring in the secondary mode
+            if (!(ptv->op_mode == DPDK_RING_MODE) || rte_ring_empty(ptv->rings.rx_ring)) {
+                SCLogDebug("Stopping Suricata!");
+                DPDKDumpCounters(ptv);
+                break;
+            }
         }
 
         if (ptv->op_mode == DPDK_ETHDEV_MODE) {
@@ -966,6 +966,8 @@ static void ReceiveDPDKThreadExitStats(ThreadVars *tv, void *data)
         ReceiveDPDKThreadExitStatsEthDev(ptv);
     else
         ReceiveDPDKThreadExitStatsRing(ptv);
+
+
     SCReturn;
 }
 
