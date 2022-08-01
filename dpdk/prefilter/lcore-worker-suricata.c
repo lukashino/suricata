@@ -278,6 +278,7 @@ static void MessagesHandleNotFoundSingle(struct PFMessage *msg, struct FlowKeyDi
     FlowKeyReconstruct(&msg->fk, fd);
     ret = rte_ring_enqueue(rslts_ring, (void *)msg);
     if (ret != 0) {
+        msg->use_cnt--;
         rte_mempool_generic_put(msg_mp, (void **)&msg, 1, NULL);
         stats->msgs_mempool_put++;
         stats->msgs_enq_fail++;
@@ -305,6 +306,7 @@ static void MessagesHandleSoftDeleteSingle(struct PFMessage *msg, struct FlowKey
     if (ret != 0) {
         stats->msgs_mempool_put++;
         stats->msgs_enq_fail++;
+        msg->use_cnt--;
         rte_mempool_generic_put(msg_mp, (void **)&msg, 1, NULL);
     } else {
         stats->msgs_type_tx[PF_MESSAGE_BYPASS_EVICT]++;
@@ -348,6 +350,7 @@ static void MessagesHandleSoftDeleteSingleOnStatsDump(struct PFMessage *msg,
     if (ret != 0) {
         stats->msgs_mempool_put++;
         stats->msgs_enq_fail++;
+        msg->use_cnt--;
         rte_mempool_generic_put(msg_mp, (void **)&msg, 1, NULL);
     } else {
         stats->msgs_type_tx[PF_MESSAGE_BYPASS_FORCE_EVICT]++;
@@ -404,6 +407,7 @@ static void MessagesCheckSingle(struct lcore_values *lv)
                 Log().debug("Flow already bypassed");
             }
             lv->stats.msgs_mempool_put++;
+            msgs[i]->use_cnt--;
             rte_mempool_generic_put(lv->message_mp, (void **)&msgs[i], 1, NULL);
         } else if (msgs[i]->msg_type == PF_MESSAGE_BYPASS_SOFT_DELETE) {
             lv->stats.msgs_type_rx[PF_MESSAGE_BYPASS_SOFT_DELETE]++;
@@ -431,10 +435,13 @@ static void MessagesCheckSingle(struct lcore_values *lv)
                     Log().debug("Attempt to delete timed out flow record failed");
                 }
             }
+            lv->stats.msgs_mempool_put++;
+            msgs[i]->use_cnt--;
             rte_mempool_generic_put(lv->message_mp, (void **)&msgs[i], 1, NULL);
         } else {
             Log().error(EINVAL, "Unknown message");
             lv->stats.msgs_mempool_put++;
+            msgs[i]->use_cnt--;
             rte_mempool_generic_put(lv->message_mp, (void **)&msgs[i], 1, NULL);
         }
     }
@@ -984,6 +991,7 @@ void ThreadSuricataStatsDump(struct lcore_values *lv)
                         msgs_lookup_hitmask != 0 ? "found" : "not found", msgs_lookup_hitmask);
 
                 if (msgs_lookup_hitmask) {
+<<<<<<< HEAD
                     Log().debug(
                             "Flow dumping - todst B %lu todst pkts %lu tosrc B %lu tosrc pkts %lu",
                             flow_data[0]->bytestodst, flow_data[0]->pktstodst,
@@ -993,6 +1001,19 @@ void ThreadSuricataStatsDump(struct lcore_values *lv)
                 } else {
                     MessagesHandleNotFoundSingle(msgs[i], &msgs_flow_dirs[i], lv->results_ring,
                             lv->message_mp, &lv->stats);
+=======
+                    Log().debug(
+                            "Flow dumping - todst B %lu todst pkts %lu tosrc B %lu tosrc pkts %lu",
+                            flow_data[0]->bytestodst, flow_data[0]->pktstodst,
+                            flow_data[0]->bytestosrc, flow_data[0]->pktstosrc);
+                    msgs[i]->use_cnt--;
+                    MessagesHandleSoftDeleteSingleOnStatsDump(msgs[i], &msgs_flow_dirs[i],
+                            flow_data[0], lv->bt, lv->results_ring, lv->message_mp, &lv->stats);
+                } else {
+                    msgs[i]->use_cnt--;
+                    MessagesHandleNotFoundSingle(msgs[i], &msgs_flow_dirs[i], lv->results_ring,
+                            lv->message_mp, &lv->stats);
+>>>>>>> 0359310ad (dpdk: add strict message checks for async message consistency)
                     Log().debug("Flow not found, unable to get stats");
                 }
             } else if (msgs[i]->msg_type == PF_MESSAGE_BYPASS_HARD_DELETE) {
@@ -1008,11 +1029,14 @@ void ThreadSuricataStatsDump(struct lcore_values *lv)
                         Log().debug("Attempt to delete timed out flow record failed");
                     }
                 }
+                msgs[i]->use_cnt--;
                 rte_mempool_generic_put(lv->message_mp, (void **)&msgs[i], 1, NULL);
-            } else {
-                Log().error(EINVAL, "Unknown message");
                 lv->stats.msgs_mempool_put++;
+            } else {
+                Log().error(EINVAL, "Unknown message of msg type %d", msgs[i]->msg_type);
+                msgs[i]->use_cnt--;
                 rte_mempool_generic_put(lv->message_mp, (void **)&msgs[i], 1, NULL);
+                lv->stats.msgs_mempool_put++;
             }
         }
     }
