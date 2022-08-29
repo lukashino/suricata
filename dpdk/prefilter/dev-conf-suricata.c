@@ -663,6 +663,17 @@ int DevConfSuricataConfigureBy(void *conf)
     return 0;
 }
 
+void ClosePort(const char *pname, const uint16_t pid)
+{
+    int ret;
+    ret = rte_eth_dev_stop(pid);
+    if (ret != 0) {
+        rte_exit(EXIT_FAILURE, "Error (%s): unable to stop device %s\n", strerror(-ret), pname);
+    }
+
+    rte_eth_dev_close(pid);
+}
+
 // TODO: Clean LiveDeviceList - LiveDeviceListClean() can not be used as it does multiple things
 void DevConfSuricataDeinit(void)
 {
@@ -672,16 +683,10 @@ void DevConfSuricataDeinit(void)
     TAILQ_FOREACH (re, &tailq_ring_head, entries) {
         sconf = (struct ring_list_entry_suricata *)re->pre_ring_conf;
 
-        ret = rte_eth_dev_close(sconf->nic_conf.port1_id);
-        if (ret != 0)
-            Log().error(-ret, "Error (%s): unable to close device %s", rte_strerror(-ret),
-                    sconf->nic_conf.port1_pcie);
+        ClosePort(sconf->nic_conf.port1_pcie, sconf->nic_conf.port1_id);
 
         if (re->opmode != IDS) {
-            ret = rte_eth_dev_close(sconf->nic_conf.port2_id);
-            if (ret != 0)
-                Log().error(-ret, "Error (%s): unable to close device %s", rte_strerror(-ret),
-                        sconf->nic_conf.port2_pcie);
+            ClosePort(sconf->nic_conf.port2_pcie, sconf->nic_conf.port2_id);
         }
     }
 
