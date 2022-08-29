@@ -581,7 +581,7 @@ int DevConfSuricataStartRing(void *ring_conf)
 
     // some PMDs requires additional actions only after the device has started
     DevicePostStartPMDSpecificActions(
-            re_suri->nic_conf.port1_id, re->pf_cores_cnt, dev_info.driver_name);
+            re_suri->nic_conf.port1_id, re->sec_app_cores_cnt, dev_info.driver_name);
 }
 
 int DevConfSuricataStopRing(void *ring_conf)
@@ -717,7 +717,7 @@ int DevConfSuricataStartAll(void)
     TAILQ_FOREACH (re, &tailq_ring_head, entries) {
         sconf = (struct ring_list_entry_suricata *)re->pre_ring_conf;
         ret = DevConfSuricataStartPort(
-                sconf->nic_conf.port1_id, sconf->nic_conf.port1_pcie, re->sec_app_cores_cnt);
+                sconf->nic_conf.port1_id, sconf->nic_conf.port1_pcie, re->pf_cores_cnt);
         if (ret != 0) {
             Log().error(-ret, "Error (%s): unable to start device %s", rte_strerror(-ret),
                     sconf->nic_conf.port1_pcie);
@@ -726,7 +726,7 @@ int DevConfSuricataStartAll(void)
 
         if (re->opmode != IDS) {
             ret = DevConfSuricataStartPort(
-                    sconf->nic_conf.port2_id, sconf->nic_conf.port2_pcie, re->sec_app_cores_cnt);
+                    sconf->nic_conf.port2_id, sconf->nic_conf.port2_pcie, re->pf_cores_cnt);
             if (ret != 0) {
                 Log().error(-ret, "Error (%s): unable to start device %s", rte_strerror(-ret),
                         sconf->nic_conf.port2_pcie);
