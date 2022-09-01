@@ -310,8 +310,11 @@ void PFMessageForceEvictBypassInit(struct PFMessage *msg)
 
 void PFMessageForceEvictBypassInit(struct PFMessage *msg)
 {
+    if (msg->use_cnt != 0)
+        FatalError(SC_ERR_DPDK_BYPASS, "usecnt on init %d", msg->use_cnt);
     msg->msg_type = PF_MESSAGE_BYPASS_FORCE_EVICT;
     msg->next_msg = NULL;
+    msg->use_cnt = 1;
 }
 
 void PFMessageErrorFlowNotFoundBypassInit(struct PFMessage *msg)
