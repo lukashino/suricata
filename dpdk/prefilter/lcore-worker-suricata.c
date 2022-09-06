@@ -802,10 +802,30 @@ static void PktsReceive(struct lcore_values *lv)
     }
 }
 
+static void PktsReleaseBypassed(struct lcore_values *lv, int *bypassed_pkts_cnt) {
+    if (lv->opmode == IDS) {
+        PktsHandleBypassedIDS(
+                &lv->pkts_to_bypass[0],
+                *bypassed_pkts_cnt);
+    } else if (lv->opmode == IPS) {
+        for (uint16_t j = 0; j < *bypassed_pkts_cnt; j++) {
+            PktsHandleBypassedIPS(
+                &lv->pkts_to_bypass[j],
+                1,
+                lv->pkts_to_bypass[j]->ol_flags & PKT_ORIGIN_PORT1 ? lv->port2_id : lv->port1_id,
+                lv->qid);
+        }
+    }
+    
+    *bypassed_pkts_cnt = 0;
+}
+
 static void PktsEnqueue(struct lcore_values *lv)
 {
     uint32_t pkt_count;
     uint16_t stats_index;
+    int bypassed_pkts_cnt = 0, missed_pkts_cnt = 0;
+    size_t bypass_arr_size = sizeof(lv->pkts_to_bypass)/sizeof(lv->pkts_to_bypass[0];
 
     for (uint16_t i = 0; i < lv->rings_cnt; i++) {
         stats_index = MIN(i, MAX_WORKERS_TO_PREFILTER_LCORE);
@@ -820,27 +840,23 @@ static void PktsEnqueue(struct lcore_values *lv)
             Log().debug("ENQ %d packet/s to rxring %s", pkt_count, lv->rings_from_pf[i]->name);
         }
 
-        // todo: optimization - aggregate non-enqueued pkts from all rings and free all at once
-        if (pkt_count < lv->tmp_ring_bufs[i].len) {
-            Log().debug("ENQ failed: %d of %d packet/s were put into rxring %s", pkt_count,
-                    lv->tmp_ring_bufs[i].len, lv->rings_from_pf[i]->name);
+        if (pkt_count == lv->tmp_ring_bufs[i].len)
+            continue;
 
-            if (lv->opmode == IDS) {
-                PktsHandleBypassedIDS(
-                        &lv->tmp_ring_bufs[i].buf[pkt_count], lv->tmp_ring_bufs[i].len - pkt_count);
-            } else if (lv->opmode == IPS) {
-                for (uint16_t j = pkt_count; j < lv->tmp_ring_bufs[i].len; j++) {
-                    PktsHandleBypassedIPS(
-                            &lv->tmp_ring_bufs[i].buf[j],
-                            1,
-                            lv->tmp_ring_bufs[i].buf[j]->ol_flags & PKT_ORIGIN_PORT1 ? lv->port2_id : lv->port1_id,
-                            lv->qid);
-                }
-            }
-        }
+        Log().debug("ENQ failed: %d of %d packet/s were put into rxring %s", pkt_count,
+                lv->tmp_ring_bufs[i].len, lv->rings_from_pf[i]->name);
 
+        missed_pkts_cnt = lv->tmp_ring_bufs[i].len - pkt_count;
+        if (bypassed_pkts_cnt + missed_pkts_cnt > bypass_arr_size)
+            PktsReleaseBypassed(lv, &bypassed_pkts_cnt);
+
+        rte_memcpy(lv->pkts_to_bypass + bypassed_pkts_cnt, &lv->tmp_ring_bufs[i].buf[pkt_count], sizeof(lv->tmp_ring_bufs[0].buf[0]));
+        bypassed_pkts_cnt += missed_pkts_cnt;
         lv->tmp_ring_bufs[i].len = 0;
     }
+
+    if (bypassed_pkts_cnt > 0)
+        PktsReleaseBypassed(lv, &bypassed_pkts_cnt);
 }
 
 static uint16_t PktsTx(
