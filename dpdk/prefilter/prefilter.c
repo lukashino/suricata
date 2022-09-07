@@ -353,8 +353,10 @@ int main(int argc, char *argv[])
 
     EalInit(&argc, &argv);
     ret = ArgsParse(argc, argv, &args);
-    if (ret != 0)
-        goto cleanup;
+    if (ret != 0) {
+        rte_eal_cleanup();
+        return ret;
+    }
 
     SignalInit();
 
