@@ -480,7 +480,6 @@ int DevConfRingsInit(void)
                 ctx.ring_conf_entries[ring_list_entry_id].rings_to_pf.ring_arr[ring_id] = r;
             }
         }
-
-        return 0;
     }
+    return 0;
 }
