@@ -57,6 +57,9 @@ int PFStatsInit(struct pf_stats **s)
 
 void PFStatsExitLog(struct pf_stats *s)
 {
+    if (s == NULL)
+        return;
+
     Log().notice("APP PORT1 rx: %lu tx: %lu", rte_atomic64_read(&s->p1_rx),
             rte_atomic64_read(&s->p1_tx));
     Log().notice("APP PORT2 rx: %lu tx: %lu", rte_atomic64_read(&s->p2_rx),
