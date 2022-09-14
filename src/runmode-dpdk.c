@@ -1810,7 +1810,7 @@ int RunModeIdsDpdkWorkers(void)
     TimeModeSetLive();
 
     InitEal();
-
+    
     if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
         struct rte_mp_msg req;
         struct rte_mp_reply reply;
@@ -1825,6 +1825,7 @@ int RunModeIdsDpdkWorkers(void)
         SharedConfSetName(a->memzone_name);
         ipc_app_id = (int32_t)a->app_id;
     }
+
     ret = RunModeSetLiveCaptureWorkers(ParseDpdkConfigAndConfigureDevice, DPDKConfigGetThreadsCount,
             "ReceiveDPDK", "DecodeDPDK", thread_name_workers, NULL);
     if (ret != 0) {
