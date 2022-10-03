@@ -86,6 +86,7 @@ struct RingEntryAttributes {
     const char *bypass_mp_cache_entries;
     struct NicConfigAttributes nic_config;
     struct BypassMessageAttributes bypass_messages;
+    struct OffloadsAttrsPf ofldsFromPfToSur;
 };
 
 #define PROMISC_ENABLED       1 << 0
@@ -99,6 +100,7 @@ struct RingEntryAttributes {
 #define TASK_RING_PREFIX    "task-ring."
 #define RESULTS_RING_PREFIX "results-ring."
 #define MSG_MEMPOOL_PREFIX  "message-mempool."
+#define OFFLOADS_PREFIX_PF  "offloadsFromPfToSur."
 
 const struct RingEntryAttributes pf_yaml = {
     .main_ring = {
@@ -141,9 +143,22 @@ const struct RingEntryAttributes pf_yaml = {
             .mp_cache_entries = MESSAGES_PREFIX MSG_MEMPOOL_PREFIX "cache-entries",
         },
     },
+    .ofldsFromPfToSur = {
+        .Ipv4 = OFFLOADS_PREFIX_PF "IPV4",
+        .Ipv6 = OFFLOADS_PREFIX_PF "IPV6",
+        .Tcp = OFFLOADS_PREFIX_PF "TCP",
+        .Udp = OFFLOADS_PREFIX_PF "UDP",
+    },
+
 };
 
 #define PF_NODE_NAME_MAX 1024
+#define OFFLOADS_PF \
+    X(pf_yaml.ofldsFromPfToSur.Ipv4, IPV4_OFFLOAD) \
+    X(pf_yaml.ofldsFromPfToSur.Ipv6, IPV6_OFFLOAD) \
+    X(pf_yaml.ofldsFromPfToSur.Tcp, TCP_OFFLOAD) \
+    X(pf_yaml.ofldsFromPfToSur.Udp, UDP_OFFLOAD)
+
 
 /**
  * \brief Find the configuration node for a specific item.
@@ -242,6 +257,20 @@ static int ConfGetDescendantValueBool(const ConfNode *base, const char *name, in
 
     return 1;
 }
+
+int SetOffloadsFromConf(const char* nameOffload, ConfNode *rnode)
+{
+    int retval, entry_bool;
+
+    retval = ConfGetDescendantValueBool(rnode, nameOffload, &entry_bool);
+    if (retval != 1 || entry_bool <= 0) {
+        Log().error(ENOENT, "Unable to read value of %s", nameOffload);
+        return -EXIT_FAILURE;
+    }
+
+    return entry_bool;
+}
+
 
 int DevConfSuricataLoadRingEntryConf(ConfNode *rnode, struct ring_list_entry *re, const char *rname)
 {
@@ -491,6 +520,15 @@ int DevConfSuricataLoadRingEntryConf(ConfNode *rnode, struct ring_list_entry *re
     } else {
         re->msgs.mempool.cache_entries = entry_int;
     }
+
+#define X(str, MACRO) \
+    if ((retval = SetOffloadsFromConf(str, rnode)) > -1) \
+        re->ofldsPfSetSur |= MACRO(retval); \
+    else \
+        return retval;
+    OFFLOADS_PF
+#undef X
+    Log().notice("OFFLOADS: Prefilter reads from conf file offloads: %d", re->ofldsPfSetSur);
 
     return 0;
 }
