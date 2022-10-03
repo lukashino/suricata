@@ -75,6 +75,7 @@ struct ring_list_entry {
     void *pre_ring_conf; // here should be stored either raw config or everything not covered before
     start_ring start;
     stop_ring stop;
+    uint16_t ofldsPfSetSur;
     TAILQ_ENTRY(ring_list_entry) entries;
     TAILQ_HEAD(, ring_list_entry) head;
 };
