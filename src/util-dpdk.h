@@ -118,6 +118,21 @@ typedef enum {
 // Offloads
 #define DPDK_RX_CHECKSUM_OFFLOAD (1 << 4) /**< Enable chsum offload */
 
+/* Offloads flags */
+enum ofldsIdxsPf {
+    IPV4_ID,
+    IPV6_ID,
+    TCP_ID,
+    UDP_ID
+};
+
+
+#define IPV4_OFFLOAD(val) ((val) << IPV4_ID)
+#define IPV6_OFFLOAD(val) ((val) << IPV6_ID)
+#define TCP_OFFLOAD(val) ((val) << TCP_ID)
+#define UDP_OFFLOAD(val) ((val) << UDP_ID)
+
+
 #endif /* HAVE_DPDK */
 
 typedef struct DPDKIfaceConfig_ {
@@ -135,6 +150,7 @@ typedef struct DPDKIfaceConfig_ {
     struct rte_ring **tasks_rings;
     struct rte_ring **results_rings;
     struct rte_mempool **messages_mempools;
+    uint16_t ofldsSurWant;
     /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;
