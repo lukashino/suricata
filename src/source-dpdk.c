@@ -132,6 +132,8 @@ typedef struct DPDKThreadVars_ {
             struct rte_ring *tasks_ring;
             struct rte_ring *results_ring;
             struct rte_mempool *msg_mp;
+            uint16_t cntOfldsFromPf;
+            uint16_t idxOfldsFromPf[16];
         } rings;
     };
 } DPDKThreadVars;
@@ -743,6 +745,12 @@ void ReceiveDPDKSetRings(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf, uint16_t q
     iconf->results_rings[queue_id] = NULL;
     ptv->rings.msg_mp = iconf->messages_mempools[queue_id];
     iconf->messages_mempools[queue_id] = NULL;
+
+    ptv->rings.cntOfldsFromPf = iconf->cntOfldsFromPf[queue_id];
+    iconf->cntOfldsFromPf[queue_id] = 0;
+
+    memcpy(ptv->rings.idxOfldsFromPf, iconf->idxOfldsFromPf[queue_id], 16);
+    memset(iconf->idxOfldsFromPf[queue_id], 0, 16);
 }
 
 /**

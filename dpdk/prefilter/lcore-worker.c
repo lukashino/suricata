@@ -104,6 +104,21 @@ int ThreadMain(void *init_values)
                 return -EINVAL;
             LcoreStateSet(lv->state, LCORE_INIT_DONE);
             Log().debug("Lcore %d initialised", rte_lcore_id());
+        } else if (LcoreStateCheck(vals->state, LCORE_OFFLOADS_INIT)) {
+            Log().debug("Lcore %d setting up offloads", rte_lcore_id());
+            struct rte_memzone *mz = ctx.shared_conf;
+            struct PFConf *pf_conf = (struct PFConf *)mz->addr;
+
+            for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++)
+                pf_conf->ring_entries[i].ofldsFinalIDS = pf_conf->ring_entries[i].ofldsSurWant & pf_conf->ring_entries[i].ofldsPfSetSur;
+
+            // one ring must exist always
+            Log().info("%d - IDS\n", pf_conf->ring_entries[0].ofldsFinalIDS);
+            setOffloads(pf_conf->ring_entries[0].ofldsFinalIDS, &lv->cntOfldsToSur, lv->idxOfldsToSur);
+
+            LcoreStateSet(lv->state, LCORE_OFFLOADS_DONE);
+            Log().debug("Lcore %d setting up offloads finished", rte_lcore_id());
+
         } else if (LcoreStateCheck(vals->state, LCORE_RUN)) {
             Log().debug("Lcore %d PKTS process", rte_lcore_id());
             ThreadSuricataRun(lv);

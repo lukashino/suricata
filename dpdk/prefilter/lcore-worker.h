@@ -70,6 +70,8 @@ struct lcore_values {
     struct rte_ring *tasks_ring;
     struct rte_ring *results_ring;
     struct rte_mempool *message_mp;
+    uint16_t cntOfldsToSur;
+    uint16_t idxOfldsToSur[16];
     struct rte_table_hash *bt; // bypass table
     ring_buffer *tmp_ring_bufs;
     FlowKeyExtended fke_arr;
