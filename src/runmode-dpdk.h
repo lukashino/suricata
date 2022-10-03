@@ -55,5 +55,6 @@ int DeviceConfigure(DPDKIfaceConfig *iconf);
 int RunModeIdsDpdkWorkers(void);
 void RunModeDpdkRegister(void);
 const char *RunModeDpdkGetDefaultMode(void);
+void setOffloads(uint16_t , uint16_t*, uint16_t*);
 
 #endif /* __RUNMODE_DPDK_H__ */

@@ -192,7 +192,7 @@ static int IPCActionPktsStart(const struct rte_mp_msg *msg, const void *peer)
     mp_resp.len_param = (int)strlen((char *)mp_resp.param);
 
     uint8_t tout_sec = 5;
-    ret = LcoreStateCheckAllWTimeout(LCORE_INIT_DONE, tout_sec);
+    ret = LcoreStateCheckAllWTimeout(LCORE_OFFLOADS_DONE, tout_sec);
     if (ret != 0) {
         Log().error(ETIMEDOUT, "Workers has not initialised in time (%s sec)", tout_sec);
         exit(1);
@@ -295,6 +295,34 @@ static int IPCActionBtDumpStop(const struct rte_mp_msg *msg, const void *peer)
     return 0;
 }
 
+static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
+    int ret;
+    struct rte_mp_msg mp_resp;
+    struct rte_memzone *mz = ctx.shared_conf;
+    struct PFConf *pf_conf = (struct PFConf *)mz->addr;
+    memset(&mp_resp, 0, sizeof(mp_resp));
+    strlcpy(mp_resp.name, msg->name, sizeof(mp_resp.name) / sizeof(mp_resp.name[0]));
+    strlcpy((char *)mp_resp.param, IPC_VALID_RESPONSE, sizeof(mp_resp.param) / sizeof(mp_resp.param[0]));
+    mp_resp.len_param = (int)strlen((char *)mp_resp.param);
+
+    uint8_t tout_sec = 1; // TODO change value
+    ret = LcoreStateWaitWithTimeout(ctx.lcores_state.lcores_arr[LcoreMainAsWorker->lcore_id].state, LCORE_INIT_DONE, tout_sec);
+    if (ret != 0) {
+        Log().error(ETIMEDOUT, "Workers have not initialised in time (%s sec)", tout_sec);
+        exit(1);
+    }
+
+    for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
+        LcoreStateSet(ctx.lcores_state.lcores_arr[i].state, LCORE_OFFLOADS_INIT);
+    }
+
+    sleep(1);
+    ret = rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
+    Log().debug("PPP Action for %s", IPC_ACTION_SET_UP_OFFLOADS);
+
+    return 0;
+}
+
 static int IPCInit(
         struct action_control *actions,
         struct ctx_ring_conf_list_entry_resource *ring_conf_entries,
@@ -340,6 +368,13 @@ static int IPCInit(
     if (ret != 0) {
         Log().warning(ENOTSUP, "Error (%s): Unable to register action (%s)",
                 rte_strerror(rte_errno), IPC_ACTION_BYPASS_TBL_DUMP_STOP);
+        return -rte_errno;
+    }
+
+    ret = rte_mp_action_register(IPC_ACTION_SET_UP_OFFLOADS, IPCSetupOffloads);
+    if (ret != 0) {
+        Log().warning(ENOTSUP, "Error (%s): Unable to register action (%s)",
+                rte_strerror(rte_errno), IPC_ACTION_SET_UP_OFFLOADS);
         return -rte_errno;
     }
 

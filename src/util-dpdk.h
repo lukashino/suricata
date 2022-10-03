@@ -150,6 +150,8 @@ typedef struct DPDKIfaceConfig_ {
     struct rte_ring **tasks_rings;
     struct rte_ring **results_rings;
     struct rte_mempool **messages_mempools;
+    uint16_t *cntOfldsFromPf;
+    uint16_t (*idxOfldsFromPf)[16];
     uint16_t ofldsSurWant;
     /* End of ring mode settings */
     /* IPS mode */
@@ -192,6 +194,9 @@ struct PFConfRingEntry {
     struct rte_ring *tasks_ring;
     struct rte_ring *results_ring;
     struct rte_mempool *message_mp;
+    uint16_t ofldsPfSetSur;
+    uint16_t ofldsSurWant;
+    uint16_t ofldsFinalIDS;
 };
 
 struct PFConf {
