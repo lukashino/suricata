@@ -470,9 +470,11 @@ static void DPDKDerefConfig(void *conf)
         if (iconf->messages_mempools != NULL) {
             SCFree(iconf->messages_mempools);
         }
-
         if (iconf->cntOfldsFromPf != NULL) {
             SCFree(iconf->cntOfldsFromPf);
+        }
+        if (iconf->idxOfldsFromPf != NULL) {
+            SCFree(iconf->idxOfldsFromPf);
         }
 
         SCFree(iconf);
@@ -1427,6 +1429,11 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         SCReturnInt(-ENOMEM);
     }
 
+    iconf->idxOfldsFromPf = SCCalloc(rings_cnt, sizeof(uint16_t[16]));
+    if (iconf->idxOfldsFromPf == NULL) {
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc idxOfldsFromPf");
+        SCReturnInt(-ENOMEM);
+    }
 
     for (int32_t i = 0; i < rings_cnt; ++i) {
         const char *name;

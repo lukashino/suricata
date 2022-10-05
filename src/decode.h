@@ -647,6 +647,9 @@ typedef struct Packet_
 #ifdef HAVE_NAPATECH
     NapatechPacketVars ntpv;
 #endif
+
+    // data from prefilter
+    uint16_t PFl4_len;
 } Packet;
 
 /** highest mtu of the interfaces we monitor */

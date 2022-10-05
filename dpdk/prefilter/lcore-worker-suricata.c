@@ -50,6 +50,8 @@
 #include "util-dpdk-bypass.h"
 #include "runmode-dpdk.h"
 #include "source-dpdk.h"
+#include "metadata.h"
+
 
 // The flag is used to set mbuf offload flags
 // Prefilter receives from 2 NICs but aggregates the traffic into a single DPDK ring
@@ -805,13 +807,65 @@ static void PktsReceive(struct lcore_values *lv)
 static void PktsEnqueue(struct lcore_values *lv)
 {
     uint32_t pkt_count;
-    uint16_t stats_index;
+    uint16_t stats_index, offset;
+    void *priv_size;
+    metadata_t metaData;
 
+    memset(&metaData, 0x00, sizeof(metaData));
     for (uint16_t i = 0; i < lv->rings_cnt; i++) {
         stats_index = MIN(i, MAX_WORKERS_TO_PREFILTER_LCORE);
         lv->stats.pkts_to_ring_enq_total[stats_index] += lv->tmp_ring_bufs[i].len;
         if (lv->tmp_ring_bufs[i].len > 2 * BURST_SIZE)
             Log().error(EINVAL, "Ring buffer length over the buffer");
+
+        if (lv->cntOfldsToSur < 1)
+            goto burstPoint;
+
+        for (int j = 0; j < lv->tmp_ring_bufs[i].len; j++) {
+            offset = lv->cntOfldsToSur * sizeof(uint16_t);
+            priv_size = rte_mbuf_to_priv(lv->tmp_ring_bufs[i].buf[j]);
+
+            if (decodePacketL3(&metaData, lv->tmp_ring_bufs[i].buf[j]))
+                Log().error(99, "Decoding of the packets failed\n");
+
+            for (int t = 0; t < lv->cntOfldsToSur; t++) {
+                switch(lv->idxOfldsToSur[t]) {
+                    case IPV4_ID:
+                        SET_OFFSET(metaData.ipv4_hdr);
+                        SET_DATA_TO_PRIV(&metaData.srcA, sizeof(Address));
+                        SET_DATA_TO_PRIV(&metaData.dstA, sizeof(Address));
+                        SET_DATA_TO_PRIV(&metaData.l3_len, sizeof(uint16_t));
+                        SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
+                        break;
+                    case IPV6_ID:
+                        SET_OFFSET(metaData.ipv6_hdr);
+                        SET_DATA_TO_PRIV(&metaData.srcA, sizeof(Address));
+                        SET_DATA_TO_PRIV(&metaData.dstA, sizeof(Address));
+                        break;
+                    case TCP_ID:
+                        SET_OFFSET(metaData.tcp_hdr);
+                        SET_DATA_TO_PRIV(&metaData.srcP, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.dstP, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.proto, sizeof(uint8_t));
+                        SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
+                        SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
+                        SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
+                        break;
+                    case UDP_ID:
+                        SET_OFFSET(metaData.udp_hdr);
+                        SET_DATA_TO_PRIV(&metaData.srcP, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.dstP, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.proto, sizeof(uint8_t));
+                        SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
+                        SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+burstPoint:
 
         pkt_count = rte_ring_enqueue_burst(lv->rings_from_pf[i], (void **)lv->tmp_ring_bufs[i].buf,
                 lv->tmp_ring_bufs[i].len, NULL);
