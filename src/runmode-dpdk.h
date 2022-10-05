@@ -32,6 +32,9 @@ struct OffloadsAttrsPf {
     const char *Udp;
 };
 
+struct OffloadsAttrsSur {
+    const char *matchRules;
+};
 
 typedef struct DPDKIfaceConfigAttributes_ {
     const char *threads;
@@ -48,6 +51,7 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *copy_mode;
     const char *copy_iface;
     struct OffloadsAttrsPf ofldsFromPfToSur;
+    struct OffloadsAttrsSur ofldsFromSurToPf;
 } DPDKIfaceConfigAttributes;
 
 int DeviceConfigure(DPDKIfaceConfig *iconf);

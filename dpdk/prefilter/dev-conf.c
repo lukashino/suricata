@@ -402,6 +402,7 @@ int DevConfSharedConfInit(void)
             Log().notice("Found %s", name);
 
             pf->ring_entries[pf->ring_entries_cnt].ofldsPfSetSur = re->ofldsPfSetSur;
+            pf->ring_entries[pf->ring_entries_cnt].ofldsPfWant = re->ofldsPfWant;
             pf->ring_entries_cnt++;
         }
     }
