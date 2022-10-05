@@ -69,12 +69,16 @@ enum ofldsIdxsPf {
     UDP_ID
 };
 
+enum ofldsIdxsSur {
+    MATCH_RULES
+};
 
 #define IPV4_OFFLOAD(val) ((val) << IPV4_ID)
 #define IPV6_OFFLOAD(val) ((val) << IPV6_ID)
 #define TCP_OFFLOAD(val) ((val) << TCP_ID)
 #define UDP_OFFLOAD(val) ((val) << UDP_ID)
 
+#define MATCH_RULES_OFFLOAD(val) ((val) << MATCH_RULES)
 
 #endif /* HAVE_DPDK */
 
@@ -96,6 +100,9 @@ typedef struct DPDKIfaceConfig_ {
     uint16_t *cntOfldsFromPf;
     uint16_t (*idxOfldsFromPf)[16];
     uint16_t ofldsSurWant;
+    uint16_t cntOfldsToPf;
+    uint16_t idxOfldsToPf[16];
+    uint16_t ofldsSurPfSet;
     /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;
@@ -137,6 +144,8 @@ struct PFConfRingEntry {
     uint16_t ofldsPfSetSur;
     uint16_t ofldsSurWant;
     uint16_t ofldsFinalIDS;
+    uint16_t ofldsPfWant;
+    uint16_t ofldsFinalIPS;
 };
 
 struct PFConf {

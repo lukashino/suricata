@@ -76,6 +76,7 @@ struct ring_list_entry {
     start_ring start;
     stop_ring stop;
     uint16_t ofldsPfSetSur;
+    uint16_t ofldsPfWant;
     TAILQ_ENTRY(ring_list_entry) entries;
     TAILQ_HEAD(, ring_list_entry) head;
 };
