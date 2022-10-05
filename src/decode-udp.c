@@ -77,10 +77,8 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 {
     StatsIncr(tv, dtv->counter_udp);
 
-    if (unlikely(DecodeUDPPacket(tv, p, pkt,len) < 0)) {
-        CLEAR_UDP_PACKET(p);
-        return TM_ECODE_FAILED;
-    }
+    p->udph = (UDPHdr *)pkt;
+    p->payload = (uint8_t *)pkt + UDP_HEADER_LEN;
 
     SCLogDebug("UDP sp: %" PRIu32 " -> dp: %" PRIu32 " - HLEN: %" PRIu32 " LEN: %" PRIu32 "",
         UDP_GET_SRC_PORT(p), UDP_GET_DST_PORT(p), UDP_HEADER_LEN, p->payload_len);
