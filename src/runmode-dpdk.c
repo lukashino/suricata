@@ -156,6 +156,10 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
         .Tcp = "TCP",
         .Udp = "UDP",
     },
+    .ofldsFromSurToPf = {
+        .matchRules = "matchRules",
+    }
+
 };
 
 #define OFFLOADS_PF                                  \
@@ -163,6 +167,10 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     X(dpdk_yaml.ofldsFromPfToSur.Ipv6, IPV6_OFFLOAD) \
     X(dpdk_yaml.ofldsFromPfToSur.Tcp, TCP_OFFLOAD)   \
     X(dpdk_yaml.ofldsFromPfToSur.Udp, UDP_OFFLOAD)
+
+#define OFFLOADS_SUR \
+    X(dpdk_yaml.ofldsFromSurToPf.matchRules, MATCH_RULES_OFFLOAD)
+
 
 
 char mz_name[RTE_MEMZONE_NAMESIZE] = {0};
@@ -943,6 +951,19 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     OFFLOADS_PF
 #undef X
 
+    config = ConfGetNode("offloadsFromSurToPf");
+    if (config == NULL)
+        FatalError(SC_ERR_OFFLOADS, "failed to find \"offloadsFromSurToPf\" for Suricata");
+
+#define X(str, MACRO)                                                     \
+    if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1)  \
+        iconf->ofldsSurPfSet |= MACRO(entry_bool);                        \
+    else                                                                  \
+      SCReturnInt(retval);
+    OFFLOADS_SUR
+#undef X
+
+
     SCReturnInt(0);
 }
 
@@ -1552,6 +1573,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         iconf->messages_mempools[i] = pf_re->message_mp;
 
         pf_re->ofldsSurWant = iconf->ofldsSurWant;
+        pf_re->ofldsFinalIPS = iconf->ofldsSurPfSet & pf_re->ofldsPfWant;
 
         if (iconf->copy_mode == DPDK_COPY_MODE_NONE) {
             iconf->tx_rings[i] = NULL;
@@ -1590,8 +1612,9 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
             SCReturnInt(-ENOENT);
         }
 
-        SCLogNotice("%d - IDS\n", pf_re->ofldsFinalIDS);
+        SCLogNotice("%d - IPS, %d - IDS\n", pf_re->ofldsFinalIPS, pf_re->ofldsFinalIDS);
         setOffloads(pf_re->ofldsFinalIDS, &iconf->cntOfldsFromPf[i], iconf->idxOfldsFromPf[i]);
+        setOffloads(pf_re->ofldsFinalIPS, &iconf->cntOfldsToPf, iconf->idxOfldsToPf);
     }
 
     SCReturnInt(0);
