@@ -717,6 +717,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             memset(&p->PFl4_len, 0x00, sizeof(uint16_t));
             for (int t = 0; t < ptv->rings.cntOfldsFromPf; t++) {
                 memcpy(&offset, priv_sec + t * 16, sizeof(uint16_t));
+                // if the offset was not filled, skip the offload reading part
                 if (offset == 0)
                     continue;
 

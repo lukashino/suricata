@@ -811,6 +811,7 @@ static void PktsEnqueue(struct lcore_values *lv)
     void *priv_size;
     metadata_t metaData;
 
+    // fill the memory with 0s
     memset(&metaData, 0x00, sizeof(metaData));
     for (uint16_t i = 0; i < lv->rings_cnt; i++) {
         stats_index = MIN(i, MAX_WORKERS_TO_PREFILTER_LCORE);
@@ -818,6 +819,7 @@ static void PktsEnqueue(struct lcore_values *lv)
         if (lv->tmp_ring_bufs[i].len > 2 * BURST_SIZE)
             Log().error(EINVAL, "Ring buffer length over the buffer");
 
+        // if no one offload is not required, skip offloads setting up part
         if (lv->cntOfldsToSur < 1)
             goto burstPoint;
 
@@ -825,6 +827,7 @@ static void PktsEnqueue(struct lcore_values *lv)
             offset = lv->cntOfldsToSur * sizeof(uint16_t);
             priv_size = rte_mbuf_to_priv(lv->tmp_ring_bufs[i].buf[j]);
 
+            // decode L# and L4 layers and fill the structure with metadata
             if (decodePacketL3(&metaData, lv->tmp_ring_bufs[i].buf[j]))
                 Log().error(99, "Decoding of the packets failed\n");
 
