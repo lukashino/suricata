@@ -41,6 +41,12 @@
 #include "source-dpdk.h"
 #include "decode.h"
 
+/*
+ * Get a pointer to the beginning of memory, where the value will be assigned.
+ * In case if offload is empty value is 0, otherwise an actual offset.
+ * Offset is a length in bytes between the beginning of memory and the beginning
+ * of data for the current offload.
+ */
 #define SET_OFFSET(ptr_hdr) \
     if ((ptr_hdr) == NULL) { \
         memset(priv_size + (t<<4), 0x00, sizeof(uint16_t)); \
@@ -48,11 +54,18 @@
     } \
     memcpy(priv_size + (t<<4), &offset, sizeof(uint16_t))
 
+/*
+ * Get a source pointer, where the value is placed and the size of the value
+ * that will be copied.
+ */
 #define SET_DATA_TO_PRIV(src, size) do { \
     memcpy(priv_size + (offset<<3), (src), (size)); \
     offset += (size); \
 } while(0)
 
+/*
+ * Set events to the packet
+ */
 #define METADATA_SET_EVENT(p, e) do { \
     if ((p)->events.cnt < PACKET_ENGINE_EVENT_MAX) { \
         (p)->events.events[(p)->events.cnt] = e; \
@@ -60,6 +73,9 @@
     } \
 } while(0)
 
+/*
+ * Set TCP options
+ */
 #define SET_OPTS(dst, src) \
     (dst).type = (src).type; \
     (dst).len  = (src).len; \

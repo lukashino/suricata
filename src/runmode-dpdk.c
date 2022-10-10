@@ -914,6 +914,8 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     if (config == NULL)
         FatalError(SC_ERR_OFFLOADS, "failed to find \"offloadsFromPfToSur\" for Suricata");
 
+    // perform the same code for each offload, where MACRO depends
+    // on the string with the name of the required offload
 #define X(str, MACRO)                                                    \
     if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1) \
         iconf->ofldsSurWant |= MACRO(entry_bool);                        \
@@ -1363,9 +1365,18 @@ static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(const char *memzon
     return NULL;
 }
 
+/*
+ * This function contains the main idea of the acceleration
+ * of the setting up of the offloads. Not used offloads are eliminated
+ * and an array with indexes of setting up offloads is created.
+ *
+ * Example:
+ * input: finalOffloads = 0101010000000010 (binary MSB)
+ * output: cntOffloads = 4, indexOffloads = {1, 10, 12, 14}
+ */
 void setOffloads(uint16_t finalOffloads, uint16_t* cntOffloads, uint16_t* indexOffloads)
 {
-    // TODO create a constant variable '16'
+    // TODO create a constant variable '16' - max count of offloads
     for (int i = 0; i < 16; i++) {
         if (((1 << i) & finalOffloads) != 0) {
             indexOffloads[*cntOffloads] = i;
@@ -1469,7 +1480,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         }
     }
 
-    // TODO upgrade it
+    // TODO treat retval
     struct rte_mp_msg req;
     struct rte_mp_reply reply;
     memset(&req, 0, sizeof(req));
