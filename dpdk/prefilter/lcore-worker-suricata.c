@@ -905,6 +905,26 @@ static uint16_t PktsTx(
 {
     uint16_t tx_cnt;
     Log().debug("Sending %d pkts to P%dQ%d", pkts_cnt, port_id, lv->qid);
+
+    void *priv_space;
+    uint32_t cnt, id;
+    for (int i = 0; i < pkts_cnt; ++i) {
+        priv_space = rte_mbuf_to_priv(pkts[i]);
+        memcpy(&cnt, priv_space, sizeof(uint32_t));
+        printf("A packet was matched with %d rules:", cnt);
+        if (cnt == 0)
+            goto next_packet;
+
+        priv_space += sizeof(uint16_t)<<3;
+        for (int j = 0; j < cnt; j++) {
+            memcpy(&id, priv_space + (j*sizeof(uint32_t)<<3), sizeof(uint32_t));
+            printf(" id:%d", id);
+        }
+next_packet:
+        printf("\n");
+    }
+
+    printf("\n");
     tx_cnt = rte_eth_tx_burst(port_id, lv->qid, pkts, pkts_cnt);
     return tx_cnt;
 }

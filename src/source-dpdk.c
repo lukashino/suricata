@@ -373,6 +373,24 @@ static inline void DPDKReleasePacketTxOrFree(Packet *p)
     } else if (p->dpdk_v.copy_mode != DPDK_COPY_MODE_IPS || !PacketTestAction(p, ACTION_DROP)) {
         // in IDS ring mode the tx ring is not set
         BUG_ON(PKT_IS_PSEUDOPKT(p));
+
+        void *priv_size = rte_mbuf_to_priv(p->dpdk_v.mbuf);
+        uint16_t max_cnt = p->alerts.cnt > 32 ? 32 : p->alerts.cnt; // 32 - 128 / sizeof(uint32_t);
+        memcpy(priv_size, &max_cnt, sizeof(uint16_t));
+
+        printf("Number of rules %d:", max_cnt);
+        if (max_cnt == 0) {
+            printf("\n");
+            return;
+        }
+
+        priv_size += sizeof(uint16_t)<<3;
+        for (int i = 0; i < max_cnt; i++) {
+            printf(" id:%d", p->alerts.alerts[i].s->id);
+            memcpy(priv_size + (i*sizeof(uint32_t)<<3), &p->alerts.alerts[i].s->id, sizeof(uint32_t));
+        }
+        printf("\n\n");
+
         ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
         if (ret != 0) {
             SCLogDebug("Error (%s): Unable to enqueue packet to TX ring", rte_strerror(-ret));
