@@ -313,7 +313,7 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
         LcoreStateSet(ctx.lcores_state.lcores_arr[i].state, LCORE_OFFLOADS_INIT);
     }
 
-    sleep(1);
+    sleep(2);
     ret = rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
     Log().debug("PPP Action for %s", IPC_ACTION_SET_UP_OFFLOADS);
 

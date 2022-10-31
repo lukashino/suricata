@@ -381,7 +381,6 @@ static inline void DPDKReleasePacketTxOrFree(Packet *p)
         printf("Number of rules %d:", max_cnt);
         if (max_cnt == 0) {
             printf("\n");
-            return;
         }
 
         priv_size += sizeof(uint16_t)<<3;

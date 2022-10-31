@@ -1507,7 +1507,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     struct rte_mp_reply reply;
     memset(&req, 0, sizeof(req));
     strlcpy(req.name, IPC_ACTION_SET_UP_OFFLOADS, RTE_MP_MAX_NAME_LEN);
-    const struct timespec tss = {.tv_sec = 3, .tv_nsec = 0};
+    const struct timespec tss = {.tv_sec = 5, .tv_nsec = 0};
     retval = rte_mp_request_sync(&req, &reply, &tss);
 
     for (int32_t i = 0; i < rings_cnt; ++i) {
@@ -1803,19 +1803,20 @@ int RunModeIdsDpdkWorkers(void)
     TimeModeSetLive();
 
     InitEal();
-
-    struct rte_mp_msg req;
-    struct rte_mp_reply reply;
-    memset(&req, 0, sizeof(req));
-    strlcpy(req.name, IPC_ACTION_ATTACH, RTE_MP_MAX_NAME_LEN);
-    const struct timespec ts = {.tv_sec = 1, .tv_nsec = 0};
-    ret = rte_mp_request_sync(&req, &reply, &ts);
-    if (ret != 0 || reply.nb_sent != reply.nb_received) {
-        FatalError(SC_ERR_FATAL, "Attach req-response failed (%s)", rte_strerror(rte_errno));
+    if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
+        struct rte_mp_msg req;
+        struct rte_mp_reply reply;
+        memset(&req, 0, sizeof(req));
+        strlcpy(req.name, IPC_ACTION_ATTACH, RTE_MP_MAX_NAME_LEN);
+        const struct timespec ts = {.tv_sec = 1, .tv_nsec = 0};
+        ret = rte_mp_request_sync(&req, &reply, &ts);
+        if (ret != 0 || reply.nb_sent != reply.nb_received) {
+            FatalError(SC_ERR_FATAL, "Attach req-response failed (%s)", rte_strerror(rte_errno));
+        }
+        struct IPCResponseAttach *a = (struct IPCResponseAttach *)reply.msgs[0].param;
+        SharedConfSetName(a->memzone_name);
+        ipc_app_id = (int32_t)a->app_id;
     }
-    struct IPCResponseAttach *a = (struct IPCResponseAttach *)reply.msgs[0].param;
-    SharedConfSetName(a->memzone_name);
-    ipc_app_id = (int32_t)a->app_id;
 
     ret = RunModeSetLiveCaptureWorkers(ParseDpdkConfigAndConfigureDevice, DPDKConfigGetThreadsCount,
             "ReceiveDPDK", "DecodeDPDK", thread_name_workers, NULL);
