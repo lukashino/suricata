@@ -303,7 +303,7 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
     mp_resp.len_param = (int)strlen((char *)mp_resp.param);
 
     uint8_t tout_sec = 1; // TODO change value
-    ret = LcoreStateWaitWithTimeout(ctx.lcores_state.lcores_arr[LcoreMainAsWorker->lcore_id].state, LCORE_INIT_DONE, tout_sec);
+    ret = LcoreStateCheckAllWTimeout(LCORE_INIT_DONE, tout_sec);
     if (ret != 0) {
         Log().error(ETIMEDOUT, "Workers have not initialised in time (%s sec)", tout_sec);
         exit(1);

@@ -133,7 +133,8 @@ int ThreadMain(void *init_values)
 
             if (lv->qid == 0) {
                 print_stats(lv->port1_id);
-                print_stats(lv->port2_id);
+                if (lv->opmode == IPS)
+                    print_stats(lv->port2_id);
             }
 
             // only work with tasks and result ring/s and bt
