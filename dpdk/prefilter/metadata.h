@@ -40,6 +40,7 @@
 #include "runmode-dpdk.h"
 #include "source-dpdk.h"
 #include "decode.h"
+#include "logger.h"
 
 /*
  * Get a pointer to the beginning of memory, where the value will be assigned.

@@ -734,6 +734,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             uint16_t offset;
 
             memset(&p->PFl4_len, 0x00, sizeof(uint16_t));
+            printf("STAAAAAAAAAAAAAAAAAAAAAART\n");
             for (int t = 0; t < ptv->rings.cntOfldsFromPf; t++) {
                 memcpy(&offset, priv_sec + t * 16, sizeof(uint16_t));
                 // if the offset was not filled, skip the offload reading part
@@ -768,7 +769,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 }
             }
 
-
+            printf("ENDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n");
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
                     rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
