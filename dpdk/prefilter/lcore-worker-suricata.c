@@ -809,10 +809,7 @@ static void PktsEnqueue(struct lcore_values *lv)
     uint32_t pkt_count;
     uint16_t stats_index, offset;
     void *priv_size;
-    metadata_t metaData;
 
-    // fill the memory with 0s
-    memset(&metaData, 0x00, sizeof(metaData));
     for (uint16_t i = 0; i < lv->rings_cnt; i++) {
         stats_index = MIN(i, MAX_WORKERS_TO_PREFILTER_LCORE);
         lv->stats.pkts_to_ring_enq_total[stats_index] += lv->tmp_ring_bufs[i].len;
@@ -824,12 +821,21 @@ static void PktsEnqueue(struct lcore_values *lv)
             goto burstPoint;
 
         for (int j = 0; j < lv->tmp_ring_bufs[i].len; j++) {
+            // fill the memory with 0s
+            metadata_t metaData;
+
             offset = lv->cntOfldsToSur * sizeof(uint16_t);
             priv_size = rte_mbuf_to_priv(lv->tmp_ring_bufs[i].buf[j]);
 
             // decode L# and L4 layers and fill the structure with metadata
-            if (decodePacketL3(&metaData, lv->tmp_ring_bufs[i].buf[j]))
+            if (decodePacketL3(&metaData, lv->tmp_ring_bufs[i].buf[j])) {
+                printf("errrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr decoding\n");
                 Log().error(99, "Decoding of the packets failed\n");
+                metaData.ipv4_hdr = NULL;
+                metaData.ipv6_hdr = NULL;
+                metaData.tcp_hdr = NULL;
+                metaData.udp_hdr = NULL;
+            }
 
             for (int t = 0; t < lv->cntOfldsToSur; t++) {
                 switch(lv->idxOfldsToSur[t]) {
@@ -911,7 +917,6 @@ static uint16_t PktsTx(
     for (int i = 0; i < pkts_cnt; ++i) {
         priv_space = rte_mbuf_to_priv(pkts[i]);
         memcpy(&cnt, priv_space, sizeof(uint32_t));
-        printf("A packet was matched with %d rules:", cnt);
         if (cnt == 0)
             goto next_packet;
 
@@ -921,10 +926,9 @@ static uint16_t PktsTx(
             printf(" id:%d", id);
         }
 next_packet:
-        printf("\n");
+        (void)cnt;
     }
 
-    printf("\n");
     tx_cnt = rte_eth_tx_burst(port_id, lv->qid, pkts, pkts_cnt);
     return tx_cnt;
 }

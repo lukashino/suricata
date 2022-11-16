@@ -576,13 +576,13 @@ int decodePacketUDP(metadata_t *metaData, uint16_t len) {
     }
 
     udp_raw_len = rte_be_to_cpu_16(metaData->udp_hdr->dgram_len);
-    if (unlikely(udp_raw_len < UDP_HEADER_LEN)) {
-        Log().info("UDP triggers raw_len=%d < HEADER_LEN=%d\n", udp_raw_len, UDP_HEADER_LEN);
+    if (unlikely(len < udp_raw_len)) {
+        Log().info("UDP triggers len=%d < raw_len=%d\n", len, udp_raw_len);
         return UDP_PKT_TOO_SMALL;
     }
 
     if (unlikely(len != udp_raw_len)) {
-        Log().info("UDP triggers raw_len=%d != RAW_LEN=%d, srcp = %d, dstp = %d\n", len, udp_raw_len, rte_be_to_cpu_16(metaData->udp_hdr->src_port), rte_be_to_cpu_16(metaData->udp_hdr->dst_port));
+        Log().info("UDP triggers len=%d != raw_len=%d\n", len, udp_raw_len);
         return UDP_HLEN_INVALID;
     }
 
@@ -597,6 +597,7 @@ int decodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *m
 {
     int ret = 0;
     metaData->proto = proto;
+    printf("next proto '%d' on addr '%p'\n\n", (uint8_t)(*(ptr + 9)), ptr + 9);
 
     if (proto == IPPROTO_TCP) {
         metaData->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
@@ -612,6 +613,14 @@ int decodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *m
 int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
     int ret;
     int ipv4_len, ipv4_raw_len;
+
+    int fo = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x1fff;
+    int mf = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x2000;
+
+    if (fo > 0 || mf >> 13) {
+        metaData->ipv4_hdr = NULL;
+        return 0;
+    }
 
     if (unlikely(len < IPV4_HEADER_LEN)) {
         Log().info("IPV4 triggers len=%d < HEADER_LEN=%d\n", len, IPV4_HEADER_LEN);
@@ -660,6 +669,11 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
 int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
     int ret;
     uint16_t ipv6_raw_len = 0;
+
+    if (metaData->ipv6_hdr->proto == 44) {
+        metaData->ipv6_hdr = NULL;
+        return 0;
+    }
 
     if (unlikely(len < IPV6_HEADER_LEN)) {
         Log().info("IPV6 triggers len=%d < HEADER_LEN=%d\n", len, IPV6_HEADER_LEN);
