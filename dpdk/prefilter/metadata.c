@@ -590,6 +590,7 @@ int decodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *m
 {
     int ret = 0;
     metaData->proto = proto;
+    printf("next proto '%d' on addr '%p'\n\n", (uint8_t)(*(ptr + 9)), ptr + 9);
 
     if (proto == IPPROTO_TCP) {
         metaData->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
@@ -605,6 +606,14 @@ int decodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *m
 int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
     int ret;
     int ipv4_len, ipv4_raw_len;
+
+    int fo = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x1fff;
+    int mf = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x2000;
+
+    if (fo > 0 || mf >> 13) {
+        metaData->ipv4_hdr = NULL;
+        return 0;
+    }
 
     if (unlikely(len < IPV4_HEADER_LEN)) {
         return IPV4_PKT_TOO_SMALL;
@@ -648,6 +657,11 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
 int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
     int ret;
     uint16_t ipv6_raw_len = 0;
+
+    if (metaData->ipv6_hdr->proto == 44) {
+        metaData->ipv6_hdr = NULL;
+        return 0;
+    }
 
     if (unlikely(len < IPV6_HEADER_LEN)) {
         return IPV6_PKT_TOO_SMALL;
