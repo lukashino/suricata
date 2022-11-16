@@ -41,6 +41,13 @@
 #include "util-napatech.h"
 #endif /* HAVE_NAPATECH */
 
+enum oofldsIdxsPf {
+    IPV4_BIT,
+    IPV6_BIT,
+    TCP_BIT,
+    UDP_BIT
+};
+
 typedef enum {
     CHECKSUM_VALIDATION_DISABLE,
     CHECKSUM_VALIDATION_ENABLE,
@@ -648,6 +655,10 @@ typedef struct Packet_
          */
         SCSpinlock tunnel_lock;
     } persistent;
+
+    // data from prefilter
+    uint16_t PFl4_len;
+    uint8_t metadata_flags;
 } Packet;
 
 /** highest mtu of the interfaces we monitor */

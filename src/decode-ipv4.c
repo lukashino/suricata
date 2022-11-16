@@ -528,7 +528,17 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
         return TM_ECODE_FAILED;
     }
 
-    p->ip4h = (IPV4Hdr *)pkt;
+    /* do the actual decoding */
+    if (p->metadata_flags & (1 << IPV4_BIT)) {
+        p->ip4h = (IPV4Hdr *)pkt;
+        printf("next proto '%d' on addr '%p'\n", (uint8_t)(*(pkt + 9)), pkt + 9);
+    }
+    else if (unlikely(DecodeIPV4Packet (p, pkt, len) < 0)) {
+        SCLogDebug("decoding IPv4 packet failed");
+        CLEAR_IPV4_PACKET((p));
+        return TM_ECODE_FAILED;
+    }
+
     p->proto = IPV4_GET_IPPROTO(p);
 
     /* If a fragment, pass off for re-assembly. */

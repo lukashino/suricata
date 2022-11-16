@@ -383,17 +383,11 @@ static inline void DPDKReleasePacketTxOrFree(Packet *p)
         uint16_t max_cnt = p->alerts.cnt > 32 ? 32 : p->alerts.cnt; // 32 - 128 / sizeof(uint32_t);
         memcpy(priv_size, &max_cnt, sizeof(uint16_t));
 
-        printf("Number of rules %d:", max_cnt);
-        if (max_cnt == 0) {
-            printf("\n");
-        }
-
         priv_size += sizeof(uint16_t)<<3;
         for (int i = 0; i < max_cnt; i++) {
             printf(" id:%d", p->alerts.alerts[i].s->id);
             memcpy(priv_size + (i*sizeof(uint32_t)<<3), &p->alerts.alerts[i].s->id, sizeof(uint32_t));
         }
-        printf("\n\n");
 
         ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
         if (ret != 0) {
@@ -762,7 +756,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             void *priv_sec = rte_mbuf_to_priv(ptv->received_mbufs[i]);
             uint16_t offset;
 
-            memset(&p->PFl4_len, 0x00, sizeof(uint16_t));
+            p->PFl4_len = 0;
+            p->metadata_flags = 0;
             for (int t = 0; t < ptv->rings.cntOfldsFromPf; t++) {
                 memcpy(&offset, priv_sec + t * 16, sizeof(uint16_t));
                 // if the offset was not filled, skip the offload reading part
@@ -774,10 +769,12 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                         READ_DATA_FROM_PRIV(&p->src, sizeof(Address));
                         READ_DATA_FROM_PRIV(&p->dst, sizeof(Address));
                         READ_DATA_FROM_PRIV(&p->events, sizeof(PacketEngineEvents));
+                        p->metadata_flags |= (1 << IPV4_ID);
                         break;
                     case IPV6_ID:
                         READ_DATA_FROM_PRIV(&p->src, sizeof(Address));
                         READ_DATA_FROM_PRIV(&p->dst, sizeof(Address));
+                        p->metadata_flags |= (1 << IPV6_ID);
                         break;
                     case TCP_ID:
                         READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
@@ -786,6 +783,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                         READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
                         READ_DATA_FROM_PRIV(&p->PFl4_len, sizeof(uint16_t));
                         READ_DATA_FROM_PRIV(&p->events, sizeof(PacketEngineEvents));
+                        p->metadata_flags |= (1 << TCP_ID);
                         break;
                     case UDP_ID:
                         READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
@@ -793,10 +791,10 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                         READ_DATA_FROM_PRIV(&p->proto, sizeof(uint8_t));
                         READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
                         READ_DATA_FROM_PRIV(&p->PFl4_len, sizeof(uint16_t));
+                        p->metadata_flags |= (1 << UDP_ID);
                         break;
                 }
             }
-
 
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
                     rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
