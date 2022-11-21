@@ -269,7 +269,7 @@ int SetOffloadsFromConf(const char* nameOffload, ConfNode *rnode)
     int retval, entry_bool;
 
     retval = ConfGetDescendantValueBool(rnode, nameOffload, &entry_bool);
-    if (retval != 1 || entry_bool <= 0) {
+    if (retval != 1 || entry_bool < 0) {
         Log().error(ENOENT, "Unable to read value of %s", nameOffload);
         return -EXIT_FAILURE;
     }

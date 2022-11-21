@@ -536,26 +536,22 @@ int decodePacketTCP(metadata_t *metaData, uint16_t len) {
     int ret;
 
     if (unlikely(len < TCP_HEADER_LEN)) {
-        Log().info("TCP triggers len=%d < HEADER_LEN=%d\n", len, TCP_HEADER_LEN);
         return TCP_PKT_TOO_SMALL;
     }
 
     tcp_len = (metaData->tcp_hdr->data_off & 0xf0) >> 2;
     if (unlikely(len < tcp_len)) {
-        Log().info("TCP triggers len=%d < tcp_len=%d\n", len, tcp_len);
         return TCP_HLEN_TOO_SMALL;
     }
 
     metaData->tcp_opt_len = tcp_len - TCP_HEADER_LEN;
     if (unlikely(metaData->tcp_opt_len > TCP_OPTLENMAX)) {
-        Log().info("TCP triggers opt_len=%d > TCP_OPTLENMAX=%d\n", metaData->tcp_opt_len, TCP_OPTLENMAX);
         return TCP_INVALID_OPTLEN;
     }
 
     if (metaData->tcp_opt_len > 0) {
         ret = decodeTCPOptions((uint8_t *)metaData->tcp_hdr + TCP_HEADER_LEN, metaData->tcp_opt_len, metaData);
         if (ret != 0) {
-            Log().info("TCP triggers error during decode options\n");
             return ret;
         }
     }
@@ -571,18 +567,15 @@ int decodePacketUDP(metadata_t *metaData, uint16_t len) {
     uint16_t udp_raw_len;
 
     if (unlikely(len < UDP_HEADER_LEN)) {
-        Log().info("UDP triggers len=%d < HEADER_LEN=%d\n", len, UDP_HEADER_LEN);
         return UDP_HLEN_TOO_SMALL;
     }
 
     udp_raw_len = rte_be_to_cpu_16(metaData->udp_hdr->dgram_len);
     if (unlikely(len < udp_raw_len)) {
-        Log().info("UDP triggers len=%d < raw_len=%d\n", len, udp_raw_len);
         return UDP_PKT_TOO_SMALL;
     }
 
     if (unlikely(len != udp_raw_len)) {
-        Log().info("UDP triggers len=%d != raw_len=%d\n", len, udp_raw_len);
         return UDP_HLEN_INVALID;
     }
 
@@ -597,7 +590,6 @@ int decodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *m
 {
     int ret = 0;
     metaData->proto = proto;
-    printf("next proto '%d' on addr '%p'\n\n", (uint8_t)(*(ptr + 9)), ptr + 9);
 
     if (proto == IPPROTO_TCP) {
         metaData->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
@@ -618,34 +610,29 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
     int mf = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x2000;
 
     if (fo > 0 || mf >> 13) {
-        metaData->ipv4_hdr = NULL;
+        memset(metaData, 0x00, sizeof(void*) * 4);
         return 0;
     }
 
     if (unlikely(len < IPV4_HEADER_LEN)) {
-        Log().info("IPV4 triggers len=%d < HEADER_LEN=%d\n", len, IPV4_HEADER_LEN);
         return IPV4_PKT_TOO_SMALL;
     }
 
     if (unlikely(metaData->ipv4_hdr->version != 4)) {
-        Log().info("IPV4 triggers wrong ip version\n");
         return IPV4_WRONG_IP_VER;
     }
 
     ipv4_len = rte_ipv4_hdr_len(metaData->ipv4_hdr);
     if (unlikely(ipv4_len < IPV4_HEADER_LEN)) {
-        Log().info("IPV4 triggers expected_len=%d < HEADER_LEN=%d\n", ipv4_len, IPV4_HEADER_LEN);
         return IPV4_HLEN_TOO_SMALL;
     }
 
     ipv4_raw_len = rte_be_to_cpu_16(metaData->ipv4_hdr->total_length);
     if (unlikely(ipv4_raw_len < ipv4_len)) {
-        Log().info("IPV4 triggers raw_len=%d < expected_len=%d\n", ipv4_raw_len, ipv4_len);
         return IPV4_IPLEN_SMALLER_THAN_HLEN;
     }
 
     if (unlikely(len < ipv4_raw_len)) {
-        Log().info("IPV4 triggers len=%d < RAW_LEN=%d\n", len, ipv4_raw_len);
         return IPV4_TRUNC_PKT;
     }
 
@@ -660,9 +647,8 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
         }
     }
 
-    metaData->l3_len = ipv4_raw_len - ipv4_len;
     ret = decodePacketL4(metaData->ipv4_hdr->next_proto_id, ipv4_len,
-            (unsigned char *)metaData->ipv4_hdr, metaData, metaData->l3_len);
+            (unsigned char *)metaData->ipv4_hdr, metaData, ipv4_raw_len - ipv4_len);
 
     return ret;
 }
@@ -671,33 +657,29 @@ int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
     uint16_t ipv6_raw_len = 0;
 
     if (metaData->ipv6_hdr->proto == 44) {
-        metaData->ipv6_hdr = NULL;
+        memset(metaData, 0x00, sizeof(void*) * 4);
         return 0;
     }
 
     if (unlikely(len < IPV6_HEADER_LEN)) {
-        Log().info("IPV6 triggers len=%d < HEADER_LEN=%d\n", len, IPV6_HEADER_LEN);
         return IPV6_PKT_TOO_SMALL;
     }
 
     unsigned int version = (metaData->ipv6_hdr->vtc_flow & 0xf0) >> 4;
     if (unlikely(version != 6)) {
-        Log().info("IPV6 triggers wrong ip version\n");
         return IPV6_WRONG_IP_VER;
     }
 
     ipv6_raw_len = IPV6_HEADER_LEN + rte_be_to_cpu_16(metaData->ipv6_hdr->payload_len);
     if (unlikely(len < ipv6_raw_len)) {
-        Log().info("IPV6 triggers len=%d < RAW_LEN=%d\n", len, ipv6_raw_len);
         return IPV6_TRUNC_PKT;
     }
 
     setIpv6(&metaData->srcA, &metaData->ipv6_hdr->src_addr[0]);
     setIpv6(&metaData->dstA, &metaData->ipv6_hdr->dst_addr[0]);
 
-    metaData->l3_len = ipv6_raw_len - IPV6_HEADER_LEN;
     ret = decodePacketL4(metaData->ipv6_hdr->proto, IPV6_HEADER_LEN,
-            (unsigned char *)metaData->ipv6_hdr, metaData, metaData->l3_len);
+            (unsigned char *)metaData->ipv6_hdr, metaData, ipv6_raw_len - IPV6_HEADER_LEN);
 
     return ret;
 }
