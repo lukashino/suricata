@@ -112,7 +112,6 @@ typedef struct Metadata {
     uint8_t tcp_opt_len;
     TCPVars tcp_opt_vars;
 
-    uint16_t l3_len;
     uint16_t l4_len;
 
     PacketEngineEvents events;
