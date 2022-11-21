@@ -826,18 +826,15 @@ static void PktsEnqueue(struct lcore_values *lv)
         for (int j = 0; j < lv->tmp_ring_bufs[i].len; j++) {
             // fill the memory with 0s
             metadata_t metaData;
+            memset(&metaData, 0x00, sizeof(void*) * 4);
 
             offset = lv->cntOfldsToSur * sizeof(uint16_t);
             priv_size = rte_mbuf_to_priv(lv->tmp_ring_bufs[i].buf[j]);
 
             // decode L# and L4 layers and fill the structure with metadata
             if (decodePacketL3(&metaData, lv->tmp_ring_bufs[i].buf[j])) {
-                printf("errrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr decoding\n");
                 Log().error(99, "Decoding of the packets failed\n");
-                metaData.ipv4_hdr = NULL;
-                metaData.ipv6_hdr = NULL;
-                metaData.tcp_hdr = NULL;
-                metaData.udp_hdr = NULL;
+                memset(&metaData, 0x00, sizeof(void*) * 4);
             }
 
             for (int t = 0; t < lv->cntOfldsToSur; t++) {
@@ -846,7 +843,6 @@ static void PktsEnqueue(struct lcore_values *lv)
                         SET_OFFSET(metaData.ipv4_hdr);
                         SET_DATA_TO_PRIV(&metaData.srcA, sizeof(Address));
                         SET_DATA_TO_PRIV(&metaData.dstA, sizeof(Address));
-                        SET_DATA_TO_PRIV(&metaData.l3_len, sizeof(uint16_t));
                         SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
                         break;
                     case IPV6_ID:
@@ -858,7 +854,6 @@ static void PktsEnqueue(struct lcore_values *lv)
                         SET_OFFSET(metaData.tcp_hdr);
                         SET_DATA_TO_PRIV(&metaData.srcP, sizeof(Port));
                         SET_DATA_TO_PRIV(&metaData.dstP, sizeof(Port));
-                        SET_DATA_TO_PRIV(&metaData.proto, sizeof(uint8_t));
                         SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
                         SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
                         SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
@@ -867,7 +862,6 @@ static void PktsEnqueue(struct lcore_values *lv)
                         SET_OFFSET(metaData.udp_hdr);
                         SET_DATA_TO_PRIV(&metaData.srcP, sizeof(Port));
                         SET_DATA_TO_PRIV(&metaData.dstP, sizeof(Port));
-                        SET_DATA_TO_PRIV(&metaData.proto, sizeof(uint8_t));
                         SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
                         SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
                         break;
@@ -878,7 +872,6 @@ static void PktsEnqueue(struct lcore_values *lv)
         }
 
 burstPoint:
-
         pkt_count = rte_ring_enqueue_burst(lv->rings_from_pf[i], (void **)lv->tmp_ring_bufs[i].buf,
                 lv->tmp_ring_bufs[i].len, NULL);
         lv->stats.pkts_to_ring_enq_success[stats_index] += pkt_count;

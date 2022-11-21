@@ -237,8 +237,6 @@ static int DecodeTCPPacket(ThreadVars *tv, Packet *p, const uint8_t *pkt, uint16
     SET_TCP_SRC_PORT(p,&p->sp);
     SET_TCP_DST_PORT(p,&p->dp);
 
-    p->proto = IPPROTO_TCP;
-
     p->payload = (uint8_t *)pkt + hlen;
     p->payload_len = len - hlen;
 
@@ -259,6 +257,8 @@ int DecodeTCP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
         CLEAR_TCP_PACKET(p);
         return TM_ECODE_FAILED;
     }
+
+    p->proto = IPPROTO_TCP;
 
 #ifdef DEBUG
     SCLogDebug("TCP sp: %" PRIu32 " -> dp: %" PRIu32 " - HLEN: %" PRIu32 " LEN: %" PRIu32 " %s%s%s%s%s%s",

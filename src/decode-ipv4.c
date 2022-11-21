@@ -531,7 +531,6 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
     /* do the actual decoding */
     if (p->metadata_flags & (1 << IPV4_BIT)) {
         p->ip4h = (IPV4Hdr *)pkt;
-        printf("next proto '%d' on addr '%p'\n", (uint8_t)(*(pkt + 9)), pkt + 9);
     }
     else if (unlikely(DecodeIPV4Packet (p, pkt, len) < 0)) {
         SCLogDebug("decoding IPv4 packet failed");

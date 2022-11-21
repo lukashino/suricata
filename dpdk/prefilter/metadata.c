@@ -571,7 +571,7 @@ int decodePacketUDP(metadata_t *metaData, uint16_t len) {
     }
 
     udp_raw_len = rte_be_to_cpu_16(metaData->udp_hdr->dgram_len);
-    if (unlikely(udp_raw_len < UDP_HEADER_LEN)) {
+    if (unlikely(len < udp_raw_len)) {
         return UDP_PKT_TOO_SMALL;
     }
 
@@ -590,7 +590,6 @@ int decodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *m
 {
     int ret = 0;
     metaData->proto = proto;
-    printf("next proto '%d' on addr '%p'\n\n", (uint8_t)(*(ptr + 9)), ptr + 9);
 
     if (proto == IPPROTO_TCP) {
         metaData->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
@@ -611,7 +610,7 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
     int mf = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x2000;
 
     if (fo > 0 || mf >> 13) {
-        metaData->ipv4_hdr = NULL;
+        memset(metaData, 0x00, sizeof(void*) * 4);
         return 0;
     }
 
@@ -648,9 +647,8 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
         }
     }
 
-    metaData->l3_len = ipv4_raw_len - ipv4_len;
     ret = decodePacketL4(metaData->ipv4_hdr->next_proto_id, ipv4_len,
-            (unsigned char *)metaData->ipv4_hdr, metaData, metaData->l3_len);
+            (unsigned char *)metaData->ipv4_hdr, metaData, ipv4_raw_len - ipv4_len);
 
     return ret;
 }
@@ -659,7 +657,7 @@ int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
     uint16_t ipv6_raw_len = 0;
 
     if (metaData->ipv6_hdr->proto == 44) {
-        metaData->ipv6_hdr = NULL;
+        memset(metaData, 0x00, sizeof(void*) * 4);
         return 0;
     }
 
@@ -667,7 +665,8 @@ int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
         return IPV6_PKT_TOO_SMALL;
     }
 
-    if (unlikely((metaData->ipv6_hdr->vtc_flow & 0xf0) >> 4 != 6)) {
+    unsigned int version = (metaData->ipv6_hdr->vtc_flow & 0xf0) >> 4;
+    if (unlikely(version != 6)) {
         return IPV6_WRONG_IP_VER;
     }
 
@@ -679,9 +678,8 @@ int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
     setIpv6(&metaData->srcA, &metaData->ipv6_hdr->src_addr[0]);
     setIpv6(&metaData->dstA, &metaData->ipv6_hdr->dst_addr[0]);
 
-    metaData->l3_len = ipv6_raw_len - IPV6_HEADER_LEN;
     ret = decodePacketL4(metaData->ipv6_hdr->proto, IPV6_HEADER_LEN,
-            (unsigned char *)metaData->ipv6_hdr, metaData, metaData->l3_len);
+            (unsigned char *)metaData->ipv6_hdr, metaData, ipv6_raw_len - IPV6_HEADER_LEN);
 
     return ret;
 }

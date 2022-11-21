@@ -779,7 +779,6 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                     case TCP_ID:
                         READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
                         READ_DATA_FROM_PRIV(&p->dp, sizeof(Port));
-                        READ_DATA_FROM_PRIV(&p->proto, sizeof(uint8_t));
                         READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
                         READ_DATA_FROM_PRIV(&p->PFl4_len, sizeof(uint16_t));
                         READ_DATA_FROM_PRIV(&p->events, sizeof(PacketEngineEvents));
@@ -788,7 +787,6 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                     case UDP_ID:
                         READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
                         READ_DATA_FROM_PRIV(&p->dp, sizeof(Port));
-                        READ_DATA_FROM_PRIV(&p->proto, sizeof(uint8_t));
                         READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
                         READ_DATA_FROM_PRIV(&p->PFl4_len, sizeof(uint16_t));
                         p->metadata_flags |= (1 << UDP_ID);
