@@ -28,6 +28,19 @@
 #include "lcore-worker.h"
 #include "lcores-manager.h"
 
+/*
+ * Get a pointer to the beginning of memory, where the value will be assigned.
+ * In case if offload is empty value is 0, otherwise an actual offset.
+ * Offset is a length in bytes between the beginning of memory and the beginning
+ * of data for the current offload.
+ */
+#define SET_OFFSET(ptr_hdr) \
+    if ((ptr_hdr) == NULL) { \
+        memset(priv_size + (t<<4), 0x00, sizeof(uint16_t)); \
+        continue; \
+    } \
+    memcpy(priv_size + (t<<4), &offset, sizeof(uint16_t))
+
 struct lcore_values *ThreadSuricataInit(struct lcore_init *init_vals);
 void ThreadSuricataRun(struct lcore_values *lv);
 void ThreadSuricataStatsDump(struct lcore_values *lv);

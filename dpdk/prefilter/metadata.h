@@ -42,19 +42,6 @@
 #include "decode.h"
 
 /*
- * Get a pointer to the beginning of memory, where the value will be assigned.
- * In case if offload is empty value is 0, otherwise an actual offset.
- * Offset is a length in bytes between the beginning of memory and the beginning
- * of data for the current offload.
- */
-#define SET_OFFSET(ptr_hdr) \
-    if ((ptr_hdr) == NULL) { \
-        memset(priv_size + (t<<4), 0x00, sizeof(uint16_t)); \
-        continue; \
-    } \
-    memcpy(priv_size + (t<<4), &offset, sizeof(uint16_t))
-
-/*
  * Get a source pointer, where the value is placed and the size of the value
  * that will be copied.
  */
@@ -117,20 +104,8 @@ typedef struct Metadata {
     PacketEngineEvents events;
 } metadata_t;
 
-void MetadataIpv4ConvertTo(Address *, uint32_t);
-void MetadataIpv6ConvertTo(Address *, uint8_t *);
-static inline size_t GetVlanOffset(struct rte_ether_hdr *, uint16_t *);
-static int IPV4OptValidateTimestamp(const IPV4Opt *);
-static int IPV4OptValidateRoute(const IPV4Opt *);
-static int IPV4OptValidateGeneric(const IPV4Opt *);
-static int IPV4OptValidateCIPSO(const IPV4Opt *);
-int DecodeIPV4Options(uint8_t *, uint8_t, metadata_t *);
-int DecodeTCPOptions(uint8_t *, uint8_t, metadata_t *);
-int DecodePacketTCP(metadata_t *, uint16_t);
-int DecodePacketUDP(metadata_t *, uint16_t);
-int DecodePacketL4(uint8_t, size_t, unsigned char *, metadata_t *, uint16_t);
-int DecodePacketIPv6(metadata_t *, uint16_t);
-int DecodePacketIPv4(metadata_t *, uint16_t);
-int DecodePacketL3(metadata_t *, struct rte_mbuf *);
+static inline size_t MetadataGetVlanOffset(struct rte_ether_hdr *, uint16_t *);
+int MetadataDecodePacketL4(uint8_t, size_t, unsigned char *, metadata_t *, uint16_t);
+int MetadataDecodePacketL3(metadata_t *, struct rte_mbuf *);
 
 #endif // METADATA_H
