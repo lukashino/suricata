@@ -99,10 +99,10 @@ typedef struct DPDKIfaceConfig_ {
     struct rte_mempool **messages_mempools;
     uint16_t *cntOfldsFromPf;
     uint16_t (*idxOfldsFromPf)[16];
-    uint16_t ofldsSurWant;
+    uint16_t oflds_suri_requested;
     uint16_t cntOfldsToPf;
     uint16_t idxOfldsToPf[16];
-    uint16_t ofldsSurPfSet;
+    uint16_t oflds_suri_support;
     /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;
@@ -141,11 +141,11 @@ struct PFConfRingEntry {
     struct rte_ring *tasks_ring;
     struct rte_ring *results_ring;
     struct rte_mempool *message_mp;
-    uint16_t ofldsPfSetSur;
-    uint16_t ofldsSurWant;
-    uint16_t ofldsFinalIDS;
-    uint16_t ofldsPfWant;
-    uint16_t ofldsFinalIPS;
+    uint16_t oflds_pf_support;
+    uint16_t oflds_suri_requested;
+    uint16_t oflds_final_IDS;
+    uint16_t oflds_pf_requested;
+    uint16_t oflds_final_IPS;
 };
 
 struct PFConf {

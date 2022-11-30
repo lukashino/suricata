@@ -817,7 +817,7 @@ static void PktsEnqueue(struct lcore_values *lv)
             Log().error(EINVAL, "Ring buffer length over the buffer");
 
         // if no one offload is not required, skip offloads setting up part
-        if (lv->cntOfldsToSur < 1)
+        if (lv->cntOfldsToSur == 0)
             goto burstPoint;
 
         for (int j = 0; j < lv->tmp_ring_bufs[i].len; j++) {
@@ -829,7 +829,7 @@ static void PktsEnqueue(struct lcore_values *lv)
             priv_size = rte_mbuf_to_priv(lv->tmp_ring_bufs[i].buf[j]);
 
             // decode L# and L4 layers and fill the structure with metadata
-            if (decodePacketL3(&metaData, lv->tmp_ring_bufs[i].buf[j])) {
+            if (DecodePacketL3(&metaData, lv->tmp_ring_bufs[i].buf[j])) {
                 Log().error(99, "Decoding of the packets failed\n");
                 memset(&metaData, 0x00, sizeof(void*) * 4);
             }
@@ -838,27 +838,27 @@ static void PktsEnqueue(struct lcore_values *lv)
                 switch(lv->idxOfldsToSur[t]) {
                     case IPV4_ID:
                         SET_OFFSET(metaData.ipv4_hdr);
-                        SET_DATA_TO_PRIV(&metaData.srcA, sizeof(Address));
-                        SET_DATA_TO_PRIV(&metaData.dstA, sizeof(Address));
+                        SET_DATA_TO_PRIV(&metaData.src_addr, sizeof(Address));
+                        SET_DATA_TO_PRIV(&metaData.dst_addr, sizeof(Address));
                         SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
                         break;
                     case IPV6_ID:
                         SET_OFFSET(metaData.ipv6_hdr);
-                        SET_DATA_TO_PRIV(&metaData.srcA, sizeof(Address));
-                        SET_DATA_TO_PRIV(&metaData.dstA, sizeof(Address));
+                        SET_DATA_TO_PRIV(&metaData.src_addr, sizeof(Address));
+                        SET_DATA_TO_PRIV(&metaData.dst_addr, sizeof(Address));
                         break;
                     case TCP_ID:
                         SET_OFFSET(metaData.tcp_hdr);
-                        SET_DATA_TO_PRIV(&metaData.srcP, sizeof(Port));
-                        SET_DATA_TO_PRIV(&metaData.dstP, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.src_port, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.dst_port, sizeof(Port));
                         SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
                         SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
                         SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
                         break;
                     case UDP_ID:
                         SET_OFFSET(metaData.udp_hdr);
-                        SET_DATA_TO_PRIV(&metaData.srcP, sizeof(Port));
-                        SET_DATA_TO_PRIV(&metaData.dstP, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.src_port, sizeof(Port));
+                        SET_DATA_TO_PRIV(&metaData.dst_port, sizeof(Port));
                         SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
                         SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
                         break;
@@ -906,7 +906,7 @@ static uint16_t PktsTx(
     Log().debug("Sending %d pkts to P%dQ%d", pkts_cnt, port_id, lv->qid);
 
     void *priv_space;
-    uint32_t cnt, id;
+    uint32_t cnt;
     for (int i = 0; i < pkts_cnt; ++i) {
         priv_space = rte_mbuf_to_priv(pkts[i]);
         memcpy(&cnt, priv_space, sizeof(uint32_t));
@@ -915,8 +915,7 @@ static uint16_t PktsTx(
 
         priv_space += sizeof(uint16_t)<<3;
         for (int j = 0; j < cnt; j++) {
-            memcpy(&id, priv_space + (j*sizeof(uint32_t)<<3), sizeof(uint32_t));
-            printf(" id:%d", id);
+            Log().info("id: %d", *(uint32_t*)(priv_space + (j*sizeof(uint32_t)<<3)));
         }
 next_packet:
         (void)cnt;

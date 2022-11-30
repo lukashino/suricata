@@ -110,12 +110,12 @@ int ThreadMain(void *init_values)
             struct PFConf *pf_conf = (struct PFConf *)mz->addr;
 
             for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++)
-                pf_conf->ring_entries[i].ofldsFinalIDS = pf_conf->ring_entries[i].ofldsSurWant & pf_conf->ring_entries[i].ofldsPfSetSur;
+                pf_conf->ring_entries[i].oflds_final_IDS = pf_conf->ring_entries[i].oflds_suri_requested & pf_conf->ring_entries[i].oflds_pf_support;
 
             // one ring must exist always
-            Log().info("%d - IPS, %d - IDS\n", pf_conf->ring_entries[0].ofldsFinalIPS, pf_conf->ring_entries[0].ofldsFinalIDS);
-            setOffloads(pf_conf->ring_entries[0].ofldsFinalIDS, &lv->cntOfldsToSur, lv->idxOfldsToSur);
-            setOffloads(pf_conf->ring_entries[0].ofldsFinalIPS, &lv->cntOfldsFromSur, lv->idxOfldsFromSur);
+            Log().info("%d - IPS, %d - IDS\n", pf_conf->ring_entries[0].oflds_final_IPS, pf_conf->ring_entries[0].oflds_final_IDS);
+            SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IDS, &lv->cntOfldsToSur, lv->idxOfldsToSur);
+            SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IPS, &lv->cntOfldsFromSur, lv->idxOfldsFromSur);
 
             LcoreStateSet(lv->state, LCORE_OFFLOADS_DONE);
             Log().debug("Lcore %d setting up offloads finished", rte_lcore_id());

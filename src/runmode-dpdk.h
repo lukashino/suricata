@@ -25,14 +25,14 @@
 
 #include "util-dpdk.h"
 
-struct OffloadsAttrsPf {
-    const char *Ipv4;
-    const char *Ipv6;
-    const char *Tcp;
-    const char *Udp;
+struct PfOffloadsAttrs {
+    const char *ipv4;
+    const char *ipv6;
+    const char *tcp;
+    const char *udp;
 };
 
-struct OffloadsAttrsSur {
+struct SuriOffloadsAttrs {
     const char *matchRules;
 };
 
@@ -50,14 +50,14 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *tx_descriptors;
     const char *copy_mode;
     const char *copy_iface;
-    struct OffloadsAttrsPf ofldsFromPfToSur;
-    struct OffloadsAttrsSur ofldsFromSurToPf;
+    struct PfOffloadsAttrs oflds_from_pf_to_suri;
+    struct SuriOffloadsAttrs oflds_from_suri_to_pf;
 } DPDKIfaceConfigAttributes;
 
 int DeviceConfigure(DPDKIfaceConfig *iconf);
 int RunModeIdsDpdkWorkers(void);
 void RunModeDpdkRegister(void);
 const char *RunModeDpdkGetDefaultMode(void);
-void setOffloads(uint16_t , uint16_t*, uint16_t*);
+void SetIdxOfFinalOfflds(uint16_t , uint16_t*, uint16_t*);
 
 #endif /* __RUNMODE_DPDK_H__ */

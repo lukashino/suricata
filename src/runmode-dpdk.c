@@ -143,26 +143,26 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
-    .ofldsFromPfToSur = {
-        .Ipv4 = "IPV4",
-        .Ipv6 = "IPV6",
-        .Tcp = "TCP",
-        .Udp = "UDP",
+    .oflds_from_pf_to_suri = {
+        .ipv4 = "IPV4",
+        .ipv6 = "IPV6",
+        .tcp = "TCP",
+        .udp = "UDP",
     },
-    .ofldsFromSurToPf = {
+    .oflds_from_suri_to_pf = {
         .matchRules = "matchRules",
     }
 
 };
 
-#define OFFLOADS_PF                                  \
-    X(dpdk_yaml.ofldsFromPfToSur.Ipv4, IPV4_OFFLOAD) \
-    X(dpdk_yaml.ofldsFromPfToSur.Ipv6, IPV6_OFFLOAD) \
-    X(dpdk_yaml.ofldsFromPfToSur.Tcp, TCP_OFFLOAD)   \
-    X(dpdk_yaml.ofldsFromPfToSur.Udp, UDP_OFFLOAD)
+#define OFFLOADS_PF                                       \
+    X(dpdk_yaml.oflds_from_pf_to_suri.ipv4, IPV4_OFFLOAD) \
+    X(dpdk_yaml.oflds_from_pf_to_suri.ipv6, IPV6_OFFLOAD) \
+    X(dpdk_yaml.oflds_from_pf_to_suri.tcp,  TCP_OFFLOAD)  \
+    X(dpdk_yaml.oflds_from_pf_to_suri.udp,  UDP_OFFLOAD)
 
 #define OFFLOADS_SUR \
-    X(dpdk_yaml.ofldsFromSurToPf.matchRules, MATCH_RULES_OFFLOAD)
+    X(dpdk_yaml.oflds_from_suri_to_pf.matchRules, MATCH_RULES_OFFLOAD)
 
 
 
@@ -918,27 +918,27 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
 
     ConfNode *config;
 
-    config = ConfGetNode("offloadsFromPfToSur");
+    config = ConfGetNode("offloads-from-pf-to-suri");
     if (config == NULL)
-        FatalError(SC_ERR_OFFLOADS, "failed to find \"offloadsFromPfToSur\" for Suricata");
+        FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-pf-to-suri\" for Suricata");
 
     // perform the same code for each offload, where MACRO depends
     // on the string with the name of the required offload
 #define X(str, MACRO)                                                    \
     if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1) \
-        iconf->ofldsSurWant |= MACRO(entry_bool);                        \
+        iconf->oflds_suri_requested |= MACRO(entry_bool);                \
     else                                                                 \
         SCReturnInt(retval);
     OFFLOADS_PF
 #undef X
 
-    config = ConfGetNode("offloadsFromSurToPf");
+    config = ConfGetNode("offloads-from-suri-to-pf");
     if (config == NULL)
-        FatalError(SC_ERR_OFFLOADS, "failed to find \"offloadsFromSurToPf\" for Suricata");
+        FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-suri-to-pf\" for Suricata");
 
 #define X(str, MACRO)                                                     \
     if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1)  \
-        iconf->ofldsSurPfSet |= MACRO(entry_bool);                        \
+        iconf->oflds_suri_support |= MACRO(entry_bool);                   \
     else                                                                  \
       SCReturnInt(retval);
     OFFLOADS_SUR
@@ -1366,13 +1366,13 @@ static bool DeviceRingNameIsValid(const char *name, uint16_t rings_cnt)
     return true;
 }
 
-static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(const char *memzone_name, const char *rx_ring_name)
+static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(const char *mz_name, const char *rx_ring_name)
 {
     const struct rte_memzone *mz = NULL;
     struct PFConf *pf_conf;
     struct PFConfRingEntry *pf_re;
 
-    mz = rte_memzone_lookup(memzone_name);
+    mz = rte_memzone_lookup(mz_name);
     if (mz == NULL) {
         FatalError(SC_ERR_DPDK_INIT, "Error (%s): Memzone not found", rte_strerror(rte_errno));
     }
@@ -1395,7 +1395,7 @@ static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(const char *memzon
  * input: finalOffloads = 0101010000000010 (binary MSB)
  * output: cntOffloads = 4, indexOffloads = {1, 10, 12, 14}
  */
-void setOffloads(uint16_t finalOffloads, uint16_t* cntOffloads, uint16_t* indexOffloads)
+void SetIdxOfFinalOfflds(uint16_t finalOffloads, uint16_t *cntOffloads, uint16_t *indexOffloads)
 {
     // TODO create a constant variable '16' - max count of offloads
     for (int i = 0; i < 16; i++) {
@@ -1486,8 +1486,8 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         iconf->results_rings[i] = pf_re->results_ring;
         iconf->messages_mempools[i] = pf_re->message_mp;
 
-        pf_re->ofldsSurWant = iconf->ofldsSurWant;
-        pf_re->ofldsFinalIPS = iconf->ofldsSurPfSet & pf_re->ofldsPfWant;
+        pf_re->oflds_suri_requested = iconf->oflds_suri_requested;
+        pf_re->oflds_final_IPS = iconf->oflds_suri_support & pf_re->oflds_pf_requested;
 
         if (iconf->copy_mode == DPDK_COPY_MODE_NONE) {
             iconf->tx_rings[i] = NULL;
@@ -1506,7 +1506,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     struct rte_mp_msg req;
     struct rte_mp_reply reply;
     memset(&req, 0, sizeof(req));
-    strlcpy(req.name, IPC_ACTION_SET_UP_OFFLOADS, RTE_MP_MAX_NAME_LEN);
+    strlcpy(req.name, IPC_ACTION_OFFLOADS_SETUP, RTE_MP_MAX_NAME_LEN);
     const struct timespec tss = {.tv_sec = 5, .tv_nsec = 0};
     retval = rte_mp_request_sync(&req, &reply, &tss);
 
@@ -1526,9 +1526,9 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
             SCReturnInt(-ENOENT);
         }
 
-        SCLogNotice("%d - IPS, %d - IDS\n", pf_re->ofldsFinalIPS, pf_re->ofldsFinalIDS);
-        setOffloads(pf_re->ofldsFinalIDS, &iconf->cntOfldsFromPf[i], iconf->idxOfldsFromPf[i]);
-        setOffloads(pf_re->ofldsFinalIPS, &iconf->cntOfldsToPf, iconf->idxOfldsToPf);
+        SCLogNotice("%d - IPS, %d - IDS\n", pf_re->oflds_final_IPS, pf_re->oflds_final_IDS);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS, &iconf->cntOfldsFromPf[i], iconf->idxOfldsFromPf[i]);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS, &iconf->cntOfldsToPf, iconf->idxOfldsToPf);
     }
 
     SCReturnInt(0);

@@ -315,7 +315,7 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
 
     sleep(2);
     ret = rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
-    Log().debug("PPP Action for %s", IPC_ACTION_SET_UP_OFFLOADS);
+    Log().debug("IPC action for %s", IPC_ACTION_OFFLOADS_SETUP);
 
     return 0;
 }
@@ -368,10 +368,10 @@ static int IPCInit(
         return -rte_errno;
     }
 
-    ret = rte_mp_action_register(IPC_ACTION_SET_UP_OFFLOADS, IPCSetupOffloads);
+    ret = rte_mp_action_register(IPC_ACTION_OFFLOADS_SETUP, IPCSetupOffloads);
     if (ret != 0) {
         Log().warning(ENOTSUP, "Error (%s): Unable to register action (%s)",
-                rte_strerror(rte_errno), IPC_ACTION_SET_UP_OFFLOADS);
+                rte_strerror(rte_errno), IPC_ACTION_OFFLOADS_SETUP);
         return -rte_errno;
     }
 
