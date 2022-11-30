@@ -114,8 +114,8 @@ int ThreadMain(void *init_values)
 
             // one ring must exist always
             Log().info("%d - IPS, %d - IDS\n", pf_conf->ring_entries[0].oflds_final_IPS, pf_conf->ring_entries[0].oflds_final_IDS);
-            SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IDS, &lv->cntOfldsToSur, lv->idxOfldsToSur);
-            SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IPS, &lv->cntOfldsFromSur, lv->idxOfldsFromSur);
+            SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IDS, &lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested);
+            SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IPS, &lv->cnt_offlds_suri_support, lv->idxes_offlds_suri_support);
 
             LcoreStateSet(lv->state, LCORE_OFFLOADS_DONE);
             Log().debug("Lcore %d setting up offloads finished", rte_lcore_id());
