@@ -817,7 +817,7 @@ static void SetMetadataToMbuf(uint16_t len_buf, uint16_t num_offlds, uint16_t *i
         priv_size = rte_mbuf_to_priv(buf[j]);
 
         // decode L# and L4 layers and fill the structure with metadata
-        if (DecodePacketL3(&metaData, buf[j])) {
+        if (MetadataDecodePacketL3(&metaData, buf[j])) {
             Log().error(99, "Decoding of the packets failed\n");
             memset(&metaData, 0x00, sizeof(void*) * 4);
         }

@@ -97,11 +97,11 @@ typedef struct DPDKIfaceConfig_ {
     struct rte_ring **tasks_rings;
     struct rte_ring **results_rings;
     struct rte_mempool **messages_mempools;
-    uint16_t *cntOfldsFromPf;
-    uint16_t (*idxOfldsFromPf)[16];
+    uint16_t *cnt_offlds_suri_requested;
+    uint16_t (*idxes_offlds_suri_requested)[16];
     uint16_t oflds_suri_requested;
-    uint16_t cntOfldsToPf;
-    uint16_t idxOfldsToPf[16];
+    uint16_t cnt_offlds_suri_support;
+    uint16_t idxes_offlds_suri_support[16];
     uint16_t oflds_suri_support;
     /* End of ring mode settings */
     /* IPS mode */

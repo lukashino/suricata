@@ -478,11 +478,11 @@ static void DPDKDerefConfig(void *conf)
         if (iconf->messages_mempools != NULL) {
             SCFree(iconf->messages_mempools);
         }
-        if (iconf->cntOfldsFromPf != NULL) {
-            SCFree(iconf->cntOfldsFromPf);
+        if (iconf->cnt_offlds_suri_requested != NULL) {
+            SCFree(iconf->cnt_offlds_suri_requested);
         }
-        if (iconf->idxOfldsFromPf != NULL) {
-            SCFree(iconf->idxOfldsFromPf);
+        if (iconf->idxes_offlds_suri_requested != NULL) {
+            SCFree(iconf->idxes_offlds_suri_requested);
         }
 
         SCFree(iconf);
@@ -1455,15 +1455,15 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         SCReturnInt(-ENOMEM);
     }
 
-    iconf->cntOfldsFromPf = SCCalloc(rings_cnt, sizeof(uint16_t));
-    if (iconf->cntOfldsFromPf == NULL) {
-        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc cntOfldsFromPf");
+    iconf->cnt_offlds_suri_requested = SCCalloc(rings_cnt, sizeof(uint16_t));
+    if (iconf->cnt_offlds_suri_requested == NULL) {
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc cnt_offlds_suri_requested");
         SCReturnInt(-ENOMEM);
     }
 
-    iconf->idxOfldsFromPf = SCCalloc(rings_cnt, sizeof(uint16_t[16]));
-    if (iconf->idxOfldsFromPf == NULL) {
-        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc idxOfldsFromPf");
+    iconf->idxes_offlds_suri_requested = SCCalloc(rings_cnt, sizeof(uint16_t[16]));
+    if (iconf->idxes_offlds_suri_requested == NULL) {
+        SCLogError(SC_ERR_DPDK_INIT, "Failed to calloc idxes_offlds_suri_requested");
         SCReturnInt(-ENOMEM);
     }
 
@@ -1527,8 +1527,8 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         }
 
         SCLogNotice("%d - IPS, %d - IDS\n", pf_re->oflds_final_IPS, pf_re->oflds_final_IDS);
-        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS, &iconf->cntOfldsFromPf[i], iconf->idxOfldsFromPf[i]);
-        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS, &iconf->cntOfldsToPf, iconf->idxOfldsToPf);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS, &iconf->cnt_offlds_suri_requested[i], iconf->idxes_offlds_suri_requested[i]);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS, &iconf->cnt_offlds_suri_support, iconf->idxes_offlds_suri_support);
     }
 
     SCReturnInt(0);
