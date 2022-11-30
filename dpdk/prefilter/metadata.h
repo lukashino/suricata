@@ -100,13 +100,13 @@ typedef struct Metadata {
     struct rte_tcp_hdr *tcp_hdr;
     struct rte_udp_hdr *udp_hdr;
 
-    Address srcA;
-    Address dstA;
+    Address src_addr;
+    Address dst_addr;
     uint8_t ip_opt_len;
     IPV4Vars ip_opt_vars;
 
-    Port srcP;
-    Port dstP;
+    Port src_port;
+    Port dst_port;
     uint8_t proto;
     uint16_t payload_len;
     uint8_t tcp_opt_len;
@@ -117,20 +117,20 @@ typedef struct Metadata {
     PacketEngineEvents events;
 } metadata_t;
 
-void setIpv4(Address *, uint32_t);
-void setIpv6(Address *, uint8_t *);
-static inline size_t get_vlan_offset(struct rte_ether_hdr *, uint16_t *);
+void MetadataIpv4ConvertTo(Address *, uint32_t);
+void MetadataIpv6ConvertTo(Address *, uint8_t *);
+static inline size_t GetVlanOffset(struct rte_ether_hdr *, uint16_t *);
 static int IPV4OptValidateTimestamp(const IPV4Opt *);
 static int IPV4OptValidateRoute(const IPV4Opt *);
 static int IPV4OptValidateGeneric(const IPV4Opt *);
 static int IPV4OptValidateCIPSO(const IPV4Opt *);
-int decodeIPV4Options(uint8_t *, uint8_t, metadata_t *);
-int decodeTCPOptions(uint8_t *, uint8_t, metadata_t *);
-int decodePacketTCP(metadata_t *, uint16_t);
-int decodePacketUDP(metadata_t *, uint16_t);
-int decodePacketL4(uint8_t, size_t, unsigned char *, metadata_t *, uint16_t);
-int decodePacketIPv6(uint16_t, metadata_t *);
-int decodePacketIPv4(uint16_t, metadata_t *);
-int decodePacketL3(metadata_t *, struct rte_mbuf *);
+int DecodeIPV4Options(uint8_t *, uint8_t, metadata_t *);
+int DecodeTCPOptions(uint8_t *, uint8_t, metadata_t *);
+int DecodePacketTCP(metadata_t *, uint16_t);
+int DecodePacketUDP(metadata_t *, uint16_t);
+int DecodePacketL4(uint8_t, size_t, unsigned char *, metadata_t *, uint16_t);
+int DecodePacketIPv6(metadata_t *, uint16_t);
+int DecodePacketIPv4(metadata_t *, uint16_t);
+int DecodePacketL3(metadata_t *, struct rte_mbuf *);
 
 #endif // METADATA_H

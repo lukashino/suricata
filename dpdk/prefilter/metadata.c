@@ -24,18 +24,20 @@
 
 #include "metadata.h"
 
-void setIpv4(Address *dst, uint32_t src) {
+void MetadataIpv4ConvertTo(Address *dst, uint32_t src) {
     dst->family = AF_INET;
     dst->family_padding = 0;
     memcpy(&(dst->address.address_un_data32[0]), &src, sizeof(uint32_t));
     memset(&(dst->address.address_un_data32[1]), 0x00, sizeof(uint32_t)*3);
 }
-void setIpv6(Address *dst, uint8_t *src) {
+
+void MetadataIpv6ConvertTo(Address *dst, uint8_t *src) {
     dst->family = AF_INET6;
     dst->family_padding = 0;
     memcpy(&(dst->address.address_un_data8[0]), src, sizeof(uint32_t)*4);
 }
-static inline size_t get_vlan_offset(struct rte_ether_hdr *eth_hdr, uint16_t *proto)
+
+static inline size_t GetVlanOffset(struct rte_ether_hdr *eth_hdr, uint16_t *proto)
 {
     size_t vlan_offset = 0;
     if (rte_cpu_to_be_16(RTE_ETHER_TYPE_VLAN) == *proto) {
@@ -50,6 +52,7 @@ static inline size_t get_vlan_offset(struct rte_ether_hdr *eth_hdr, uint16_t *pr
     }
     return vlan_offset;
 }
+
 static int IPV4OptValidateTimestamp(const IPV4Opt *o)
 {
     uint8_t ptr;
@@ -84,6 +87,7 @@ static int IPV4OptValidateTimestamp(const IPV4Opt *o)
 
     return 0;
 }
+
 static int IPV4OptValidateRoute(const IPV4Opt *o)
 {
     uint8_t ptr;
@@ -107,6 +111,7 @@ static int IPV4OptValidateRoute(const IPV4Opt *o)
 
     return 0;
 }
+
 static int IPV4OptValidateGeneric(const IPV4Opt *o)
 {
     switch (o->type) {
@@ -135,6 +140,7 @@ static int IPV4OptValidateGeneric(const IPV4Opt *o)
 
     return 0;
 }
+
 static int IPV4OptValidateCIPSO(const IPV4Opt *o)
 {
     //    uint32_t doi;
@@ -152,16 +158,6 @@ static int IPV4OptValidateCIPSO(const IPV4Opt *o)
     //    doi = *o->data;
     tag = o->data + 4;
     len = o->len - 1 - 1 - 4; /* Length of tags after header */
-
-
-#if 0
-    /* Domain of Interest (DOI) of 0 is reserved and thus invalid */
-    /** \todo Aparently a DOI of zero is fine in practice - verify. */
-    if (doi == 0) {
-        ENGINE_SET_EVENT(p,IPV4_OPT_MALFORMED);
-        return -1;
-    }
-#endif
 
     /* NOTE: We know len has passed min tests prior to this call */
 
@@ -217,23 +213,24 @@ static int IPV4OptValidateCIPSO(const IPV4Opt *o)
 
     return 0;
 }
-int decodeIPV4Options(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData) {
+
+int DecodeIPV4Options(uint8_t *pkt, uint8_t opt_len, metadata_t *meta_data) {
     IPV4Options opts;
     memset(&opts, 0x00, sizeof(opts));
 
     if (opt_len % 8)
-        ENGINE_SET_EVENT(metaData, IPV4_OPT_PAD_REQUIRED);
+        METADATA_SET_EVENT(meta_data, IPV4_OPT_PAD_REQUIRED);
 
     while (opt_len)
     {
-        metaData->ip_opt_vars.opt_cnt++;
+        meta_data->ip_opt_vars.opt_cnt++;
 
         /* single byte options */
         if (*pkt == IPV4_OPT_EOL) {
             /** \todo What if more data exist after EOL (possible covert channel or data leakage)? */
             SCLogDebug("IPV4OPT %" PRIu8 " len 1 @ %d/%d",
                     *pkt, (len - plen), (len - 1));
-            metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_EOL;
+            meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_EOL;
             break;
         } else if (*pkt == IPV4_OPT_NOP) {
             SCLogDebug("IPV4OPT %" PRIu8 " len 1 @ %d/%d",
@@ -241,14 +238,14 @@ int decodeIPV4Options(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData) {
             pkt++;
             opt_len--;
 
-            metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_NOP;
+            meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_NOP;
 
             /* multibyte options */
         } else {
             if (unlikely(opt_len < 2)) {
                 /** \todo What if padding is non-zero (possible covert channel or data leakage)? */
                 /** \todo Spec seems to indicate EOL required if there is padding */
-                ENGINE_SET_EVENT(metaData, IPV4_OPT_EOL_REQUIRED);
+                METADATA_SET_EVENT(meta_data, IPV4_OPT_EOL_REQUIRED);
                 break;
             }
 
@@ -272,89 +269,89 @@ int decodeIPV4Options(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData) {
             switch (opt.type) {
                 case IPV4_OPT_TS:
                     if (opts.o_ts.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateTimestamp(&opt) == 0) {
                         opts.o_ts = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_TS;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_TS;
                     }
                     break;
                 case IPV4_OPT_RR:
                     if (opts.o_rr.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateRoute(&opt) == 0) {
                         opts.o_rr = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_RR;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_RR;
                     }
                     break;
                 case IPV4_OPT_QS:
                     if (opts.o_qs.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_qs = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_QS;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_QS;
                     }
                     break;
                 case IPV4_OPT_SEC:
                     if (opts.o_sec.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_sec = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SEC;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SEC;
                     }
                     break;
                 case IPV4_OPT_LSRR:
                     if (opts.o_lsrr.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateRoute(&opt) == 0) {
                         opts.o_lsrr = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_LSRR;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_LSRR;
                     }
                     break;
                 case IPV4_OPT_CIPSO:
                     if (opts.o_cipso.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateCIPSO(&opt) == 0) {
                         opts.o_cipso = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_CIPSO;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_CIPSO;
                     }
                     break;
                 case IPV4_OPT_SID:
                     if (opts.o_sid.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_sid = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SID;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SID;
                     }
                     break;
                 case IPV4_OPT_SSRR:
                     if (opts.o_ssrr.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateRoute(&opt) == 0) {
                         opts.o_ssrr = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SSRR;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SSRR;
                     }
                     break;
                 case IPV4_OPT_RTRALT:
                     if (opts.o_rtralt.type != 0) {
-                        METADATA_SET_EVENT(metaData, IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(meta_data, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (IPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_rtralt = opt;
-                        metaData->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_RTRALT;
+                        meta_data->ip_opt_vars.opts_set |= IPV4_OPT_FLAG_RTRALT;
                     }
                     break;
                 default:
                     SCLogDebug("IPV4OPT <unknown> (%" PRIu8 ") len %" PRIu8,
                             opt.type, opt.len);
-                    METADATA_SET_EVENT(metaData, IPV4_OPT_INVALID);
+                    METADATA_SET_EVENT(meta_data, IPV4_OPT_INVALID);
                     /* Warn - we can keep going */
                     break;
             }
@@ -366,7 +363,8 @@ int decodeIPV4Options(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData) {
 
     return 0;
 }
-int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
+
+int DecodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *meta_data)
 {
     uint8_t tcp_opt_cnt = 0;
     TCPOpt tcp_opts[TCP_OPTMAX];
@@ -408,49 +406,49 @@ int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
             switch (type) {
                 case TCP_OPT_WS:
                     if (olen != TCP_OPT_WS_LEN) {
-                        METADATA_SET_EVENT(metaData ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(meta_data ,TCP_OPT_INVALID_LEN);
                     } else {
-                        if (metaData->tcp_opt_vars.ws.type != 0) {
-                            METADATA_SET_EVENT(metaData, TCP_OPT_DUPLICATE);
+                        if (meta_data->tcp_opt_vars.ws.type != 0) {
+                            METADATA_SET_EVENT(meta_data, TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(metaData->tcp_opt_vars.ws, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(meta_data->tcp_opt_vars.ws, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
                 case TCP_OPT_MSS:
                     if (olen != TCP_OPT_MSS_LEN) {
-                        METADATA_SET_EVENT(metaData ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(meta_data ,TCP_OPT_INVALID_LEN);
                     } else {
-                        if (metaData->tcp_opt_vars.mss.type != 0) {
-                            METADATA_SET_EVENT(metaData ,TCP_OPT_DUPLICATE);
+                        if (meta_data->tcp_opt_vars.mss.type != 0) {
+                            METADATA_SET_EVENT(meta_data ,TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(metaData->tcp_opt_vars.mss, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(meta_data->tcp_opt_vars.mss, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
                 case TCP_OPT_SACKOK:
                     if (olen != TCP_OPT_SACKOK_LEN) {
-                        METADATA_SET_EVENT(metaData ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(meta_data ,TCP_OPT_INVALID_LEN);
                     } else {
-                        if (metaData->tcp_opt_vars.sackok.type != 0) {
-                            METADATA_SET_EVENT(metaData ,TCP_OPT_DUPLICATE);
+                        if (meta_data->tcp_opt_vars.sackok.type != 0) {
+                            METADATA_SET_EVENT(meta_data ,TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(metaData->tcp_opt_vars.sackok, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(meta_data->tcp_opt_vars.sackok, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
                 case TCP_OPT_TS:
                     if (olen != TCP_OPT_TS_LEN) {
-                        METADATA_SET_EVENT(metaData ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(meta_data ,TCP_OPT_INVALID_LEN);
                     } else {
-                        if (metaData->tcp_opt_vars.ts_set) {
-                            METADATA_SET_EVENT(metaData ,TCP_OPT_DUPLICATE);
+                        if (meta_data->tcp_opt_vars.ts_set) {
+                            METADATA_SET_EVENT(meta_data ,TCP_OPT_DUPLICATE);
                         } else {
                             uint32_t values[2];
                             memcpy(&values, tcp_opts[tcp_opt_cnt].data, sizeof(values));
-                            metaData->tcp_opt_vars.ts_val = SCNtohl(values[0]);
-                            metaData->tcp_opt_vars.ts_ecr = SCNtohl(values[1]);
-                            metaData->tcp_opt_vars.ts_set = true;
+                            meta_data->tcp_opt_vars.ts_val = SCNtohl(values[0]);
+                            meta_data->tcp_opt_vars.ts_ecr = SCNtohl(values[1]);
+                            meta_data->tcp_opt_vars.ts_set = true;
                         }
                     }
                     break;
@@ -461,12 +459,12 @@ int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
                                     olen > TCP_OPT_SACK_MAX_LEN ||
                                     !((olen - 2) % 8 == 0)))
                     {
-                        METADATA_SET_EVENT(metaData ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(meta_data ,TCP_OPT_INVALID_LEN);
                     } else {
-                        if (metaData->tcp_opt_vars.sack.type != 0) {
-                            METADATA_SET_EVENT(metaData ,TCP_OPT_DUPLICATE);
+                        if (meta_data->tcp_opt_vars.sack.type != 0) {
+                            METADATA_SET_EVENT(meta_data ,TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(metaData->tcp_opt_vars.sack, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(meta_data->tcp_opt_vars.sack, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
@@ -474,12 +472,12 @@ int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
                     SCLogDebug("TFO option, len %u", olen);
                     if ((olen != 2) && (olen < TCP_OPT_TFO_MIN_LEN || olen > TCP_OPT_TFO_MAX_LEN ||
                                                !(((olen - 2) & 0x1) == 0))) {
-                        METADATA_SET_EVENT(metaData ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(meta_data ,TCP_OPT_INVALID_LEN);
                     } else {
-                        if (metaData->tcp_opt_vars.tfo.type != 0) {
-                            METADATA_SET_EVENT(metaData ,TCP_OPT_DUPLICATE);
+                        if (meta_data->tcp_opt_vars.tfo.type != 0) {
+                            METADATA_SET_EVENT(meta_data ,TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(metaData->tcp_opt_vars.tfo, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(meta_data->tcp_opt_vars.tfo, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
@@ -490,15 +488,15 @@ int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
                     if (olen == 4 || olen == 12) {
                         uint16_t magic = SCNtohs(*(uint16_t *)tcp_opts[tcp_opt_cnt].data);
                         if (magic == 0xf989) {
-                            if (metaData->tcp_opt_vars.tfo.type != 0) {
-                                METADATA_SET_EVENT(metaData ,TCP_OPT_DUPLICATE);
+                            if (meta_data->tcp_opt_vars.tfo.type != 0) {
+                                METADATA_SET_EVENT(meta_data ,TCP_OPT_DUPLICATE);
                             } else {
-                                SET_OPTS(metaData->tcp_opt_vars.tfo, tcp_opts[tcp_opt_cnt]);
-                                metaData->tcp_opt_vars.tfo.type = TCP_OPT_TFO; // treat as regular TFO
+                                SET_OPTS(meta_data->tcp_opt_vars.tfo, tcp_opts[tcp_opt_cnt]);
+                                meta_data->tcp_opt_vars.tfo.type = TCP_OPT_TFO; // treat as regular TFO
                             }
                         }
                     } else {
-                        METADATA_SET_EVENT(metaData ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(meta_data ,TCP_OPT_INVALID_LEN);
                     }
                     break;
                 /* RFC 2385 MD5 option */
@@ -508,7 +506,7 @@ int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
                         return TCP_OPT_INVALID_LEN; // ENGINE SET INVALID EVENT
                     } else {
                         /* we can't validate the option as the key is out of band */
-                        metaData->tcp_opt_vars.md5_option_present = true;
+                        meta_data->tcp_opt_vars.md5_option_present = true;
                     }
                     break;
                 /* RFC 5925 AO option */
@@ -518,7 +516,7 @@ int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
                         return TCP_OPT_INVALID_LEN; // ENGINE SET INVALID EVENT
                     } else {
                         /* we can't validate the option as the key is out of band */
-                        metaData->tcp_opt_vars.ao_option_present = true;
+                        meta_data->tcp_opt_vars.ao_option_present = true;
                     }
                     break;
             }
@@ -531,7 +529,8 @@ int decodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *metaData)
 
     return 0;
 }
-int decodePacketTCP(metadata_t *metaData, uint16_t len) {
+
+int DecodePacketTCP(metadata_t *meta_data, uint16_t len) {
     uint16_t tcp_len;
     int ret;
 
@@ -539,38 +538,39 @@ int decodePacketTCP(metadata_t *metaData, uint16_t len) {
         return TCP_PKT_TOO_SMALL;
     }
 
-    tcp_len = (metaData->tcp_hdr->data_off & 0xf0) >> 2;
+    tcp_len = (meta_data->tcp_hdr->data_off & 0xf0) >> 2;
     if (unlikely(len < tcp_len)) {
         return TCP_HLEN_TOO_SMALL;
     }
 
-    metaData->tcp_opt_len = tcp_len - TCP_HEADER_LEN;
-    if (unlikely(metaData->tcp_opt_len > TCP_OPTLENMAX)) {
+    meta_data->tcp_opt_len = tcp_len - TCP_HEADER_LEN;
+    if (unlikely(meta_data->tcp_opt_len > TCP_OPTLENMAX)) {
         return TCP_INVALID_OPTLEN;
     }
 
-    if (metaData->tcp_opt_len > 0) {
-        ret = decodeTCPOptions((uint8_t *)metaData->tcp_hdr + TCP_HEADER_LEN, metaData->tcp_opt_len, metaData);
+    if (meta_data->tcp_opt_len > 0) {
+        ret = DecodeTCPOptions((uint8_t *)meta_data->tcp_hdr + TCP_HEADER_LEN, meta_data->tcp_opt_len, meta_data);
         if (ret != 0) {
             return ret;
         }
     }
 
-    metaData->srcP = rte_be_to_cpu_16(metaData->tcp_hdr->src_port);
-    metaData->dstP = rte_be_to_cpu_16(metaData->tcp_hdr->dst_port);
-    metaData->payload_len = len - tcp_len;
-    metaData->l4_len = tcp_len;
+    meta_data->src_port = rte_be_to_cpu_16(meta_data->tcp_hdr->src_port);
+    meta_data->dst_port = rte_be_to_cpu_16(meta_data->tcp_hdr->dst_port);
+    meta_data->payload_len = len - tcp_len;
+    meta_data->l4_len = tcp_len;
 
     return 0;
 }
-int decodePacketUDP(metadata_t *metaData, uint16_t len) {
+
+int DecodePacketUDP(metadata_t *meta_data, uint16_t len) {
     uint16_t udp_raw_len;
 
     if (unlikely(len < UDP_HEADER_LEN)) {
         return UDP_HLEN_TOO_SMALL;
     }
 
-    udp_raw_len = rte_be_to_cpu_16(metaData->udp_hdr->dgram_len);
+    udp_raw_len = rte_be_to_cpu_16(meta_data->udp_hdr->dgram_len);
     if (unlikely(len < udp_raw_len)) {
         return UDP_PKT_TOO_SMALL;
     }
@@ -579,38 +579,39 @@ int decodePacketUDP(metadata_t *metaData, uint16_t len) {
         return UDP_HLEN_INVALID;
     }
 
-    metaData->srcP = rte_be_to_cpu_16(metaData->udp_hdr->src_port);
-    metaData->dstP = rte_be_to_cpu_16(metaData->udp_hdr->dst_port);
-    metaData->payload_len = len - UDP_HEADER_LEN;
-    metaData->l4_len = UDP_HEADER_LEN;
+    meta_data->src_port = rte_be_to_cpu_16(meta_data->udp_hdr->src_port);
+    meta_data->dst_port = rte_be_to_cpu_16(meta_data->udp_hdr->dst_port);
+    meta_data->payload_len = len - UDP_HEADER_LEN;
+    meta_data->l4_len = UDP_HEADER_LEN;
 
     return 0;
 }
-int decodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *metaData, uint16_t len)
+
+int DecodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *meta_data, uint16_t len)
 {
     int ret = 0;
-    metaData->proto = proto;
+    meta_data->proto = proto;
 
     if (proto == IPPROTO_TCP) {
-        metaData->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
-        ret = decodePacketTCP(metaData, len);
-    }
-    else if (proto == IPPROTO_UDP) {
-        metaData->udp_hdr = (struct rte_udp_hdr *)(ptr + size);
-        ret = decodePacketUDP(metaData, len);
+        meta_data->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
+        ret = DecodePacketTCP(meta_data, len);
+    } else if (proto == IPPROTO_UDP) {
+        meta_data->udp_hdr = (struct rte_udp_hdr *)(ptr + size);
+        ret = DecodePacketUDP(meta_data, len);
     }
 
     return ret;
 }
-int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
+
+int DecodePacketIPv4(metadata_t *meta_data, uint16_t len) {
     int ret;
     int ipv4_len, ipv4_raw_len;
 
-    int fo = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x1fff;
-    int mf = rte_be_to_cpu_16(metaData->ipv4_hdr->fragment_offset) & 0x2000;
+    int fo = rte_be_to_cpu_16(meta_data->ipv4_hdr->fragment_offset) & 0x1fff;
+    int mf = rte_be_to_cpu_16(meta_data->ipv4_hdr->fragment_offset) & 0x2000;
 
     if (fo > 0 || mf >> 13) {
-        memset(metaData, 0x00, sizeof(void*) * 4);
+        memset(meta_data, 0x00, sizeof(void*) * 4);
         return 0;
     }
 
@@ -618,16 +619,16 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
         return IPV4_PKT_TOO_SMALL;
     }
 
-    if (unlikely(metaData->ipv4_hdr->version != 4)) {
+    if (unlikely(meta_data->ipv4_hdr->version != 4)) {
         return IPV4_WRONG_IP_VER;
     }
 
-    ipv4_len = rte_ipv4_hdr_len(metaData->ipv4_hdr);
+    ipv4_len = rte_ipv4_hdr_len(meta_data->ipv4_hdr);
     if (unlikely(ipv4_len < IPV4_HEADER_LEN)) {
         return IPV4_HLEN_TOO_SMALL;
     }
 
-    ipv4_raw_len = rte_be_to_cpu_16(metaData->ipv4_hdr->total_length);
+    ipv4_raw_len = rte_be_to_cpu_16(meta_data->ipv4_hdr->total_length);
     if (unlikely(ipv4_raw_len < ipv4_len)) {
         return IPV4_IPLEN_SMALLER_THAN_HLEN;
     }
@@ -636,28 +637,29 @@ int decodePacketIPv4(uint16_t len, metadata_t *metaData) {
         return IPV4_TRUNC_PKT;
     }
 
-    setIpv4(&metaData->srcA, metaData->ipv4_hdr->src_addr);
-    setIpv4(&metaData->dstA, metaData->ipv4_hdr->dst_addr);
+    MetadataIpv4ConvertTo(&meta_data->src_addr, meta_data->ipv4_hdr->src_addr);
+    MetadataIpv4ConvertTo(&meta_data->dst_addr, meta_data->ipv4_hdr->dst_addr);
 
-    metaData->ip_opt_len = ipv4_len - IPV4_HEADER_LEN;
-    if (metaData->ip_opt_len > 0) {
-        ret = decodeIPV4Options((uint8_t *)metaData->ipv4_hdr + IPV4_HEADER_LEN,metaData->ip_opt_len, metaData);
+    meta_data->ip_opt_len = ipv4_len - IPV4_HEADER_LEN;
+    if (meta_data->ip_opt_len > 0) {
+        ret = DecodeIPV4Options((uint8_t *)meta_data->ipv4_hdr + IPV4_HEADER_LEN,meta_data->ip_opt_len, meta_data);
         if (ret != 0) {
             return ret;
         }
     }
 
-    ret = decodePacketL4(metaData->ipv4_hdr->next_proto_id, ipv4_len,
-            (unsigned char *)metaData->ipv4_hdr, metaData, ipv4_raw_len - ipv4_len);
+    ret = DecodePacketL4(meta_data->ipv4_hdr->next_proto_id, ipv4_len,
+            (unsigned char *)meta_data->ipv4_hdr, meta_data, ipv4_raw_len - ipv4_len);
 
     return ret;
 }
-int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
+
+int DecodePacketIPv6(metadata_t *meta_data, uint16_t len) {
     int ret;
     uint16_t ipv6_raw_len = 0;
 
-    if (metaData->ipv6_hdr->proto == 44) {
-        memset(metaData, 0x00, sizeof(void*) * 4);
+    if (meta_data->ipv6_hdr->proto == 44) {
+        memset(meta_data, 0x00, sizeof(void*) * 4);
         return 0;
     }
 
@@ -665,25 +667,26 @@ int decodePacketIPv6(uint16_t len, metadata_t *metaData) {
         return IPV6_PKT_TOO_SMALL;
     }
 
-    unsigned int version = (metaData->ipv6_hdr->vtc_flow & 0xf0) >> 4;
+    unsigned int version = (meta_data->ipv6_hdr->vtc_flow & 0xf0) >> 4;
     if (unlikely(version != 6)) {
         return IPV6_WRONG_IP_VER;
     }
 
-    ipv6_raw_len = IPV6_HEADER_LEN + rte_be_to_cpu_16(metaData->ipv6_hdr->payload_len);
+    ipv6_raw_len = IPV6_HEADER_LEN + rte_be_to_cpu_16(meta_data->ipv6_hdr->payload_len);
     if (unlikely(len < ipv6_raw_len)) {
         return IPV6_TRUNC_PKT;
     }
 
-    setIpv6(&metaData->srcA, &metaData->ipv6_hdr->src_addr[0]);
-    setIpv6(&metaData->dstA, &metaData->ipv6_hdr->dst_addr[0]);
+    MetadataIpv6ConvertTo(&meta_data->src_addr, &meta_data->ipv6_hdr->src_addr[0]);
+    MetadataIpv6ConvertTo(&meta_data->dst_addr, &meta_data->ipv6_hdr->dst_addr[0]);
 
-    ret = decodePacketL4(metaData->ipv6_hdr->proto, IPV6_HEADER_LEN,
-            (unsigned char *)metaData->ipv6_hdr, metaData, ipv6_raw_len - IPV6_HEADER_LEN);
+    ret = DecodePacketL4(meta_data->ipv6_hdr->proto, IPV6_HEADER_LEN,
+            (unsigned char *)meta_data->ipv6_hdr, meta_data, ipv6_raw_len - IPV6_HEADER_LEN);
 
     return ret;
 }
-int decodePacketL3(metadata_t *metaData, struct rte_mbuf *pkt)
+
+int DecodePacketL3(metadata_t *meta_data, struct rte_mbuf *pkt)
 {
     struct rte_ether_hdr *eth_hdr;
     uint16_t ether_type;
@@ -692,15 +695,14 @@ int decodePacketL3(metadata_t *metaData, struct rte_mbuf *pkt)
 
     eth_hdr = rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *);
     ether_type = eth_hdr->ether_type;
-    offset = get_vlan_offset(eth_hdr, &ether_type); // TODO INTERESTING change in if condition translation from cpu to be
+    offset = GetVlanOffset(eth_hdr, &ether_type); // TODO INTERESTING change in if condition translation from cpu to be
 
     if (ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
-        metaData->ipv4_hdr = (struct rte_ipv4_hdr *)((char *)(eth_hdr + 1) + offset);
-        ret = decodePacketIPv4(pkt->pkt_len - ETHERNET_HEADER_LEN, metaData);
-    }
-    else if (ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV6)) {
-        metaData->ipv6_hdr = (struct rte_ipv6_hdr *)((char *)(eth_hdr + 1) + offset);
-        ret = decodePacketIPv6(pkt->pkt_len - ETHERNET_HEADER_LEN, metaData);
+        meta_data->ipv4_hdr = (struct rte_ipv4_hdr *)((char *)(eth_hdr + 1) + offset);
+        ret = DecodePacketIPv4(meta_data, pkt->pkt_len - ETHERNET_HEADER_LEN);
+    } else if (ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV6)) {
+        meta_data->ipv6_hdr = (struct rte_ipv6_hdr *)((char *)(eth_hdr + 1) + offset);
+        ret = DecodePacketIPv6(meta_data, pkt->pkt_len - ETHERNET_HEADER_LEN);
     }
 
     return ret;
