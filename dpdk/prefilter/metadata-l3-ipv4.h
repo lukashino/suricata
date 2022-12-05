@@ -25,8 +25,11 @@
 #ifndef SURICATA_METADATA_L3_IPV4_H
 #define SURICATA_METADATA_L3_IPV4_H
 
+#include "metadata.h"
+
 void MetadataIpv4ConvertTo(Address *, uint32_t);
 int MetadataDecodePacketIPv4(metadata_t *, uint16_t);
+static int MetadataDecodeIPV4Options(uint8_t *, uint8_t, metadata_t *);
 static int MetadataIPV4OptValidateTimestamp(const IPV4Opt *);
 static int MetadataIPV4OptValidateRoute(const IPV4Opt *);
 static int MetadataIPV4OptValidateGeneric(const IPV4Opt *);
