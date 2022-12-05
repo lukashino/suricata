@@ -724,10 +724,10 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             p->dpdk_v.tasks_ring = ptv->rings.tasks_ring;
             p->dpdk_v.message_mp = ptv->rings.msg_mp;
 
+#ifdef HAVE_DPDK
             void *priv_sec = rte_mbuf_to_priv(ptv->received_mbufs[i]);
             uint16_t offset;
-
-            p->PFl4_len = 0;
+            p->dpdk_v.PF_l4_len = 0;
             p->metadata_flags = 0;
             for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
                 memcpy(&offset, priv_sec + t * 16, sizeof(uint16_t));
@@ -740,30 +740,31 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                         READ_DATA_FROM_PRIV(&p->src, sizeof(Address));
                         READ_DATA_FROM_PRIV(&p->dst, sizeof(Address));
                         READ_DATA_FROM_PRIV(&p->events, sizeof(PacketEngineEvents));
-                        p->metadata_flags |= (1 << IPV4_ID);
+                        p->metadata_flags |= IPV4_OFFLOAD(1);
                         break;
                     case IPV6_ID:
                         READ_DATA_FROM_PRIV(&p->src, sizeof(Address));
                         READ_DATA_FROM_PRIV(&p->dst, sizeof(Address));
-                        p->metadata_flags |= (1 << IPV6_ID);
+                        p->metadata_flags |= IPV6_OFFLOAD(1);
                         break;
                     case TCP_ID:
                         READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
                         READ_DATA_FROM_PRIV(&p->dp, sizeof(Port));
                         READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
-                        READ_DATA_FROM_PRIV(&p->PFl4_len, sizeof(uint16_t));
+                        READ_DATA_FROM_PRIV(&p->dpdk_v.PF_l4_len, sizeof(uint16_t));
                         READ_DATA_FROM_PRIV(&p->events, sizeof(PacketEngineEvents));
-                        p->metadata_flags |= (1 << TCP_ID);
+                        p->metadata_flags |= TCP_OFFLOAD(1);
                         break;
                     case UDP_ID:
                         READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
                         READ_DATA_FROM_PRIV(&p->dp, sizeof(Port));
                         READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
-                        READ_DATA_FROM_PRIV(&p->PFl4_len, sizeof(uint16_t));
-                        p->metadata_flags |= (1 << UDP_ID);
+                        READ_DATA_FROM_PRIV(&p->dpdk_v.PF_l4_len, sizeof(uint16_t));
+                        p->metadata_flags |= UDP_OFFLOAD(1);
                         break;
                 }
             }
+#endif
 
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
                     rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));

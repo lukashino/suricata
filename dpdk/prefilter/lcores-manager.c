@@ -213,6 +213,10 @@ int LcoreManagerRunWorker(
             return -rte_errno;
         }
 
+        printf("NAME ================== %s\n", re->main_ring.name_base);
+        //ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring = re->main_ring.name_base;
+        //memset(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring, 0x00, 32);
+        //memcpy(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring, re->main_ring.name_base, 32);
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].state = lcore_state;
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].bypass_table = t;
         ctx.lcores_state.lcores_arr_len++;

@@ -56,6 +56,7 @@ struct ctx_htable_resource {
 };
 
 struct ctx_lcore_resources {
+    //char *name_ring;
     rte_atomic16_t *state;
     struct rte_table_hash *bypass_table;
 };

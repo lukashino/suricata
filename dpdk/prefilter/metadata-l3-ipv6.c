@@ -56,8 +56,8 @@ int MetadataDecodePacketIPv6(metadata_t *meta_data, uint16_t len) {
     MetadataIpv6ConvertTo(&meta_data->src_addr, &meta_data->ipv6_hdr->src_addr[0]);
     MetadataIpv6ConvertTo(&meta_data->dst_addr, &meta_data->ipv6_hdr->dst_addr[0]);
 
-    ret = MetadataDecodePacketL4(meta_data->ipv6_hdr->proto, IPV6_HEADER_LEN,
-            (unsigned char *)meta_data->ipv6_hdr, meta_data, ipv6_raw_len - IPV6_HEADER_LEN);
+    ret = MetadataDecodePacketL4((uint8_t *)meta_data->ipv6_hdr, meta_data, ipv6_raw_len - IPV6_HEADER_LEN,
+            meta_data->ipv6_hdr->proto, IPV6_HEADER_LEN);
 
     return ret;
 }

@@ -817,7 +817,7 @@ static void SetMetadataToMbuf(uint16_t len_buf, uint16_t num_offlds, uint16_t *i
         priv_size = rte_mbuf_to_priv(buf[j]);
 
         // decode L# and L4 layers and fill the structure with metadata
-        if (MetadataDecodePacketL3(&metaData, buf[j])) {
+        if (MetadataDecodePacketL3(buf[j], &metaData)) {
             Log().error(99, "Decoding of the packets failed\n");
             memset(&metaData, 0x00, sizeof(void*) * 4);
         }
@@ -869,6 +869,7 @@ static void PktsEnqueue(struct lcore_values *lv)
             Log().error(EINVAL, "Ring buffer length over the buffer");
 
         // if no one offload is not required, skip offloads setting up part
+        //printf("%d ----aa---\n", lv->cnt_offlds_suri_requested);
         if (lv->cnt_offlds_suri_requested > 0) {
             SetMetadataToMbuf(lv->tmp_ring_bufs[i].len, lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested, lv->tmp_ring_bufs[i].buf);
         }

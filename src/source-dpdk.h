@@ -40,6 +40,7 @@ typedef struct DPDKPacketVars_ {
     uint16_t out_port_id;
     uint16_t out_queue_id;
     uint8_t copy_mode;
+    uint16_t PF_l4_len;
     struct rte_ring *tx_ring; // pkt is sent to this ring (same as out_port_*)
     struct rte_ring *tasks_ring;    // in case we want to bypass the packet
     struct rte_mempool *message_mp; // get message object for the bypass message

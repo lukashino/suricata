@@ -113,6 +113,7 @@ int ThreadMain(void *init_values)
                 pf_conf->ring_entries[i].oflds_final_IDS = pf_conf->ring_entries[i].oflds_suri_requested & pf_conf->ring_entries[i].oflds_pf_support;
 
             // one ring must exist always
+            printf("Set IDS IPS final offloads\n\n");
             Log().info("%d - IPS, %d - IDS\n", pf_conf->ring_entries[0].oflds_final_IPS, pf_conf->ring_entries[0].oflds_final_IDS);
             SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IDS, &lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested);
             SetIdxOfFinalOfflds(pf_conf->ring_entries[0].oflds_final_IPS, &lv->cnt_offlds_suri_support, lv->idxes_offlds_suri_support);

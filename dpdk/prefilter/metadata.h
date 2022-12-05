@@ -105,7 +105,7 @@ typedef struct Metadata {
 } metadata_t;
 
 static inline size_t MetadataGetVlanOffset(struct rte_ether_hdr *, uint16_t *);
-int MetadataDecodePacketL4(uint8_t, size_t, unsigned char *, metadata_t *, uint16_t);
-int MetadataDecodePacketL3(metadata_t *, struct rte_mbuf *);
+int MetadataDecodePacketL4(uint8_t *, metadata_t *, uint8_t, size_t, uint16_t);
+int MetadataDecodePacketL3(struct rte_mbuf *, metadata_t *);
 
 #endif // METADATA_H

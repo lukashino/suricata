@@ -654,8 +654,6 @@ typedef struct Packet_
     NapatechPacketVars ntpv;
 #endif
 
-    // data from prefilter
-    uint16_t PFl4_len;
     uint8_t metadata_flags;
 } Packet;
 

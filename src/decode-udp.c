@@ -75,8 +75,10 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 {
     StatsIncr(tv, dtv->counter_udp);
     if (p->metadata_flags & (1 << UDP_BIT)) {
+#ifdef HAVE_DPDK
         p->udph = (UDPHdr *)pkt;
-        p->payload = (uint8_t *)pkt + p->PFl4_len;
+        p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
+#endif
     }
     else if (unlikely(DecodeUDPPacket(tv, p, pkt, len) < 0)) {
         CLEAR_UDP_PACKET(p);

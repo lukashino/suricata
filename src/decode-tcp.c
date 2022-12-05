@@ -252,8 +252,10 @@ int DecodeTCP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
     StatsIncr(tv, dtv->counter_tcp);
 
     if (p->metadata_flags & (1 << TCP_BIT)) {
+#ifdef HAVE_DPDK
         p->tcph = (TCPHdr *)pkt;
-        p->payload = (uint8_t *)pkt + p->PFl4_len;
+        p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
+#endif
     }
     else if (unlikely(DecodeTCPPacket(tv, p, pkt,len) < 0)) {
         SCLogDebug("invalid TCP packet");

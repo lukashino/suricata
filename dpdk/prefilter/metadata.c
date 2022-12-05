@@ -44,7 +44,7 @@ static inline size_t MetadataGetVlanOffset(struct rte_ether_hdr *eth_hdr, uint16
     return vlan_offset;
 }
 
-int MetadataDecodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metadata_t *meta_data, uint16_t len)
+int MetadataDecodePacketL4(uint8_t *ptr, metadata_t *meta_data, uint8_t proto, size_t size, uint16_t len)
 {
     int ret = 0;
     meta_data->proto = proto;
@@ -60,7 +60,7 @@ int MetadataDecodePacketL4(uint8_t proto, size_t size, unsigned char *ptr, metad
     return ret;
 }
 
-int MetadataDecodePacketL3(metadata_t *meta_data, struct rte_mbuf *pkt)
+int MetadataDecodePacketL3(struct rte_mbuf *pkt, metadata_t *meta_data)
 {
     struct rte_ether_hdr *eth_hdr;
     uint16_t ether_type;
