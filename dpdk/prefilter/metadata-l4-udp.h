@@ -25,6 +25,8 @@
 #ifndef SURICATA_METADATA_L4_UDP_H
 #define SURICATA_METADATA_L4_UDP_H
 
+#include "metadata.h"
+
 int MetadataDecodePacketUDP(metadata_t *, uint16_t);
 
 #endif // SURICATA_METADATA_L4_UDP_H

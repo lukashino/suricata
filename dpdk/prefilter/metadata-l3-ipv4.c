@@ -23,7 +23,6 @@
  */
 
 #include "metadata-l3-ipv4.h"
-#include "metadata.h"
 
 void MetadataIpv4ConvertTo(Address *dst, uint32_t src) {
     dst->family = AF_INET;
@@ -189,7 +188,7 @@ static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
     return 0;
 }
 
-int DecodeIPV4Options(uint8_t *pkt, uint8_t opt_len, metadata_t *meta_data) {
+int MetadataDecodeIPV4Options(uint8_t *pkt, uint8_t opt_len, metadata_t *meta_data) {
     IPV4Options opts;
     memset(&opts, 0x00, sizeof(opts));
 
@@ -378,7 +377,7 @@ int MetadataDecodePacketIPv4(metadata_t *meta_data, uint16_t len) {
 
     meta_data->ip_opt_len = ipv4_len - IPV4_HEADER_LEN;
     if (meta_data->ip_opt_len > 0) {
-        ret = DecodeIPV4Options((uint8_t *)meta_data->ipv4_hdr + IPV4_HEADER_LEN,meta_data->ip_opt_len, meta_data);
+        ret = MetadataDecodeIPV4Options((uint8_t *)meta_data->ipv4_hdr + IPV4_HEADER_LEN,meta_data->ip_opt_len, meta_data);
         if (ret != 0) {
             return ret;
         }

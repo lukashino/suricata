@@ -25,6 +25,8 @@
 #ifndef SURICATA_METADATA_L3_IPV6_H
 #define SURICATA_METADATA_L3_IPV6_H
 
+#include "metadata.h"
+
 void MetadataIpv6ConvertTo(Address *, uint8_t *);
 int MetadataDecodePacketIPv6(metadata_t *, uint16_t);
 

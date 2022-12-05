@@ -23,7 +23,6 @@
  */
 
 #include "metadata-l3-ipv6.h"
-#include "metadata.h"
 
 void MetadataIpv6ConvertTo(Address *dst, uint8_t *src) {
     dst->family = AF_INET6;

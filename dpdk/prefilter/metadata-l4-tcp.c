@@ -22,9 +22,8 @@
 *
  */
 #include "metadata-l4-tcp.h"
-#include "metadata.h"
 
-int MetadataDecodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *meta_data) {
+static int MetadataDecodeTCPOptions(uint8_t *pkt, uint8_t opt_len, metadata_t *meta_data) {
     uint8_t tcp_opt_cnt = 0;
     TCPOpt tcp_opts[TCP_OPTMAX];
 

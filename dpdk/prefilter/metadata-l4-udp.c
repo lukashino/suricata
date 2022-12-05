@@ -23,7 +23,6 @@
  */
 
 #include "metadata-l4-udp.h"
-#include "metadata.h"
 
 int MetadataDecodePacketUDP(metadata_t *meta_data, uint16_t len) {
     uint16_t udp_raw_len;

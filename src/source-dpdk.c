@@ -132,10 +132,10 @@ typedef struct DPDKThreadVars_ {
             struct rte_ring *tasks_ring;
             struct rte_ring *results_ring;
             struct rte_mempool *msg_mp;
-            uint16_t cntOfldsFromPf;
-            uint16_t idxOfldsFromPf[16];
-            uint16_t cntOfldsToPf;
-            uint16_t idxOfldsToPf[16];
+            uint16_t cnt_offlds_suri_requested;
+            uint16_t idxes_offlds_suri_requested[16];
+            uint16_t cnt_offlds_pf_requested;
+            uint16_t idxes_offlds_pf_requested[16];
         } rings;
     };
 } DPDKThreadVars;
@@ -729,13 +729,13 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
             p->PFl4_len = 0;
             p->metadata_flags = 0;
-            for (int t = 0; t < ptv->rings.cntOfldsFromPf; t++) {
+            for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
                 memcpy(&offset, priv_sec + t * 16, sizeof(uint16_t));
                 // if the offset was not filled, skip the offload reading part
                 if (offset == 0)
                     continue;
 
-                switch (ptv->rings.idxOfldsFromPf[t]) {
+                switch (ptv->rings.idxes_offlds_suri_requested[t]) {
                     case IPV4_ID:
                         READ_DATA_FROM_PRIV(&p->src, sizeof(Address));
                         READ_DATA_FROM_PRIV(&p->dst, sizeof(Address));
@@ -805,14 +805,14 @@ void ReceiveDPDKSetRings(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf, uint16_t q
     iconf->results_rings[queue_id] = NULL;
     ptv->rings.msg_mp = iconf->messages_mempools[queue_id];
     iconf->messages_mempools[queue_id] = NULL;
-    ptv->rings.cntOfldsFromPf = iconf->cntOfldsFromPf[queue_id];
-    iconf->cntOfldsFromPf[queue_id] = 0;
-    memcpy(ptv->rings.idxOfldsFromPf, iconf->idxOfldsFromPf[queue_id], 16);
-    memset(iconf->idxOfldsFromPf[queue_id], 0, 16);
-    ptv->rings.cntOfldsToPf = iconf->cntOfldsToPf;
-    iconf->cntOfldsToPf = 0;
-    memcpy(ptv->rings.idxOfldsToPf, iconf->idxOfldsToPf, 16);
-    memset(iconf->idxOfldsToPf, 0, 16);
+    ptv->rings.cnt_offlds_suri_requested = iconf->cnt_offlds_suri_requested[queue_id];
+    iconf->cnt_offlds_suri_requested[queue_id] = 0;
+    memcpy(ptv->rings.idxes_offlds_suri_requested, iconf->idxes_offlds_suri_requested[queue_id], 16);
+    memset(iconf->idxes_offlds_suri_requested[queue_id], 0, 16);
+    ptv->rings.cnt_offlds_pf_requested = iconf->cnt_offlds_suri_support;
+    iconf->cnt_offlds_suri_support = 0;
+    memcpy(ptv->rings.idxes_offlds_pf_requested, iconf->idxes_offlds_suri_support, 16);
+    memset(iconf->idxes_offlds_suri_support, 0, 16);
 }
 
 /**
