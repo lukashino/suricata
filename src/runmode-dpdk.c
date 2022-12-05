@@ -888,7 +888,7 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
                      : ConfigSetRSSHashFunctions(iconf, entry_str);
     if (retval < 0)
         SCReturnInt(retval);
-
+    
     retval = ConfGetChildValueBoolWithDefault(
                      if_root, if_default, dpdk_yaml.promisc, &entry_bool) != 1
                      ? ConfigSetPromiscuousMode(iconf, DPDK_CONFIG_DEFAULT_PROMISCUOUS_MODE)
@@ -937,7 +937,7 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
 
     ConfNode *config;
 
-    config = ConfGetNode("offloads-from-pf-to-suri");
+    config = ConfGetChildWithDefault(if_root, if_default, "offloads-from-pf-to-suri");
     if (config == NULL)
         FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-pf-to-suri\" for Suricata");
 
@@ -951,7 +951,7 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     OFFLOADS_PF
 #undef X
 
-    config = ConfGetNode("offloads-from-suri-to-pf");
+    config = ConfGetChildWithDefault(if_root, if_default, "offloads-from-suri-to-pf");
     if (config == NULL)
         FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-suri-to-pf\" for Suricata");
 
@@ -1262,6 +1262,7 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
     SCLogInfo("%s: creating packet mbuf pool %s of size %d, cache size %d, mbuf size %d",
             iconf->iface, mempool_name, iconf->mempool_size, iconf->mempool_cache_size, mbuf_size);
 
+    printf("Create mempool\n\n");
     iconf->pkt_mempool = rte_pktmbuf_pool_create(mempool_name, iconf->mempool_size,
             iconf->mempool_cache_size, 128, mbuf_size, (int)iconf->socket_id);
     if (iconf->pkt_mempool == NULL) {
@@ -1589,6 +1590,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     }
 
     // TODO treat retval
+    printf("Call setup offloads %s\n", iconf->iface);
     struct rte_mp_msg req;
     struct rte_mp_reply reply;
     memset(&req, 0, sizeof(req));

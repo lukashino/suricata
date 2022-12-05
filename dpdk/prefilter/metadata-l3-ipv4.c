@@ -383,8 +383,8 @@ int MetadataDecodePacketIPv4(metadata_t *meta_data, uint16_t len) {
         }
     }
 
-    ret = MetadataDecodePacketL4(meta_data->ipv4_hdr->next_proto_id, ipv4_len,
-            (unsigned char *)meta_data->ipv4_hdr, meta_data, ipv4_raw_len - ipv4_len);
+    ret = MetadataDecodePacketL4((uint8_t *)meta_data->ipv4_hdr, meta_data, ipv4_raw_len - ipv4_len,
+            meta_data->ipv4_hdr->next_proto_id, ipv4_len);
 
     return ret;
 }

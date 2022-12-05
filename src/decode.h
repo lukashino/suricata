@@ -656,8 +656,6 @@ typedef struct Packet_
         SCSpinlock tunnel_lock;
     } persistent;
 
-    // data from prefilter
-    uint16_t PFl4_len;
     uint8_t metadata_flags;
 } Packet;
 
