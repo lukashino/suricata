@@ -293,7 +293,6 @@ static int IPCActionBtDumpStop(const struct rte_mp_msg *msg, const void *peer)
 }
 
 static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
-    printf("1 ttt\n");
     int ret;
     struct rte_mp_msg mp_resp;
     struct rte_memzone *mz = ctx.shared_conf;
@@ -304,28 +303,25 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
     mp_resp.len_param = (int)strlen((char *)mp_resp.param);
 
     uint8_t tout_sec = 5; // TODO change value
-    printf("before check, %d\n", ctx.lcores_state.lcores_arr[0].state);
-    ret = LcoreStateCheckAllWTimeout(LCORE_INIT_DONE, tout_sec);
-    printf("after check, %d\n", ctx.lcores_state.lcores_arr[0].state);
+    LcoreStateCheckIfaceTimeout(LCORE_INIT_DONE, (char*)msg->param, tout_sec);
     if (ret != 0) {
         Log().error(ETIMEDOUT, "Workers have not initialised in time (%s sec)", tout_sec);
         exit(1);
     }
 
-    printf("after check, before for loop\n");
-
     for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
+        if (strcmp(ctx.lcores_state.lcores_arr[i].name_ring, (char*)msg->param)) {
+            continue;
+        }
+
         LcoreStateSet(ctx.lcores_state.lcores_arr[i].state, LCORE_OFFLOADS_INIT);
     }
 
-    printf("2 ttt\n");
-
-    LcoreStateCheckAllWTimeout(LCORE_OFFLOADS_DONE, 2);
-    printf("3 ttt\n");
+    // set and check ret
+    LcoreStateCheckIfaceTimeout(LCORE_OFFLOADS_DONE, (char*)msg->param, 5);
 
     ret = rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
     Log().debug("IPC action for %s", IPC_ACTION_OFFLOADS_SETUP);
-    printf("4 ttt\n");
 
     return 0;
 }

@@ -151,6 +151,23 @@ bool LcoreStateCheckAll(enum LcoreStateEnum check_state)
     return all_set;
 }
 
+bool LcoreStateCheckIface(enum LcoreStateEnum check_state, char *iface)
+{
+    bool all_set = true;
+    for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
+        if ( strcmp(ctx.lcores_state.lcores_arr[i].name_ring, iface) ) {
+            continue;
+        }
+
+        Log().debug(
+                "State - desired %u actual %u", check_state, rte_atomic16_read(ctx.lcores_state.lcores_arr[i].state));
+        all_set &= LcoreStateCheck(
+                ctx.lcores_state.lcores_arr[i].state,
+                check_state);
+    }
+    return all_set;
+}
+
 int LcoreStateCheckAllWTimeout(enum LcoreStateEnum check_state, uint16_t timeout_sec)
 {
     time_t init_time, tmp_time;
@@ -165,6 +182,20 @@ int LcoreStateCheckAllWTimeout(enum LcoreStateEnum check_state, uint16_t timeout
 
     return 0;
 
+}
+
+int LcoreStateCheckIfaceTimeout(enum LcoreStateEnum check_state, char *iface, uint16_t timeout_sec) {
+    time_t init_time, tmp_time;
+    time(&init_time);
+
+    while (!LcoreStateCheckIface(check_state, iface)) {
+        rte_delay_us_sleep(10 * 1000);
+        time(&tmp_time);
+        if (tmp_time - init_time > timeout_sec)
+            return -ETIMEDOUT;
+    }
+
+    return 0;
 }
 
 int LcoreManagerRunWorker(
@@ -213,10 +244,10 @@ int LcoreManagerRunWorker(
             return -rte_errno;
         }
 
-        printf("NAME ================== %s\n", re->main_ring.name_base);
-        //ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring = re->main_ring.name_base;
-        //memset(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring, 0x00, 32);
-        //memcpy(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring, re->main_ring.name_base, 32);
+        strlcpy(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring,
+                DevConfGetRxDefaultName(re->main_ring.name_base),
+                RTE_RING_NAMESIZE);
+
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].state = lcore_state;
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].bypass_table = t;
         ctx.lcores_state.lcores_arr_len++;

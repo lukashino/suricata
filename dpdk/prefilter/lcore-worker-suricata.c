@@ -869,7 +869,6 @@ static void PktsEnqueue(struct lcore_values *lv)
             Log().error(EINVAL, "Ring buffer length over the buffer");
 
         // if no one offload is not required, skip offloads setting up part
-        //printf("%d ----aa---\n", lv->cnt_offlds_suri_requested);
         if (lv->cnt_offlds_suri_requested > 0) {
             SetMetadataToMbuf(lv->tmp_ring_bufs[i].len, lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested, lv->tmp_ring_bufs[i].buf);
         }
