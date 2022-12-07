@@ -101,6 +101,7 @@ const char *DevConfMempoolGetMessageMPName(const char *base, uint16_t mp_id);
 const char *DevConfRingGetTaskName(const char *base, uint16_t ring_id);
 const char *DevConfRingGetResultName(const char *base, uint16_t ring_id);
 const char *DevConfRingGetRxName(const char *base, uint16_t ring_id);
+const char *DevConfGetRxDefaultName(const char *base);
 const char *DevConfRingGetTxName(const char *base, uint16_t ring_id);
 
 void DevConfInit(struct DeviceConfigurer ops);

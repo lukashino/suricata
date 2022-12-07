@@ -51,6 +51,8 @@
 #include "flow-bypass.h"
 #include "util-dpdk-bypass.h"
 
+#include <rte_ring.h>
+
 #ifdef HAVE_DPDK
 
 #define RSS_HKEY_LEN 40
@@ -963,7 +965,6 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     OFFLOADS_SUR
 #undef X
 
-
     SCReturnInt(0);
 }
 
@@ -1262,7 +1263,6 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
     SCLogInfo("%s: creating packet mbuf pool %s of size %d, cache size %d, mbuf size %d",
             iconf->iface, mempool_name, iconf->mempool_size, iconf->mempool_cache_size, mbuf_size);
 
-    printf("Create mempool\n\n");
     iconf->pkt_mempool = rte_pktmbuf_pool_create(mempool_name, iconf->mempool_size,
             iconf->mempool_cache_size, 128, mbuf_size, (int)iconf->socket_id);
     if (iconf->pkt_mempool == NULL) {
@@ -1590,11 +1590,11 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     }
 
     // TODO treat retval
-    printf("Call setup offloads %s\n", iconf->iface);
     struct rte_mp_msg req;
     struct rte_mp_reply reply;
     memset(&req, 0, sizeof(req));
     strlcpy(req.name, IPC_ACTION_OFFLOADS_SETUP, RTE_MP_MAX_NAME_LEN);
+    strlcpy(req.param, iconf->iface, RTE_RING_NAMESIZE); // set to const
     const struct timespec tss = {.tv_sec = 5, .tv_nsec = 0};
     retval = rte_mp_request_sync(&req, &reply, &tss);
 
@@ -1614,9 +1614,16 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
             SCReturnInt(-ENOENT);
         }
 
-        SCLogNotice("%d - IPS, %d - IDS\n", pf_re->oflds_final_IPS, pf_re->oflds_final_IDS);
-        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS, &iconf->cnt_offlds_suri_requested[i], iconf->idxes_offlds_suri_requested[i]);
-        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS, &iconf->cnt_offlds_suri_support, iconf->idxes_offlds_suri_support);
+        SCLogNotice("%d - IPS, %d - IDS, interface - %s\n",
+                pf_re->oflds_final_IPS,
+                pf_re->oflds_final_IDS,
+                iconf->iface);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS,
+                            &iconf->cnt_offlds_suri_requested[i],
+                            iconf->idxes_offlds_suri_requested[i]);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS,
+                            &iconf->cnt_offlds_suri_support,
+                            iconf->idxes_offlds_suri_support);
     }
 
     SCReturnInt(0);
