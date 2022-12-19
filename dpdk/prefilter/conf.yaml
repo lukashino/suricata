@@ -5,7 +5,7 @@
 rings:
   - ring: "myring"
     elements: 131072
-    op-mode: ips # ids / ips / pipeline
+    op-mode: ids # ids / ips / pipeline
     secondary-app-lcores: 4
     pf-lcores: 1
     bypass-table:
