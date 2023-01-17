@@ -27,9 +27,22 @@
 
 #include "metadata.h"
 
+// copied from decode-ipv4.c
+typedef struct IPV4Options_ {
+    IPV4Opt o_rr;
+    IPV4Opt o_qs;
+    IPV4Opt o_ts;
+    IPV4Opt o_sec;
+    IPV4Opt o_lsrr;
+    IPV4Opt o_cipso;
+    IPV4Opt o_sid;
+    IPV4Opt o_ssrr;
+    IPV4Opt o_rtralt;
+} IPV4Options;
+
 void MetadataIpv4ConvertTo(Address *, uint32_t);
-int MetadataDecodePacketIPv4(metadata_t *, uint16_t);
-static int MetadataDecodeIPV4Options(uint8_t *, uint8_t, metadata_t *);
+int MetadataDecodePacketIPv4(metadata_to_suri_t *, metadata_to_suri_help_t *, uint16_t);
+static int MetadataDecodeIPV4Options(uint8_t *, metadata_to_suri_t *, uint8_t);
 static int MetadataIPV4OptValidateTimestamp(const IPV4Opt *);
 static int MetadataIPV4OptValidateRoute(const IPV4Opt *);
 static int MetadataIPV4OptValidateGeneric(const IPV4Opt *);

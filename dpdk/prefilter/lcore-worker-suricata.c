@@ -806,49 +806,39 @@ static void PktsReceive(struct lcore_values *lv)
 
 static void SetMetadataToMbuf(uint16_t len_buf, uint16_t num_offlds, uint16_t *idx_offlds, struct rte_mbuf **buf) {
     uint16_t offset;
-    void *priv_size;
 
     for (int j = 0; j < len_buf; j++) {
         // fill the memory with 0s
-        metadata_t metaData;
-        memset(&metaData, 0x00, sizeof(void*) * 4);
+        metadata_to_suri_help_t metadata_to_suri_help;
+        memset(&metadata_to_suri_help, 0x00, sizeof(metadata_to_suri_help));
 
         offset = num_offlds * sizeof(uint16_t);
-        priv_size = rte_mbuf_to_priv(buf[j]);
+        metadata_to_suri_t *metadata_to_suri = (metadata_to_suri_t *)rte_mbuf_to_priv(buf[j]);
 
-        // decode L# and L4 layers and fill the structure with metadata
-        if (MetadataDecodePacketL3(buf[j], &metaData)) {
-            Log().error(99, "Decoding of the packets failed\n");
-            memset(&metaData, 0x00, sizeof(void*) * 4);
+        // decode L3 and L4 layers and fill the structure with metadata
+        if (MetadataDecodePacketL3(buf[j], metadata_to_suri, &metadata_to_suri_help)) {
+            // Log().error(99, "Decoding of the packets failed"); // throw packet away?
+            memset(metadata_to_suri, 0x00, CNT_METADATA_TO_SURI * sizeof(uint16_t));
+            continue;
         }
 
         for (int t = 0; t < num_offlds; t++) {
-            switch(idx_offlds[t]) {
+            switch (idx_offlds[t]) {
                 case IPV4_ID:
-                    SET_OFFSET(metaData.ipv4_hdr);
-                    SET_DATA_TO_PRIV(&metaData.src_addr, sizeof(Address));
-                    SET_DATA_TO_PRIV(&metaData.dst_addr, sizeof(Address));
-                    SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
+                    metadata_to_suri->set_metadata[IPV4_ID] = metadata_to_suri_help.ipv4_hdr ? true : false;
+
                     break;
                 case IPV6_ID:
-                    SET_OFFSET(metaData.ipv6_hdr);
-                    SET_DATA_TO_PRIV(&metaData.src_addr, sizeof(Address));
-                    SET_DATA_TO_PRIV(&metaData.dst_addr, sizeof(Address));
+                    metadata_to_suri->set_metadata[IPV6_ID] = metadata_to_suri_help.ipv6_hdr ? true : false;
+
                     break;
                 case TCP_ID:
-                    SET_OFFSET(metaData.tcp_hdr);
-                    SET_DATA_TO_PRIV(&metaData.src_port, sizeof(Port));
-                    SET_DATA_TO_PRIV(&metaData.dst_port, sizeof(Port));
-                    SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
-                    SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
-                    SET_DATA_TO_PRIV(&metaData.events, sizeof(PacketEngineEvents));
+                    metadata_to_suri->set_metadata[TCP_ID] = metadata_to_suri_help.tcp_hdr ? true : false;
+
                     break;
                 case UDP_ID:
-                    SET_OFFSET(metaData.udp_hdr);
-                    SET_DATA_TO_PRIV(&metaData.src_port, sizeof(Port));
-                    SET_DATA_TO_PRIV(&metaData.dst_port, sizeof(Port));
-                    SET_DATA_TO_PRIV(&metaData.payload_len, sizeof(uint16_t));
-                    SET_DATA_TO_PRIV(&metaData.l4_len, sizeof(uint16_t));
+                    metadata_to_suri->set_metadata[UDP_ID] = metadata_to_suri_help.udp_hdr ? true : false;
+
                     break;
                 default:
                     break;
@@ -870,7 +860,8 @@ static void PktsEnqueue(struct lcore_values *lv)
 
         // if no one offload is not required, skip offloads setting up part
         if (lv->cnt_offlds_suri_requested > 0) {
-            SetMetadataToMbuf(lv->tmp_ring_bufs[i].len, lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested, lv->tmp_ring_bufs[i].buf);
+            SetMetadataToMbuf(lv->tmp_ring_bufs[i].len, lv->cnt_offlds_suri_requested,
+                    lv->idxes_offlds_suri_requested, lv->tmp_ring_bufs[i].buf);
         }
 
         pkt_count = rte_ring_enqueue_burst(lv->rings_from_pf[i], (void **)lv->tmp_ring_bufs[i].buf,
@@ -903,21 +894,6 @@ static void PktsEnqueue(struct lcore_values *lv)
     }
 }
 
-static void GetMetadataRulesFromMbuf(struct rte_mbuf *pkt_buf) {
-    void *priv_space = rte_mbuf_to_priv(pkt_buf);
-    uint32_t cnt;
-
-    memcpy(&cnt, priv_space, sizeof(uint32_t));
-    if (cnt < 0) {
-        return;
-    }
-
-    priv_space += sizeof(uint16_t)<<3;
-    for (int j = 0; j < cnt; j++) {
-        Log().info("id: %d", *(uint32_t*)(priv_space + (j*sizeof(uint32_t)<<3)));
-    }
-}
-
 static uint16_t PktsTx(
         struct rte_mbuf **pkts, uint16_t pkts_cnt, struct lcore_values *lv, uint16_t port_id)
 {
@@ -925,7 +901,23 @@ static uint16_t PktsTx(
     Log().debug("Sending %d pkts to P%dQ%d", pkts_cnt, port_id, lv->qid);
 
     for (int i = 0; i < pkts_cnt; ++i) {
-        GetMetadataRulesFromMbuf(pkts[i]);
+        metadata_from_suri_t *metadata = (metadata_from_suri_t *)rte_mbuf_to_priv(pkts[i]);
+
+        for (int t = 0; t < lv->cnt_offlds_suri_support; t++) {
+            switch (lv->idxes_offlds_suri_support[t]) {
+                case MATCH_RULES:
+                    if (!metadata->set_metadata[MATCH_RULES])
+                        continue;
+
+                    for (int j = 0; j < metadata->rules_metadata.cnt; j++) {
+                        Log().info("id: %d", metadata->rules_metadata.rules[j]);
+                    }
+
+                    break;
+                default:
+                    break;
+            }
+        }
     }
 
     tx_cnt = rte_eth_tx_burst(port_id, lv->qid, pkts, pkts_cnt);

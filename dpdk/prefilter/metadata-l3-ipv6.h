@@ -28,6 +28,6 @@
 #include "metadata.h"
 
 void MetadataIpv6ConvertTo(Address *, uint8_t *);
-int MetadataDecodePacketIPv6(metadata_t *, uint16_t);
+int MetadataDecodePacketIPv6(metadata_to_suri_t *, metadata_to_suri_help_t *, uint16_t);
 
 #endif // SURICATA_METADATA_L3_IPV6_H

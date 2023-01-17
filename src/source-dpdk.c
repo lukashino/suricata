@@ -362,6 +362,28 @@ static inline int DPDKReleasePacketEthDevTx(Packet *p)
     }
 }
 
+static inline void SetMetadataToMbuf(Packet *p, uint16_t num_offlds, uint16_t *idx_offlds) {
+    metadata_from_suri_t *metadata_from_suri = (metadata_from_suri_t *)rte_mbuf_to_priv(p->dpdk_v.mbuf);
+    uint16_t max_cnt;
+
+    for (int t = 0; t < num_offlds; t++) {
+        switch (idx_offlds[t]) {
+            case MATCH_RULES:
+                max_cnt = p->alerts.cnt > 32 ? 32 : p->alerts.cnt; // 32 - 128 / sizeof(uint32_t);
+                metadata_from_suri->set_metadata[MATCH_RULES] = max_cnt == 0 ? false : true;
+
+                metadata_from_suri->rules_metadata.cnt = max_cnt;
+                for (int i = 0; i < max_cnt; i++) {
+                    metadata_from_suri->rules_metadata.rules[i] = p->alerts.alerts[i].s->id;
+                }
+
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 static inline void DPDKReleasePacketTxOrFree(Packet *p)
 {
     int ret;
@@ -374,15 +396,12 @@ static inline void DPDKReleasePacketTxOrFree(Packet *p)
         // in IDS ring mode the tx ring is not set
         BUG_ON(PKT_IS_PSEUDOPKT(p));
 
-        void *priv_size = rte_mbuf_to_priv(p->dpdk_v.mbuf);
-        uint16_t max_cnt = p->alerts.cnt > 32 ? 32 : p->alerts.cnt; // 32 - 128 / sizeof(uint32_t);
-        memcpy(priv_size, &max_cnt, sizeof(uint16_t));
-
-        priv_size += sizeof(uint16_t)<<3;
-        for (int i = 0; i < max_cnt; i++) {
-            printf(" id:%d", p->alerts.alerts[i].s->id);
-            memcpy(priv_size + (i*sizeof(uint32_t)<<3), &p->alerts.alerts[i].s->id, sizeof(uint32_t));
-        }
+#ifdef HAVE_DPDK
+        // TODO: add a check if metadata is needed
+        // send packet mbuf, cnt of offloads, array of offloads
+        uint16_t tmp_arr[1] = {0};
+        SetMetadataToMbuf(p, 1, tmp_arr);
+#endif
 
         ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
         if (ret != 0) {
@@ -725,41 +744,48 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             p->dpdk_v.message_mp = ptv->rings.msg_mp;
 
 #ifdef HAVE_DPDK
-            void *priv_sec = rte_mbuf_to_priv(ptv->received_mbufs[i]);
-            uint16_t offset;
             p->dpdk_v.PF_l4_len = 0;
             p->metadata_flags = 0;
-            for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
-                memcpy(&offset, priv_sec + t * 16, sizeof(uint16_t));
-                // if the offset was not filled, skip the offload reading part
-                if (offset == 0)
-                    continue;
+            metadata_to_suri_t *metadata = (metadata_to_suri_t *)rte_mbuf_to_priv(ptv->received_mbufs[i]);
 
+            for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
                 switch (ptv->rings.idxes_offlds_suri_requested[t]) {
                     case IPV4_ID:
-                        READ_DATA_FROM_PRIV(&p->src, sizeof(Address));
-                        READ_DATA_FROM_PRIV(&p->dst, sizeof(Address));
-                        READ_DATA_FROM_PRIV(&p->events, sizeof(PacketEngineEvents));
+                        if (!metadata->set_metadata[IPV4_ID])
+                            continue;
+
+                        p->src = metadata->metadata_ipv4.src_addr;
+                        p->dst = metadata->metadata_ipv4.dst_addr;
+                        p->events = metadata->metadata_ipv4.events;
                         p->metadata_flags |= IPV4_OFFLOAD(1);
                         break;
                     case IPV6_ID:
-                        READ_DATA_FROM_PRIV(&p->src, sizeof(Address));
-                        READ_DATA_FROM_PRIV(&p->dst, sizeof(Address));
+                        if (!metadata->set_metadata[IPV6_ID])
+                            continue;
+
+                        p->src = metadata->metadata_ipv6.src_addr;
+                        p->dst = metadata->metadata_ipv6.dst_addr;
                         p->metadata_flags |= IPV6_OFFLOAD(1);
                         break;
                     case TCP_ID:
-                        READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
-                        READ_DATA_FROM_PRIV(&p->dp, sizeof(Port));
-                        READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
-                        READ_DATA_FROM_PRIV(&p->dpdk_v.PF_l4_len, sizeof(uint16_t));
-                        READ_DATA_FROM_PRIV(&p->events, sizeof(PacketEngineEvents));
+                        if (!metadata->set_metadata[TCP_ID])
+                            continue;
+
+                        p->sp = metadata->metadata_tcp.src_port;
+                        p->dp = metadata->metadata_tcp.dst_port;
+                        p->payload_len = metadata->metadata_tcp.payload_len;
+                        p->dpdk_v.PF_l4_len = metadata->metadata_tcp.l4_len;
+                        p->events = metadata->metadata_tcp.events;
                         p->metadata_flags |= TCP_OFFLOAD(1);
                         break;
                     case UDP_ID:
-                        READ_DATA_FROM_PRIV(&p->sp, sizeof(Port));
-                        READ_DATA_FROM_PRIV(&p->dp, sizeof(Port));
-                        READ_DATA_FROM_PRIV(&p->payload_len, sizeof(uint16_t));
-                        READ_DATA_FROM_PRIV(&p->dpdk_v.PF_l4_len, sizeof(uint16_t));
+                        if (!metadata->set_metadata[UDP_ID])
+                            continue;
+
+                        p->sp = metadata->metadata_udp.src_port;
+                        p->dp = metadata->metadata_udp.dst_port;
+                        p->payload_len = metadata->metadata_udp.payload_len;
+                        p->dpdk_v.PF_l4_len = metadata->metadata_udp.l4_len;
                         p->metadata_flags |= UDP_OFFLOAD(1);
                         break;
                 }

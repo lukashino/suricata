@@ -80,6 +80,60 @@ enum ofldsIdxsSur {
 
 #define MATCH_RULES_OFFLOAD(val) ((val) << MATCH_RULES)
 
+#define CNT_METADATA_TO_SURI 4
+#define CNT_METADATA_FROM_SURI 1
+
+typedef struct MetadataRules {
+    size_t cnt;
+    uint32_t rules[32]; // change then
+} metadata_rules_t;
+
+typedef struct MetadataFromSuri {
+    bool set_metadata[CNT_METADATA_FROM_SURI];
+    metadata_rules_t rules_metadata;
+} metadata_from_suri_t;
+
+typedef struct MetadataIpv4 {
+    Address src_addr;
+    Address dst_addr;
+    PacketEngineEvents events;
+} metadata_ipv4_t;
+
+typedef struct MetadataIpv6 {
+    Address src_addr;
+    Address dst_addr;
+} metadata_ipv6_t;
+
+typedef struct MetadataTcp {
+    Port src_port;
+    Port dst_port;
+    uint16_t payload_len;
+    uint16_t l4_len;
+    PacketEngineEvents events;
+} metadata_tcp_t;
+
+typedef struct MetadataUdp {
+    Port src_port;
+    Port dst_port;
+    uint16_t payload_len;
+    uint16_t l4_len;
+} metadata_udp_t;
+
+typedef struct MetadataToSuri {
+    bool set_metadata[CNT_METADATA_TO_SURI]; // 4 - MAX pocet metadat, ukazuji na zacatek jednotlivych metadat
+    metadata_ipv4_t metadata_ipv4;
+    metadata_ipv6_t metadata_ipv6;
+    metadata_tcp_t metadata_tcp;
+    metadata_udp_t metadata_udp;
+} metadata_to_suri_t;
+
+typedef struct MetadataToSuriHelp {
+    struct rte_ipv4_hdr *ipv4_hdr;
+    struct rte_ipv6_hdr *ipv6_hdr;
+    struct rte_tcp_hdr *tcp_hdr;
+    struct rte_udp_hdr *udp_hdr;
+} metadata_to_suri_help_t;
+
 #endif /* HAVE_DPDK */
 
 typedef struct DPDKIfaceConfig_ {
