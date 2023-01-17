@@ -44,23 +44,23 @@ static inline size_t MetadataGetVlanOffset(struct rte_ether_hdr *eth_hdr, uint16
     return vlan_offset;
 }
 
-int MetadataDecodePacketL4(uint8_t *ptr, metadata_t *meta_data, uint8_t proto, size_t size, uint16_t len)
+int MetadataDecodePacketL4(uint8_t *ptr, metadata_to_suri_t *metadata_to_suri, metadata_to_suri_help_t *metadata_to_suri_help,
+        uint8_t proto, size_t len, uint16_t size)
 {
     int ret = 0;
-    meta_data->proto = proto;
 
     if (proto == IPPROTO_TCP) {
-        meta_data->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
-        ret = MetadataDecodePacketTCP(meta_data, len);
+        metadata_to_suri_help->tcp_hdr = (struct rte_tcp_hdr *)(ptr + size);
+        ret = MetadataDecodePacketTCP(metadata_to_suri, metadata_to_suri_help, len);
     } else if (proto == IPPROTO_UDP) {
-        meta_data->udp_hdr = (struct rte_udp_hdr *)(ptr + size);
-        ret = MetadataDecodePacketUDP(meta_data, len);
+        metadata_to_suri_help->udp_hdr = (struct rte_udp_hdr *)(ptr + size);
+        ret = MetadataDecodePacketUDP(metadata_to_suri, metadata_to_suri_help, len);
     }
 
     return ret;
 }
 
-int MetadataDecodePacketL3(struct rte_mbuf *pkt, metadata_t *meta_data)
+int MetadataDecodePacketL3(struct rte_mbuf *pkt, metadata_to_suri_t *metadata_to_suri, metadata_to_suri_help_t *metadata_to_suri_help)
 {
     struct rte_ether_hdr *eth_hdr;
     uint16_t ether_type;
@@ -72,11 +72,11 @@ int MetadataDecodePacketL3(struct rte_mbuf *pkt, metadata_t *meta_data)
     offset = MetadataGetVlanOffset(eth_hdr, &ether_type); // TODO INTERESTING change in if condition translation from cpu to be
 
     if (ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
-        meta_data->ipv4_hdr = (struct rte_ipv4_hdr *)((char *)(eth_hdr + 1) + offset);
-        ret = MetadataDecodePacketIPv4(meta_data, pkt->pkt_len - ETHERNET_HEADER_LEN);
+        metadata_to_suri_help->ipv4_hdr = (struct rte_ipv4_hdr *)((char *)(eth_hdr + 1) + offset);
+        ret = MetadataDecodePacketIPv4(metadata_to_suri, metadata_to_suri_help, pkt->pkt_len - ETHERNET_HEADER_LEN);
     } else if (ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV6)) {
-        meta_data->ipv6_hdr = (struct rte_ipv6_hdr *)((char *)(eth_hdr + 1) + offset);
-        ret = MetadataDecodePacketIPv6(meta_data, pkt->pkt_len - ETHERNET_HEADER_LEN);
+        metadata_to_suri_help->ipv6_hdr = (struct rte_ipv6_hdr *)((char *)(eth_hdr + 1) + offset);
+        ret = MetadataDecodePacketIPv6(metadata_to_suri, metadata_to_suri_help, pkt->pkt_len - ETHERNET_HEADER_LEN);
     }
 
     return ret;
