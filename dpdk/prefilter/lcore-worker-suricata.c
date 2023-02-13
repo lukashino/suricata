@@ -583,7 +583,7 @@ struct lcore_values *ThreadSuricataInit(struct lcore_init *init_vals)
  * @return returns to which ring it was added
  */
 static uint32_t MbufAddToRing(
-        struct rte_mbuf *pkt, ring_buffer *rings, uint16_t rings_cnt, bool pkt_origin_port1)
+        struct rte_mbuf *pkt, ring_buffer *rings, uint16_t rings_cnt, bool pkt_origin_port1, bool value_decoded)
 {
     // RSS distribution among NIC queues uses `mod` operation,
     // using the `mod` operation on packets received on the NIC queue
@@ -605,6 +605,7 @@ static uint32_t MbufAddToRing(
         rings[queue_id].buf[buf_len]->ol_flags &= ~PKT_ORIGIN_PORT1;
 
     rings[queue_id].len = buf_len + 1;
+    rings[queue_id].decoded[buf_len] = value_decoded;
     return queue_id;
 }
 
@@ -644,7 +645,7 @@ static uint16_t MbufsBypassSort(struct rte_mbuf **pkts, uint16_t pkt_cnt,
         ret = FlowKeyExtendedInitFromMbuf(&fk_arr[fke_len], &fd_arr[fke_len], pkts[i]);
         Log().debug("conversion mbuf to FlowKey: %s", ret == 0 ? "success" : "failure");
         if (ret != 0) {
-            MbufAddToRing(pkts[i], no_inspect_rings, rings_cnt, on_port1);
+            MbufAddToRing(pkts[i], no_inspect_rings, rings_cnt, on_port1, false);
         } else {
             inspect_pkts[fke_len] = pkts[i];
             fke_len++;
@@ -702,7 +703,7 @@ static uint32_t PktsBypassSort(struct rte_mbuf **pkts, uint32_t pkt_cnt, struct 
             continue;
         }
         Log().debug("Putting pkt %d (%p) to Suri array 0x%x", i, pkts[i], hmask);
-        MbufAddToRing(pkts[i], lv->tmp_ring_bufs, lv->rings_cnt, pkt_origin_port1);
+        MbufAddToRing(pkts[i], lv->tmp_ring_bufs, lv->rings_cnt, pkt_origin_port1, true);
     }
     return bypassed_cnt;
 }
@@ -804,21 +805,21 @@ static void PktsReceive(struct lcore_values *lv)
     }
 }
 
-static void SetMetadataToMbuf(uint16_t len_buf, uint16_t num_offlds, uint16_t *idx_offlds, struct rte_mbuf **buf) {
+static void SetMetadataToMbuf(ring_buffer *buffer, uint16_t num_offlds, uint16_t *idx_offlds) {
     uint16_t offset;
 
-    for (int j = 0; j < len_buf; j++) {
+    for (int j = 0; j < buffer->len; j++) {
         // fill the memory with 0s
         metadata_to_suri_help_t metadata_to_suri_help;
         memset(&metadata_to_suri_help, 0x00, sizeof(metadata_to_suri_help));
 
         offset = num_offlds * sizeof(uint16_t);
-        metadata_to_suri_t *metadata_to_suri = (metadata_to_suri_t *)rte_mbuf_to_priv(buf[j]);
+        metadata_to_suri_t *metadata_to_suri = (metadata_to_suri_t *)rte_mbuf_to_priv(buffer->buf[j]);
 
         // decode L3 and L4 layers and fill the structure with metadata
-        if (MetadataDecodePacketL3(buf[j], metadata_to_suri, &metadata_to_suri_help)) {
+        if (!buffer->decoded[j] || MetadataDecodePacketL3(buffer->buf[j], metadata_to_suri, &metadata_to_suri_help)) {
             // Log().error(99, "Decoding of the packets failed"); // throw packet away?
-            memset(metadata_to_suri, 0x00, CNT_METADATA_TO_SURI * sizeof(uint16_t));
+            memset(metadata_to_suri->set_metadata, 0x00, CNT_METADATA_TO_SURI);
             continue;
         }
 
@@ -826,19 +827,15 @@ static void SetMetadataToMbuf(uint16_t len_buf, uint16_t num_offlds, uint16_t *i
             switch (idx_offlds[t]) {
                 case IPV4_ID:
                     metadata_to_suri->set_metadata[IPV4_ID] = metadata_to_suri_help.ipv4_hdr ? true : false;
-
                     break;
                 case IPV6_ID:
                     metadata_to_suri->set_metadata[IPV6_ID] = metadata_to_suri_help.ipv6_hdr ? true : false;
-
                     break;
                 case TCP_ID:
                     metadata_to_suri->set_metadata[TCP_ID] = metadata_to_suri_help.tcp_hdr ? true : false;
-
                     break;
                 case UDP_ID:
                     metadata_to_suri->set_metadata[UDP_ID] = metadata_to_suri_help.udp_hdr ? true : false;
-
                     break;
                 default:
                     break;
@@ -860,8 +857,7 @@ static void PktsEnqueue(struct lcore_values *lv)
 
         // if no one offload is not required, skip offloads setting up part
         if (lv->cnt_offlds_suri_requested > 0) {
-            SetMetadataToMbuf(lv->tmp_ring_bufs[i].len, lv->cnt_offlds_suri_requested,
-                    lv->idxes_offlds_suri_requested, lv->tmp_ring_bufs[i].buf);
+            SetMetadataToMbuf(&lv->tmp_ring_bufs[i], lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested);
         }
 
         pkt_count = rte_ring_enqueue_burst(lv->rings_from_pf[i], (void **)lv->tmp_ring_bufs[i].buf,

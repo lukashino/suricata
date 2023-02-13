@@ -52,6 +52,7 @@
 
 typedef struct {
     struct rte_mbuf *buf[2 * BURST_SIZE];
+    bool decoded[2 * BURST_SIZE];
     uint16_t len;
 } ring_buffer;
 
