@@ -74,6 +74,7 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
         const uint8_t *pkt, uint16_t len)
 {
     StatsIncr(tv, dtv->counter_udp);
+
     if (p->metadata_flags & (1 << UDP_BIT)) {
 #ifdef HAVE_DPDK
         p->udph = (UDPHdr *)pkt;

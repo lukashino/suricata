@@ -747,6 +747,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             p->dpdk_v.PF_l4_len = 0;
             p->metadata_flags = 0;
             metadata_to_suri_t *metadata = (metadata_to_suri_t *)rte_mbuf_to_priv(ptv->received_mbufs[i]);
+            p->events = metadata->events;
+
 
             for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
                 switch (ptv->rings.idxes_offlds_suri_requested[t]) {
@@ -756,7 +758,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
                         p->src = metadata->metadata_ipv4.src_addr;
                         p->dst = metadata->metadata_ipv4.dst_addr;
-                        p->events = metadata->metadata_ipv4.events;
+                        p->ip4vars = metadata->metadata_ipv4.ipv4Vars;
                         p->metadata_flags |= IPV4_OFFLOAD(1);
                         break;
                     case IPV6_ID:
@@ -775,7 +777,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                         p->dp = metadata->metadata_tcp.dst_port;
                         p->payload_len = metadata->metadata_tcp.payload_len;
                         p->dpdk_v.PF_l4_len = metadata->metadata_tcp.l4_len;
-                        p->events = metadata->metadata_tcp.events;
+                        p->tcpvars = metadata->metadata_tcp.tcpVars;
                         p->metadata_flags |= TCP_OFFLOAD(1);
                         break;
                     case UDP_ID:

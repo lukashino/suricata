@@ -26,7 +26,6 @@
 static int MetadataDecodeTCPOptions(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri, uint8_t opt_len) {
     uint8_t tcp_opt_cnt = 0;
     TCPOpt tcp_opts[TCP_OPTMAX];
-    TCPVars tcp_opt_vars = { 0 };
 
     uint16_t plen = opt_len;
     while (plen)
@@ -65,49 +64,50 @@ static int MetadataDecodeTCPOptions(uint8_t *pkt, metadata_to_suri_t *metadata_t
             switch (type) {
                 case TCP_OPT_WS:
                     if (olen != TCP_OPT_WS_LEN) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_INVALID_LEN);
                     } else {
-                        if (tcp_opt_vars.ws.type != 0) {
-                            METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_DUPLICATE);
+                        if (metadata_to_suri->metadata_tcp.tcpVars.ws.type != 0) {
+                            METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(tcp_opt_vars.ws, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(metadata_to_suri->metadata_tcp.tcpVars.ws, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
                 case TCP_OPT_MSS:
                     if (olen != TCP_OPT_MSS_LEN) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp) ,TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_INVALID_LEN);
                     } else {
-                        if (tcp_opt_vars.mss.type != 0) {
-                            METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp) ,TCP_OPT_DUPLICATE);
+                        if (metadata_to_suri->metadata_tcp.tcpVars.mss.type != 0) {
+                            METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(tcp_opt_vars.mss, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(metadata_to_suri->metadata_tcp.tcpVars.mss, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
                 case TCP_OPT_SACKOK:
                     if (olen != TCP_OPT_SACKOK_LEN) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_INVALID_LEN);
                     } else {
-                        if (tcp_opt_vars.sackok.type != 0) {
-                            METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_DUPLICATE);
+                        if (metadata_to_suri->metadata_tcp.tcpVars.sackok.type != 0) {
+                            METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(tcp_opt_vars.sackok, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(metadata_to_suri->metadata_tcp.tcpVars.sackok, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
                 case TCP_OPT_TS:
                     if (olen != TCP_OPT_TS_LEN) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_INVALID_LEN);
                     } else {
-                        if (tcp_opt_vars.ts_set) {
-                            METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_DUPLICATE);
+
+                        if (metadata_to_suri->metadata_tcp.tcpVars.ts_set) {
+                            METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_DUPLICATE);
                         } else {
                             uint32_t values[2];
                             memcpy(&values, tcp_opts[tcp_opt_cnt].data, sizeof(values));
-                            tcp_opt_vars.ts_val = SCNtohl(values[0]);
-                            tcp_opt_vars.ts_ecr = SCNtohl(values[1]);
-                            tcp_opt_vars.ts_set = true;
+                            metadata_to_suri->metadata_tcp.tcpVars.ts_val = SCNtohl(values[0]);
+                            metadata_to_suri->metadata_tcp.tcpVars.ts_ecr = SCNtohl(values[1]);
+                            metadata_to_suri->metadata_tcp.tcpVars.ts_set = true;
                         }
                     }
                     break;
@@ -118,12 +118,12 @@ static int MetadataDecodeTCPOptions(uint8_t *pkt, metadata_to_suri_t *metadata_t
                                     olen > TCP_OPT_SACK_MAX_LEN ||
                                     !((olen - 2) % 8 == 0)))
                     {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_INVALID_LEN);
                     } else {
-                        if (tcp_opt_vars.sack.type != 0) {
-                            METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_DUPLICATE);
+                        if (metadata_to_suri->metadata_tcp.tcpVars.sack.type != 0) {
+                            METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(tcp_opt_vars.sack, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(metadata_to_suri->metadata_tcp.tcpVars.sack, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
@@ -131,12 +131,12 @@ static int MetadataDecodeTCPOptions(uint8_t *pkt, metadata_to_suri_t *metadata_t
                     SCLogDebug("TFO option, len %u", olen);
                     if ((olen != 2) && (olen < TCP_OPT_TFO_MIN_LEN || olen > TCP_OPT_TFO_MAX_LEN ||
                                                !(((olen - 2) & 0x1) == 0))) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_INVALID_LEN);
                     } else {
-                        if (tcp_opt_vars.tfo.type != 0) {
-                            METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_DUPLICATE);
+                        if (metadata_to_suri->metadata_tcp.tcpVars.tfo.type != 0) {
+                            METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_DUPLICATE);
                         } else {
-                            SET_OPTS(tcp_opt_vars.tfo, tcp_opts[tcp_opt_cnt]);
+                            SET_OPTS(metadata_to_suri->metadata_tcp.tcpVars.tfo, tcp_opts[tcp_opt_cnt]);
                         }
                     }
                     break;
@@ -147,35 +147,35 @@ static int MetadataDecodeTCPOptions(uint8_t *pkt, metadata_to_suri_t *metadata_t
                     if (olen == 4 || olen == 12) {
                         uint16_t magic = SCNtohs(*(uint16_t *)tcp_opts[tcp_opt_cnt].data);
                         if (magic == 0xf989) {
-                            if (tcp_opt_vars.tfo.type != 0) {
-                                METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_DUPLICATE);
+                            if (metadata_to_suri->metadata_tcp.tcpVars.tfo.type != 0) {
+                                METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_DUPLICATE);
                             } else {
-                                SET_OPTS(tcp_opt_vars.tfo, tcp_opts[tcp_opt_cnt]);
-                                tcp_opt_vars.tfo.type = TCP_OPT_TFO; // treat as regular TFO
+                                SET_OPTS(metadata_to_suri->metadata_tcp.tcpVars.tfo, tcp_opts[tcp_opt_cnt]);
+                                metadata_to_suri->metadata_tcp.tcpVars.tfo.type = TCP_OPT_TFO; // treat as regular TFO
                             }
                         }
                     } else {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_tcp), TCP_OPT_INVALID_LEN);
+                        METADATA_SET_EVENT(metadata_to_suri, TCP_OPT_INVALID_LEN);
                     }
                     break;
                 /* RFC 2385 MD5 option */
                 case TCP_OPT_MD5:
                     SCLogDebug("MD5 option, len %u", olen);
                     if (olen != 18) {
-                        return TCP_OPT_INVALID_LEN; // ENGINE SET INVALID EVENT
+                        return TCP_OPT_INVALID_LEN;
                     } else {
                         /* we can't validate the option as the key is out of band */
-                        tcp_opt_vars.md5_option_present = true;
+                        metadata_to_suri->metadata_tcp.tcpVars.md5_option_present = true;
                     }
                     break;
                 /* RFC 5925 AO option */
                 case TCP_OPT_AO:
                     SCLogDebug("AU option, len %u", olen);
                     if (olen < 4) {
-                        return TCP_OPT_INVALID_LEN; // ENGINE SET INVALID EVENT
+                        return TCP_OPT_INVALID_LEN;
                     } else {
                         /* we can't validate the option as the key is out of band */
-                        tcp_opt_vars.ao_option_present = true;
+                        metadata_to_suri->metadata_tcp.tcpVars.ao_option_present = true;
                     }
                     break;
             }
@@ -207,6 +207,7 @@ int MetadataDecodePacketTCP(metadata_to_suri_t *metadata_to_suri, metadata_to_su
         return TCP_INVALID_OPTLEN;
     }
 
+    memset(&metadata_to_suri->metadata_tcp.tcpVars, 00, sizeof(TCPVars));
     if (tcp_opt_len > 0) {
         ret = MetadataDecodeTCPOptions((uint8_t *)metadata_to_suri_help->tcp_hdr + TCP_HEADER_LEN, metadata_to_suri, tcp_opt_len);
         if (ret != 0) {
