@@ -153,7 +153,7 @@ typedef struct MetadataFromSuri {
 typedef struct MetadataIpv4 {
     Address src_addr;
     Address dst_addr;
-    PacketEngineEvents events;
+    IPV4Vars ipv4Vars;
 } metadata_ipv4_t;
 
 typedef struct MetadataIpv6 {
@@ -166,7 +166,7 @@ typedef struct MetadataTcp {
     Port dst_port;
     uint16_t payload_len;
     uint16_t l4_len;
-    PacketEngineEvents events;
+    TCPVars tcpVars;
 } metadata_tcp_t;
 
 typedef struct MetadataUdp {
@@ -182,6 +182,7 @@ typedef struct MetadataToSuri {
     metadata_ipv6_t metadata_ipv6;
     metadata_tcp_t metadata_tcp;
     metadata_udp_t metadata_udp;
+    PacketEngineEvents events;
 } metadata_to_suri_t;
 
 typedef struct MetadataToSuriHelp {

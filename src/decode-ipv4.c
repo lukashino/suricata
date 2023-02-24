@@ -530,7 +530,9 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 
     /* do the actual decoding */
     if (p->metadata_flags & (1 << IPV4_BIT)) {
+#ifdef HAVE_DPDK
         p->ip4h = (IPV4Hdr *)pkt;
+#endif
     }
     else if (unlikely(DecodeIPV4Packet (p, pkt, len) < 0)) {
         SCLogDebug("decoding IPv4 packet failed");

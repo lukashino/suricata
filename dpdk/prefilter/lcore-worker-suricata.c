@@ -809,20 +809,18 @@ static void PktsReceive(struct lcore_values *lv)
 }
 
 static void SetMetadataToMbuf(ring_buffer *buffer, uint16_t num_offlds, uint16_t *idx_offlds) {
-    uint16_t offset;
-
     for (int j = 0; j < buffer->len; j++) {
         // fill the memory with 0s
         metadata_to_suri_help_t metadata_to_suri_help;
         memset(&metadata_to_suri_help, 0x00, sizeof(metadata_to_suri_help));
-
-        offset = num_offlds * sizeof(uint16_t);
         metadata_to_suri_t *metadata_to_suri = (metadata_to_suri_t *)rte_mbuf_to_priv(buffer->buf[j]);
+        memset(&metadata_to_suri->events, 0x00, sizeof(PacketEngineEvents));
 
         // decode L3 and L4 layers and fill the structure with metadata
         if (!buffer->decoded[j] || MetadataDecodePacketL3(buffer->buf[j], metadata_to_suri, &metadata_to_suri_help)) {
             // Log().error(99, "Decoding of the packets failed"); // throw packet away?
             memset(metadata_to_suri->set_metadata, 0x00, CNT_METADATA_TO_SURI);
+            memset(&metadata_to_suri->events, 0x00, sizeof(PacketEngineEvents));
             continue;
         }
 

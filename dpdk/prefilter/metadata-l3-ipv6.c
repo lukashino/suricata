@@ -32,7 +32,7 @@ void MetadataIpv6ConvertTo(Address *dst, uint8_t *src) {
 
 int MetadataDecodePacketIPv6(metadata_to_suri_t *metadata_to_suri, metadata_to_suri_help_t *metadata_to_suri_help, uint16_t len) {
     int ret;
-    uint16_t ipv6_raw_len = 0;
+    uint16_t ipv6_raw_len;
 
     if (metadata_to_suri_help->ipv6_hdr->proto == 44) {
         memset(metadata_to_suri_help, 0x00, sizeof(void*) * 4);

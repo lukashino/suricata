@@ -190,22 +190,20 @@ static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
 
 int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri, uint8_t opt_len) {
     IPV4Options opts;
-    memset(&opts, 0x00, sizeof(opts));
-    IPV4Vars ip_opt_vars = { 0 };
 
     if (opt_len % 8)
-        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_PAD_REQUIRED);
+        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_PAD_REQUIRED);
 
     while (opt_len)
     {
-        ip_opt_vars.opt_cnt++;
+        metadata_to_suri->metadata_ipv4.ipv4Vars.opt_cnt++;
 
         /* single byte options */
         if (*pkt == IPV4_OPT_EOL) {
             /** \todo What if more data exist after EOL (possible covert channel or data leakage)? */
             SCLogDebug("IPV4OPT %" PRIu8 " len 1 @ %d/%d",
                     *pkt, (len - plen), (len - 1));
-            ip_opt_vars.opts_set |= IPV4_OPT_FLAG_EOL;
+            metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_EOL;
             break;
         } else if (*pkt == IPV4_OPT_NOP) {
             SCLogDebug("IPV4OPT %" PRIu8 " len 1 @ %d/%d",
@@ -213,14 +211,14 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
             pkt++;
             opt_len--;
 
-            ip_opt_vars.opts_set |= IPV4_OPT_FLAG_NOP;
+            metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_NOP;
 
             /* multibyte options */
         } else {
             if (unlikely(opt_len < 2)) {
                 /** \todo What if padding is non-zero (possible covert channel or data leakage)? */
                 /** \todo Spec seems to indicate EOL required if there is padding */
-                METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_EOL_REQUIRED);
+                METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_EOL_REQUIRED);
                 break;
             }
 
@@ -244,89 +242,89 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
             switch (opt.type) {
                 case IPV4_OPT_TS:
                     if (opts.o_ts.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateTimestamp(&opt) == 0) {
                         opts.o_ts = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_TS;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_TS;
                     }
                     break;
                 case IPV4_OPT_RR:
                     if (opts.o_rr.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateRoute(&opt) == 0) {
                         opts.o_rr = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_RR;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_RR;
                     }
                     break;
                 case IPV4_OPT_QS:
                     if (opts.o_qs.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_qs = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_QS;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_QS;
                     }
                     break;
                 case IPV4_OPT_SEC:
                     if (opts.o_sec.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_sec = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SEC;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_SEC;
                     }
                     break;
                 case IPV4_OPT_LSRR:
                     if (opts.o_lsrr.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateRoute(&opt) == 0) {
                         opts.o_lsrr = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_LSRR;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_LSRR;
                     }
                     break;
                 case IPV4_OPT_CIPSO:
                     if (opts.o_cipso.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateCIPSO(&opt) == 0) {
                         opts.o_cipso = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_CIPSO;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_CIPSO;
                     }
                     break;
                 case IPV4_OPT_SID:
                     if (opts.o_sid.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_sid = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SID;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_SID;
                     }
                     break;
                 case IPV4_OPT_SSRR:
                     if (opts.o_ssrr.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateRoute(&opt) == 0) {
                         opts.o_ssrr = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_SSRR;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_SSRR;
                     }
                     break;
                 case IPV4_OPT_RTRALT:
                     if (opts.o_rtralt.type != 0) {
-                        METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_DUPLICATE);
+                        METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_DUPLICATE);
                         /* Warn - we can keep going */
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_rtralt = opt;
-                        ip_opt_vars.opts_set |= IPV4_OPT_FLAG_RTRALT;
+                        metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_RTRALT;
                     }
                     break;
                 default:
                     SCLogDebug("IPV4OPT <unknown> (%" PRIu8 ") len %" PRIu8,
                             opt.type, opt.len);
-                    METADATA_SET_EVENT(&(metadata_to_suri->metadata_ipv4), IPV4_OPT_INVALID);
+                    METADATA_SET_EVENT(metadata_to_suri, IPV4_OPT_INVALID);
                     /* Warn - we can keep going */
                     break;
             }
@@ -377,6 +375,7 @@ int MetadataDecodePacketIPv4(metadata_to_suri_t *metadata_to_suri, metadata_to_s
     MetadataIpv4ConvertTo(&metadata_to_suri->metadata_ipv4.dst_addr, metadata_to_suri_help->ipv4_hdr->dst_addr);
 
     uint8_t ip_opt_len = ipv4_len - IPV4_HEADER_LEN;
+    memset(&metadata_to_suri->metadata_ipv4.ipv4Vars, 00, sizeof(IPV4Vars));
     if (ip_opt_len > 0) {
         ret = MetadataDecodeIPV4Options((uint8_t *)metadata_to_suri_help->ipv4_hdr + IPV4_HEADER_LEN, metadata_to_suri, ip_opt_len);
         if (ret != 0) {
