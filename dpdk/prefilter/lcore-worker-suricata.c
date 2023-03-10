@@ -449,43 +449,46 @@ static void MessagesCheckSingle(struct lcore_values *lv)
     }
 }
 
-void ThreadSuricataOffloadsSetup(struct lcore_init *vals, struct lcore_values *lv) {
-    int tmp_iface_id;
-    char tmp_iface[RTE_RING_NAMESIZE] = { 0 }; // make constant
-
-    struct rte_memzone *mz = ctx.shared_conf;
-    struct PFConf *pf_conf = (struct PFConf *)mz->addr;
-
-    sprintf(tmp_iface, "_%s_", vals->re->main_ring.name_base);
-
-    for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++) {
-        if ( !strstr(pf_conf->ring_entries[i].rx_ring_name, tmp_iface) ) {
-            continue;
-        }
-
-        tmp_iface_id = i;
-        pf_conf->ring_entries[i].oflds_final_IDS =
-                pf_conf->ring_entries[i].oflds_suri_requested &
-                pf_conf->ring_entries[i].oflds_pf_support;
-    }
-
+void PrintInfoMetadata(struct PFConfRingEntry *ring_entry) {
     Log().info("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
                "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
                "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
-            pf_conf->ring_entries[tmp_iface_id].rx_ring_name,
-            IPV4_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled",
-            IPV6_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled",
-            TCP_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled",
-            UDP_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
+            ring_entry->rx_ring_name,
+            IPV4_ID, ring_entry->oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled",
+            IPV6_ID, ring_entry->oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled",
+            TCP_ID, ring_entry->oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled",
+            UDP_ID, ring_entry->oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
     Log().info("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
                "\tOffload matchedRules (bit %d) is %s",
-            pf_conf->ring_entries[tmp_iface_id].rx_ring_name,
-            MATCH_RULES, pf_conf->ring_entries[tmp_iface_id].oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+            ring_entry->rx_ring_name,
+            MATCH_RULES, ring_entry->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+}
 
-    SetIdxOfFinalOfflds(pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS,
+int FindIfaceRings(struct PFConf *pf_conf, const char *ring_name_base) {
+    int tmp_iface_id;
+
+    for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++) {
+        if (strstr(pf_conf->ring_entries[i].rx_ring_name, ring_name_base)) {
+            tmp_iface_id = i;
+            pf_conf->ring_entries[i].oflds_final_IDS =
+                    pf_conf->ring_entries[i].oflds_suri_requested &
+                    pf_conf->ring_entries[i].oflds_pf_support;
+        }
+    }
+
+    return tmp_iface_id;
+}
+
+void ThreadSuricataOffloadsSetup(struct lcore_init *vals, struct lcore_values *lv) {
+    struct rte_memzone *mz = ctx.shared_conf;
+    struct PFConf *pf_conf = (struct PFConf *)mz->addr;
+    int iface_id = FindIfaceRings(pf_conf, vals->re->main_ring.name_base);
+
+    PrintInfoMetadata(&pf_conf->ring_entries[iface_id]);
+    SetIdxOfFinalOfflds(pf_conf->ring_entries[iface_id].oflds_final_IDS,
             &lv->cnt_offlds_suri_requested,
             lv->idxes_offlds_suri_requested);
-    SetIdxOfFinalOfflds(pf_conf->ring_entries[tmp_iface_id].oflds_final_IPS,
+    SetIdxOfFinalOfflds(pf_conf->ring_entries[iface_id].oflds_final_IPS,
             &lv->cnt_offlds_suri_support,
             lv->idxes_offlds_suri_support);
 }
