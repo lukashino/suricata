@@ -1502,6 +1502,60 @@ void SetIdxOfFinalOfflds(uint16_t finalOffloads, uint16_t *cntOffloads, uint16_t
     }
 }
 
+int OffloadsAgreemnet(DPDKIfaceConfig *iconf, struct PFConfRingEntry *pf_re, int rings_cnt) {
+    int retval;
+    struct rte_mp_msg req;
+    struct rte_mp_reply reply;
+    memset(&req, 0, sizeof(req));
+    strlcpy(req.name, IPC_ACTION_OFFLOADS_SETUP, RTE_MP_MAX_NAME_LEN);
+    strlcpy(req.param, iconf->iface, RTE_RING_NAMESIZE);
+    const struct timespec tss = {.tv_sec = 5, .tv_nsec = 0};
+    retval = rte_mp_request_sync(&req, &reply, &tss);
+
+    if (retval != 0 || reply.nb_sent != reply.nb_received) {
+        FatalError(SC_ERR_FATAL, "%s req-response failed (%s)", IPC_ACTION_OFFLOADS_SETUP, rte_strerror(rte_errno));
+    }
+
+    for (int32_t i = 0; i < rings_cnt; ++i) {
+        const char *name;
+        name = DeviceRingNameInit(iconf->iface, i);
+        SCLogDebug("Looking up rx ring: %s", name);
+        iconf->rx_rings[i] = rte_ring_lookup(name);
+        if (iconf->rx_rings[i] == NULL) {
+            SCLogError(SC_ERR_DPDK_INIT, "rte_ring_lookup(): cannot get rx ring '%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+        pf_re = DeviceRingsFindPFConfRingEntry(mz_name, name);
+        if (pf_re == NULL) {
+            SCLogError(SC_ERR_DPDK_INIT, "cannot get prefilter ring entry'%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+        SCLogNotice("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
+                    "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
+                    "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
+                iconf->iface,
+                IPV4_ID, pf_re->oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled",
+                IPV6_ID, pf_re->oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled",
+                TCP_ID, pf_re->oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled",
+                UDP_ID, pf_re->oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
+        SCLogNotice("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
+                    "\tOffload matchedRules (bit %d) is %s",
+                iconf->iface,
+                MATCH_RULES, pf_re->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS,
+                &iconf->cnt_offlds_suri_requested[i],
+                iconf->idxes_offlds_suri_requested[i]);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS,
+                &iconf->cnt_offlds_suri_support,
+                iconf->idxes_offlds_suri_support);
+    }
+
+    SCReturnInt(0);
+}
+
 static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
 {
     SCEnter();
@@ -1616,53 +1670,8 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         }
     }
 
-    // TODO treat retval
-    struct rte_mp_msg req;
-    struct rte_mp_reply reply;
-    memset(&req, 0, sizeof(req));
-    strlcpy(req.name, IPC_ACTION_OFFLOADS_SETUP, RTE_MP_MAX_NAME_LEN);
-    strlcpy(req.param, iconf->iface, RTE_RING_NAMESIZE); // set to const
-    const struct timespec tss = {.tv_sec = 5, .tv_nsec = 0};
-    retval = rte_mp_request_sync(&req, &reply, &tss);
-
-    for (int32_t i = 0; i < rings_cnt; ++i) {
-        const char *name;
-        name = DeviceRingNameInit(iconf->iface, i);
-        SCLogDebug("Looking up rx ring: %s", name);
-        iconf->rx_rings[i] = rte_ring_lookup(name);
-        if (iconf->rx_rings[i] == NULL) {
-            SCLogError(SC_ERR_DPDK_INIT, "rte_ring_lookup(): cannot get rx ring '%s'", name);
-            SCReturnInt(-ENOENT);
-        }
-
-        pf_re = DeviceRingsFindPFConfRingEntry(mz_name, name);
-        if (pf_re == NULL) {
-            SCLogError(SC_ERR_DPDK_INIT, "cannot get prefilter ring entry'%s'", name);
-            SCReturnInt(-ENOENT);
-        }
-
-        SCLogNotice("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
-                   "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
-                   "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
-                iconf->iface,
-                IPV4_ID, pf_re->oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled",
-                IPV6_ID, pf_re->oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled",
-                TCP_ID, pf_re->oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled",
-                UDP_ID, pf_re->oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
-        SCLogNotice("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
-                   "\tOffload matchedRules (bit %d) is %s",
-                iconf->iface,
-                MATCH_RULES, pf_re->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
-
-        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS,
-                            &iconf->cnt_offlds_suri_requested[i],
-                            iconf->idxes_offlds_suri_requested[i]);
-        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS,
-                            &iconf->cnt_offlds_suri_support,
-                            iconf->idxes_offlds_suri_support);
-    }
-
-    SCReturnInt(0);
+    retval = OffloadsAgreemnet(iconf, pf_re, rings_cnt);
+    SCReturnInt(retval);
 }
 
 int DeviceConfigure(DPDKIfaceConfig *iconf)
