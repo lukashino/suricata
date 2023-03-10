@@ -158,7 +158,7 @@ bool LcoreStateCheckAllByRing(enum LcoreStateEnum check_state, char *iface)
 {
     bool all_set = true;
     for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
-        if (!strcmp(ctx.lcores_state.lcores_arr[i].name_ring, iface)) {
+        if (strstr(iface, ctx.lcores_state.lcores_arr[i].name_ring)) {
             Log().debug(
                     "State - desired %u actual %u", check_state, rte_atomic16_read(ctx.lcores_state.lcores_arr[i].state));
             all_set &= LcoreStateCheck(
@@ -166,6 +166,7 @@ bool LcoreStateCheckAllByRing(enum LcoreStateEnum check_state, char *iface)
                     check_state);
         }
     }
+
     return all_set;
 }
 
@@ -245,9 +246,8 @@ int LcoreManagerRunWorker(
             return -rte_errno;
         }
 
-        strlcpy(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring,
-                DevConfGetRxDefaultName(re->main_ring.name_base),
-                RTE_RING_NAMESIZE);
+        snprintf(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring,
+                RTE_RING_NAMESIZE + 2, "_%s_", re->main_ring.name_base);
 
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].state = lcore_state;
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].bypass_table = t;

@@ -313,7 +313,7 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
     }
 
     for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
-        if (!strcmp(ctx.lcores_state.lcores_arr[i].name_ring, (char*)msg->param)) {
+        if (strstr((char*)msg->param, ctx.lcores_state.lcores_arr[i].name_ring)) {
             LcoreStateSet(ctx.lcores_state.lcores_arr[i].state, LCORE_OFFLOADS_INIT);
         }
     }

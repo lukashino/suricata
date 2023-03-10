@@ -466,6 +466,8 @@ void PrintInfoMetadata(struct PFConfRingEntry *ring_entry) {
 
 int FindIfaceRings(struct PFConf *pf_conf, const char *ring_name_base) {
     int tmp_iface_id;
+    char tmp_iface[RTE_RING_NAMESIZE + 2] = { 0 };
+    sprintf(tmp_iface, "_%s_", ring_name_base);
 
     for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++) {
         if (strstr(pf_conf->ring_entries[i].rx_ring_name, ring_name_base)) {
