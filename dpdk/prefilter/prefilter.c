@@ -305,25 +305,26 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
     strlcpy((char *)mp_resp.param, IPC_VALID_RESPONSE, sizeof(mp_resp.param) / sizeof(mp_resp.param[0]));
     mp_resp.len_param = (int)strlen((char *)mp_resp.param);
 
-    uint8_t tout_sec = 5; // TODO change value
-    LcoreStateCheckAllByRingTimeout(LCORE_INIT_DONE, (char*)msg->param, tout_sec);
+    uint8_t tout_sec = 2;
+    ret = LcoreStateCheckAllByRingTimeout(LCORE_INIT_DONE, (char*)msg->param, tout_sec);
     if (ret != 0) {
         Log().error(ETIMEDOUT, "Workers have not initialised in time (%s sec)", tout_sec);
         exit(1);
     }
 
     for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
-        if (strcmp(ctx.lcores_state.lcores_arr[i].name_ring, (char*)msg->param)) {
-            continue;
+        if (!strcmp(ctx.lcores_state.lcores_arr[i].name_ring, (char*)msg->param)) {
+            LcoreStateSet(ctx.lcores_state.lcores_arr[i].state, LCORE_OFFLOADS_INIT);
         }
-
-        LcoreStateSet(ctx.lcores_state.lcores_arr[i].state, LCORE_OFFLOADS_INIT);
     }
 
-    // set and check ret
-    LcoreStateCheckAllByRingTimeout(LCORE_OFFLOADS_DONE, (char*)msg->param, 5);
+    ret = LcoreStateCheckAllByRingTimeout(LCORE_OFFLOADS_DONE, (char*)msg->param, tout_sec);
+    if (ret != 0) {
+        Log().error(ETIMEDOUT, "Offloads have not initialised in time (%s sec)", tout_sec);
+        exit(1);
+    }
 
-    ret = rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
+    rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
     Log().debug("IPC action for %s", IPC_ACTION_OFFLOADS_SETUP);
 
     return 0;
