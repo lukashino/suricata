@@ -146,6 +146,12 @@ struct SuriOffloadsAttrs {
     const char *matchRules;
 };
 
+struct MetadataAttrs {
+    struct PfOffloadsAttrs oflds_from_pf_to_suri;
+    struct SuriOffloadsAttrs oflds_from_suri_to_pf;
+    const char* private_space_size;
+};
+
 typedef struct MetadataRules {
     size_t cnt;
     uint32_t rules[32]; // change then
@@ -221,6 +227,7 @@ typedef struct DPDKIfaceConfig_ {
     uint16_t cnt_offlds_suri_support;
     uint16_t idxes_offlds_suri_support[MAX_CNT_OFFLOADS];
     uint16_t oflds_suri_support;
+    uint16_t private_space_size;
     /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;

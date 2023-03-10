@@ -40,8 +40,7 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *tx_descriptors;
     const char *copy_mode;
     const char *copy_iface;
-    struct PfOffloadsAttrs oflds_from_pf_to_suri;
-    struct SuriOffloadsAttrs oflds_from_suri_to_pf;
+    struct MetadataAttrs metadata;
 } DPDKIfaceConfigAttributes;
 
 int DeviceConfigure(DPDKIfaceConfig *iconf);

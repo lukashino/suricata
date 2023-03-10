@@ -77,6 +77,7 @@ struct ring_list_entry {
     stop_ring stop;
     uint16_t oflds_pf_support;
     uint16_t oflds_pf_requested;
+    uint16_t private_space_size;
     TAILQ_ENTRY(ring_list_entry) entries;
     TAILQ_HEAD(, ring_list_entry) head;
 };

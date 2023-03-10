@@ -150,16 +150,18 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
-    .oflds_from_pf_to_suri = {
-        .ipv4 = "IPV4",
-        .ipv6 = "IPV6",
-        .tcp = "TCP",
-        .udp = "UDP",
-    },
-    .oflds_from_suri_to_pf = {
-        .matchRules = "matchRules",
+    .metadata = {
+        .oflds_from_pf_to_suri = {
+                .ipv4 = "IPV4",
+                .ipv6 = "IPV6",
+                .tcp = "TCP",
+                .udp = "UDP",
+        },
+        .oflds_from_suri_to_pf = {
+                .matchRules = "matchRules",
+        },
+        .private_space_size = "private-space-size",
     }
-
 };
 
 //#define OFFLOADS_PF                                       \
@@ -933,42 +935,58 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     if (retval < 0)
         SCReturnInt(retval);
 
-    ConfNode *config;
+    ConfNode *config, *next_node;
+    config = ConfGetChildWithDefault(if_root, if_default, "metadata");
+    if (config == NULL) {
+        FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"metadata\" for Suricata");
+    }
 
-    config = ConfGetChildWithDefault(if_root, if_default, "offloads-from-pf-to-suri");
-    if (config == NULL)
+    next_node = ConfNodeLookupChild(config, "offloads-from-pf-to-suri");
+    if (next_node == NULL) {
         FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-pf-to-suri\" for Suricata");
+    }
 
-    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.ipv4, &entry_bool)) == 1) {
+    if ((retval = ConfGetChildValueBool(next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.ipv4, &entry_bool)) == 1) {
         iconf->oflds_suri_requested |= IPV4_OFFLOAD(entry_bool);
     } else {
         SCReturnInt(retval);
     }
 
-    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.ipv6, &entry_bool)) == 1) {
+    if ((retval = ConfGetChildValueBool(next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.ipv6, &entry_bool)) == 1) {
         iconf->oflds_suri_requested |= IPV6_OFFLOAD(entry_bool);
     } else {
         SCReturnInt(retval);
     }
 
-    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.tcp, &entry_bool)) == 1) {
+    if ((retval = ConfGetChildValueBool(next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.tcp, &entry_bool)) == 1) {
         iconf->oflds_suri_requested |= TCP_OFFLOAD(entry_bool);
     } else {
         SCReturnInt(retval);
     }
 
-    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.udp, &entry_bool)) == 1) {
+    if ((retval = ConfGetChildValueBool(next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.udp, &entry_bool)) == 1) {
         iconf->oflds_suri_requested |= UDP_OFFLOAD(entry_bool);
     } else {
         SCReturnInt(retval);
     }
 
-    config = ConfGetChildWithDefault(if_root, if_default, "offloads-from-suri-to-pf");
-    if (config == NULL)
+    next_node = ConfNodeLookupChild(config, "offloads-from-suri-to-pf");
+    if (next_node == NULL) {
         FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-suri-to-pf\" for Suricata");
+    }
 
-    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_suri_to_pf.matchRules, &entry_bool)) == 1) {
+    if ((retval = ConfGetChildValueBool(next_node, dpdk_yaml.metadata.oflds_from_suri_to_pf.matchRules, &entry_bool)) == 1) {
         iconf->oflds_suri_support |= MATCH_RULES_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueInt(config, dpdk_yaml.metadata.private_space_size, &entry_int)) == 1) {
+        if (entry_int <= 0) {
+            SCReturnInt(retval);
+        }
+
+        iconf->private_space_size = entry_int;
     } else {
         SCReturnInt(retval);
     }
@@ -1291,8 +1309,8 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
     SCLogInfo("%s: creating packet mbuf pool %s of size %d, cache size %d, mbuf size %d",
             iconf->iface, mempool_name, iconf->mempool_size, iconf->mempool_cache_size, mbuf_size);
 
-    iconf->pkt_mempool = rte_pktmbuf_pool_create(mempool_name, iconf->mempool_size,
-            iconf->mempool_cache_size, 256, mbuf_size, (int)iconf->socket_id);
+    iconf->pkt_mempool = rte_pktmbuf_pool_create(mempool_name, iconf->mempool_size,iconf->mempool_cache_size,
+            iconf->private_space_size, mbuf_size, (int)iconf->socket_id);
     if (iconf->pkt_mempool == NULL) {
         retval = -rte_errno;
         SCLogError("%s: rte_pktmbuf_pool_create failed with code %d (mempool: %s) - %s",
