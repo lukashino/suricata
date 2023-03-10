@@ -38,17 +38,17 @@ static int MetadataIPV4OptValidateTimestamp(const IPV4Opt *o) {
 
     /* Check length */
     if (unlikely(o->len < IPV4_OPT_TS_MIN))
-        return IPV4_OPT_INVALID_LEN; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_INVALID_LEN;
 
     /* Data is required */
     if (unlikely(o->data == NULL))
-        return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_MALFORMED;
 
     ptr = *o->data;
 
     /* We need the flag to determine what is in the option payload */
     if (unlikely(ptr < 5))
-        return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_MALFORMED;
 
     flag = *(o->data + 1) & 0x0f;
 
@@ -60,7 +60,7 @@ static int MetadataIPV4OptValidateTimestamp(const IPV4Opt *o) {
      * and cannot extend past option length.
      */
     if (unlikely(((ptr - 5) % rec_size) || (ptr > o->len + 1)))
-        return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_MALFORMED;
 
     return 0;
 }
@@ -74,7 +74,7 @@ static int MetadataIPV4OptValidateRoute(const IPV4Opt *o) {
 
     /* Data is required */
     if (unlikely(o->data == NULL))
-        return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_MALFORMED;
 
     ptr = *o->data;
 
@@ -83,7 +83,7 @@ static int MetadataIPV4OptValidateRoute(const IPV4Opt *o) {
      * past option length.
      */
     if (unlikely((ptr < 4) || (ptr % 4) || (ptr > o->len + 1)))
-        return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_MALFORMED;
 
     return 0;
 }
@@ -93,24 +93,24 @@ static int MetadataIPV4OptValidateGeneric(const IPV4Opt *o) {
         /* See: RFC 4782 */
         case IPV4_OPT_QS:
             if (o->len < IPV4_OPT_QS_MIN)
-                return IPV4_OPT_INVALID_LEN; // ENGINE_SET_INVALID_EVENT
+                return IPV4_OPT_INVALID_LEN;
 
             break;
         /* See: RFC 1108 */
         case IPV4_OPT_SEC: case IPV4_OPT_SID:
             if (o->len != IPV4_OPT_SEC_LEN)
-                return IPV4_OPT_INVALID_LEN; // ENGINE_SET_INVALID_EVENT
+                return IPV4_OPT_INVALID_LEN;
 
             break;
         /* See: RFC 2113 */
         case IPV4_OPT_RTRALT:
             if (o->len != IPV4_OPT_RTRALT_LEN)
-                return IPV4_OPT_INVALID_LEN; // ENGINE_SET_INVALID_EVENT
+                return IPV4_OPT_INVALID_LEN;
 
             break;
         default:
             /* Should never get here unless there is a coding error */
-            return IPV4_OPT_UNKNOWN; // ENGINE_SET_INVALID_EVENT
+            return IPV4_OPT_UNKNOWN;
     }
 
     return 0;
@@ -122,11 +122,11 @@ static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
 
     /* Check length */
     if (unlikely(o->len < IPV4_OPT_CIPSO_MIN))
-        return IPV4_OPT_INVALID_LEN; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_INVALID_LEN;
 
     /* Data is required */
     if (unlikely(o->data == NULL))
-        return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+        return IPV4_OPT_MALFORMED;
 
     //    doi = *o->data;
     tag = o->data + 4;
@@ -143,7 +143,7 @@ static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
 
         /* Tag header must fit within option length */
         if (unlikely(len < 2))
-            return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+            return IPV4_OPT_MALFORMED;
 
         /* Tag header is type+len */
         ttype = *(tag++);
@@ -151,7 +151,7 @@ static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
 
         /* Tag length must fit within the option length */
         if (unlikely(tlen > len))
-            return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+            return IPV4_OPT_MALFORMED;
 
         switch(ttype) {
             case 1:
@@ -161,13 +161,13 @@ static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
             case 7:
                 /* Tag is at least 4 and at most the remainder of option len */
                 if (unlikely((tlen < 4) || (tlen > len)))
-                    return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+                    return IPV4_OPT_MALFORMED;
 
                 /* The alignment octet is always 0 except tag
                  * type 7, which has no such field.
                  */
                 if (unlikely((ttype != 7) && (*tag != 0)))
-                    return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+                    return IPV4_OPT_MALFORMED;
 
                 /* Skip the rest of the tag payload */
                 tag += tlen - 2;
@@ -177,10 +177,10 @@ static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
             case 0:
                 /* Tag type 0 is reserved and thus invalid */
                 /** \todo Wireshark marks this a padding, but spec says reserved. */
-                return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+                return IPV4_OPT_MALFORMED;
             default:
                 /** \todo May not want to return error here on unknown tag type (at least not for 3|4) */
-                return IPV4_OPT_MALFORMED; // ENGINE_SET_INVALID_EVENT
+                return IPV4_OPT_MALFORMED;
         }
     }
 
@@ -246,6 +246,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateTimestamp(&opt) == 0) {
                         opts.o_ts = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_TS;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_RR:
@@ -255,6 +257,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateRoute(&opt) == 0) {
                         opts.o_rr = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_RR;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_QS:
@@ -264,6 +268,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_qs = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_QS;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_SEC:
@@ -273,6 +279,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_sec = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_SEC;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_LSRR:
@@ -282,6 +290,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateRoute(&opt) == 0) {
                         opts.o_lsrr = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_LSRR;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_CIPSO:
@@ -291,6 +301,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateCIPSO(&opt) == 0) {
                         opts.o_cipso = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_CIPSO;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_SID:
@@ -300,6 +312,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_sid = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_SID;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_SSRR:
@@ -309,6 +323,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateRoute(&opt) == 0) {
                         opts.o_ssrr = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_SSRR;
+                    } else {
+                        return -1;
                     }
                     break;
                 case IPV4_OPT_RTRALT:
@@ -318,6 +334,8 @@ int MetadataDecodeIPV4Options(uint8_t *pkt, metadata_to_suri_t *metadata_to_suri
                     } else if (MetadataIPV4OptValidateGeneric(&opt) == 0) {
                         opts.o_rtralt = opt;
                         metadata_to_suri->metadata_ipv4.ipv4Vars.opts_set |= IPV4_OPT_FLAG_RTRALT;
+                    } else {
+                        return -1;
                     }
                     break;
                 default:

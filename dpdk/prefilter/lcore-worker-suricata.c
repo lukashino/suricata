@@ -860,7 +860,6 @@ static void SetMetadataToMbuf(ring_buffer *packets_buffer, uint16_t num_offlds, 
         if ( (!packets_buffer->decoded[j]) ||
                 MetadataDecodePacketL3(packets_buffer->buf[j], metadata_to_suri, &metadata_to_suri_help)) {
             memset(metadata_to_suri->metadata_set, 0x00, CNT_METADATA_TO_SURI * sizeof(metadata_to_suri->metadata_set[0]));
-            memset(&metadata_to_suri->events, 0x00, sizeof(PacketEngineEvents));
             continue;
         }
 
