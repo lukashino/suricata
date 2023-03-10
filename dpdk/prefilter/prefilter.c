@@ -306,7 +306,7 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
     mp_resp.len_param = (int)strlen((char *)mp_resp.param);
 
     uint8_t tout_sec = 5; // TODO change value
-    LcoreStateCheckIfaceTimeout(LCORE_INIT_DONE, (char*)msg->param, tout_sec);
+    LcoreStateCheckAllByRingTimeout(LCORE_INIT_DONE, (char*)msg->param, tout_sec);
     if (ret != 0) {
         Log().error(ETIMEDOUT, "Workers have not initialised in time (%s sec)", tout_sec);
         exit(1);
@@ -321,7 +321,7 @@ static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
     }
 
     // set and check ret
-    LcoreStateCheckIfaceTimeout(LCORE_OFFLOADS_DONE, (char*)msg->param, 5);
+    LcoreStateCheckAllByRingTimeout(LCORE_OFFLOADS_DONE, (char*)msg->param, 5);
 
     ret = rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
     Log().debug("IPC action for %s", IPC_ACTION_OFFLOADS_SETUP);
