@@ -25,17 +25,6 @@
 
 #include "util-dpdk.h"
 
-struct PfOffloadsAttrs {
-    const char *ipv4;
-    const char *ipv6;
-    const char *tcp;
-    const char *udp;
-};
-
-struct SuriOffloadsAttrs {
-    const char *matchRules;
-};
-
 typedef struct DPDKIfaceConfigAttributes_ {
     const char *threads;
     const char *operation_mode;

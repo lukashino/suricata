@@ -117,7 +117,6 @@ static int MetadataIPV4OptValidateGeneric(const IPV4Opt *o) {
 }
 
 static int MetadataIPV4OptValidateCIPSO(const IPV4Opt *o) {
-    //    uint32_t doi;
     const uint8_t *tag;
     uint16_t len;
 

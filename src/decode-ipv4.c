@@ -529,7 +529,7 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
     }
 
     /* do the actual decoding */
-    if (p->metadata_flags & (1 << IPV4_BIT)) {
+    if (p->dpdk_v.metadata_flags & (1 << IPV4_ID)) {
 #ifdef HAVE_DPDK
         p->ip4h = (IPV4Hdr *)pkt;
 #endif

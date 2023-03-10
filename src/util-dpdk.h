@@ -118,14 +118,7 @@ typedef enum {
 // Offloads
 #define DPDK_RX_CHECKSUM_OFFLOAD (1 << 4) /**< Enable chsum offload */
 
-/* Offloads flags */
-enum ofldsIdxsPf {
-    IPV4_ID,
-    IPV6_ID,
-    TCP_ID,
-    UDP_ID
-};
-
+/* Offloads IPS flags */
 enum ofldsIdxsSur {
     MATCH_RULES
 };
@@ -137,8 +130,21 @@ enum ofldsIdxsSur {
 
 #define MATCH_RULES_OFFLOAD(val) ((val) << MATCH_RULES)
 
+#define MAX_CNT_OFFLOADS 16
+#define MAX_CNT_MATCHED_RULES 32
 #define CNT_METADATA_TO_SURI 4
 #define CNT_METADATA_FROM_SURI 1
+
+struct PfOffloadsAttrs {
+    const char *ipv4;
+    const char *ipv6;
+    const char *tcp;
+    const char *udp;
+};
+
+struct SuriOffloadsAttrs {
+    const char *matchRules;
+};
 
 typedef struct MetadataRules {
     size_t cnt;
@@ -146,7 +152,7 @@ typedef struct MetadataRules {
 } metadata_rules_t;
 
 typedef struct MetadataFromSuri {
-    bool set_metadata[CNT_METADATA_FROM_SURI];
+    uint32_t metadata_set[CNT_METADATA_FROM_SURI];
     metadata_rules_t rules_metadata;
 } metadata_from_suri_t;
 
@@ -177,7 +183,7 @@ typedef struct MetadataUdp {
 } metadata_udp_t;
 
 typedef struct MetadataToSuri {
-    bool set_metadata[CNT_METADATA_TO_SURI]; // 4 - MAX pocet metadat, ukazuji na zacatek jednotlivych metadat
+    uint32_t metadata_set[CNT_METADATA_TO_SURI];
     metadata_ipv4_t metadata_ipv4;
     metadata_ipv6_t metadata_ipv6;
     metadata_tcp_t metadata_tcp;
@@ -210,10 +216,10 @@ typedef struct DPDKIfaceConfig_ {
     struct rte_ring **results_rings;
     struct rte_mempool **messages_mempools;
     uint16_t *cnt_offlds_suri_requested;
-    uint16_t (*idxes_offlds_suri_requested)[16];
+    uint16_t (*idxes_offlds_suri_requested)[MAX_CNT_OFFLOADS];
     uint16_t oflds_suri_requested;
     uint16_t cnt_offlds_suri_support;
-    uint16_t idxes_offlds_suri_support[16];
+    uint16_t idxes_offlds_suri_support[MAX_CNT_OFFLOADS];
     uint16_t oflds_suri_support;
     /* End of ring mode settings */
     /* IPS mode */

@@ -1494,8 +1494,7 @@ static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(const char *mz_nam
  */
 void SetIdxOfFinalOfflds(uint16_t finalOffloads, uint16_t *cntOffloads, uint16_t *indexOffloads)
 {
-    // TODO create a constant variable '16' - max count of offloads
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < MAX_CNT_OFFLOADS; i++) {
         if (((1 << i) & finalOffloads) != 0) {
             indexOffloads[*cntOffloads] = i;
             (*cntOffloads)++;
@@ -1642,10 +1641,19 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
             SCReturnInt(-ENOENT);
         }
 
-        SCLogNotice("%d - IPS, %d - IDS, interface - %s\n",
-                pf_re->oflds_final_IPS,
-                pf_re->oflds_final_IDS,
-                iconf->iface);
+        SCLogNotice("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
+                   "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
+                   "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
+                iconf->iface,
+                IPV4_ID, pf_re->oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled",
+                IPV6_ID, pf_re->oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled",
+                TCP_ID, pf_re->oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled",
+                UDP_ID, pf_re->oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
+        SCLogNotice("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
+                   "\tOffload matchedRules (bit %d) is %s",
+                iconf->iface,
+                MATCH_RULES, pf_re->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+
         SetIdxOfFinalOfflds(pf_re->oflds_final_IDS,
                             &iconf->cnt_offlds_suri_requested[i],
                             iconf->idxes_offlds_suri_requested[i]);

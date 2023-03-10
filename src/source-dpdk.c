@@ -137,18 +137,12 @@ typedef struct DPDKThreadVars_ {
             struct rte_ring *results_ring;
             struct rte_mempool *msg_mp;
             uint16_t cnt_offlds_suri_requested;
-            uint16_t idxes_offlds_suri_requested[16];
+            uint16_t idxes_offlds_suri_requested[MAX_CNT_OFFLOADS];
             uint16_t cnt_offlds_pf_requested;
-            uint16_t idxes_offlds_pf_requested[16];
+            uint16_t idxes_offlds_pf_requested[MAX_CNT_OFFLOADS];
         } rings;
     };
 } DPDKThreadVars;
-
-#define READ_DATA_FROM_PRIV(dst, size) do {        \
-    memcpy((dst), priv_sec + (offset<<3), (size)); \
-    offset += (size);                              \
-} while(0)
-
 
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *, const void *, void **);
 static void ReceiveDPDKThreadExitStats(ThreadVars *, void *);
@@ -374,8 +368,8 @@ static inline void SetMetadataToMbuf(Packet *p, uint16_t num_offlds, uint16_t *i
     for (int t = 0; t < num_offlds; t++) {
         switch (idx_offlds[t]) {
             case MATCH_RULES:
-                max_cnt = p->alerts.cnt > 32 ? 32 : p->alerts.cnt; // 32 - 128 / sizeof(uint32_t);
-                metadata_from_suri->set_metadata[MATCH_RULES] = max_cnt == 0 ? false : true;
+                max_cnt = p->alerts.cnt > MAX_CNT_MATCHED_RULES ? MAX_CNT_MATCHED_RULES : p->alerts.cnt;
+                metadata_from_suri->metadata_set[MATCH_RULES] = max_cnt;
 
                 metadata_from_suri->rules_metadata.cnt = max_cnt;
                 for (int i = 0; i < max_cnt; i++) {
@@ -774,7 +768,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
 #ifdef HAVE_DPDK
             p->dpdk_v.PF_l4_len = 0;
-            p->metadata_flags = 0;
+            p->dpdk_v.metadata_flags = 0;
             metadata_to_suri_t *metadata = (metadata_to_suri_t *)rte_mbuf_to_priv(ptv->received_mbufs[i]);
             p->events = metadata->events;
 
@@ -782,24 +776,24 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
                 switch (ptv->rings.idxes_offlds_suri_requested[t]) {
                     case IPV4_ID:
-                        if (!metadata->set_metadata[IPV4_ID])
+                        if (!metadata->metadata_set[IPV4_ID])
                             continue;
 
                         p->src = metadata->metadata_ipv4.src_addr;
                         p->dst = metadata->metadata_ipv4.dst_addr;
                         p->ip4vars = metadata->metadata_ipv4.ipv4Vars;
-                        p->metadata_flags |= IPV4_OFFLOAD(1);
+                        p->dpdk_v.metadata_flags |= IPV4_OFFLOAD(1);
                         break;
                     case IPV6_ID:
-                        if (!metadata->set_metadata[IPV6_ID])
+                        if (!metadata->metadata_set[IPV6_ID])
                             continue;
 
                         p->src = metadata->metadata_ipv6.src_addr;
                         p->dst = metadata->metadata_ipv6.dst_addr;
-                        p->metadata_flags |= IPV6_OFFLOAD(1);
+                        p->dpdk_v.metadata_flags |= IPV6_OFFLOAD(1);
                         break;
                     case TCP_ID:
-                        if (!metadata->set_metadata[TCP_ID])
+                        if (!metadata->metadata_set[TCP_ID])
                             continue;
 
                         p->sp = metadata->metadata_tcp.src_port;
@@ -807,17 +801,17 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                         p->payload_len = metadata->metadata_tcp.payload_len;
                         p->dpdk_v.PF_l4_len = metadata->metadata_tcp.l4_len;
                         p->tcpvars = metadata->metadata_tcp.tcpVars;
-                        p->metadata_flags |= TCP_OFFLOAD(1);
+                        p->dpdk_v.metadata_flags |= TCP_OFFLOAD(1);
                         break;
                     case UDP_ID:
-                        if (!metadata->set_metadata[UDP_ID])
+                        if (!metadata->metadata_set[UDP_ID])
                             continue;
 
                         p->sp = metadata->metadata_udp.src_port;
                         p->dp = metadata->metadata_udp.dst_port;
                         p->payload_len = metadata->metadata_udp.payload_len;
                         p->dpdk_v.PF_l4_len = metadata->metadata_udp.l4_len;
-                        p->metadata_flags |= UDP_OFFLOAD(1);
+                        p->dpdk_v.metadata_flags |= UDP_OFFLOAD(1);
                         break;
                 }
             }
