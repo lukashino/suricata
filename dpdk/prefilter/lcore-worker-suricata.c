@@ -449,6 +449,47 @@ static void MessagesCheckSingle(struct lcore_values *lv)
     }
 }
 
+void ThreadSuricataOffloadsSetup(struct lcore_init *vals, struct lcore_values *lv) {
+    int tmp_iface_id;
+    char tmp_iface[RTE_RING_NAMESIZE] = { 0 }; // make constant
+
+    struct rte_memzone *mz = ctx.shared_conf;
+    struct PFConf *pf_conf = (struct PFConf *)mz->addr;
+
+    sprintf(tmp_iface, "_%s_", vals->re->main_ring.name_base);
+
+    for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++) {
+        if ( !strstr(pf_conf->ring_entries[i].rx_ring_name, tmp_iface) ) {
+            continue;
+        }
+
+        tmp_iface_id = i;
+        pf_conf->ring_entries[i].oflds_final_IDS =
+                pf_conf->ring_entries[i].oflds_suri_requested &
+                pf_conf->ring_entries[i].oflds_pf_support;
+    }
+
+    Log().info("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
+               "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
+               "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
+            pf_conf->ring_entries[tmp_iface_id].rx_ring_name,
+            IPV4_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled",
+            IPV6_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled",
+            TCP_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled",
+            UDP_ID, pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
+    Log().info("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
+               "\tOffload matchedRules (bit %d) is %s",
+            pf_conf->ring_entries[tmp_iface_id].rx_ring_name,
+            MATCH_RULES, pf_conf->ring_entries[tmp_iface_id].oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+
+    SetIdxOfFinalOfflds(pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS,
+            &lv->cnt_offlds_suri_requested,
+            lv->idxes_offlds_suri_requested);
+    SetIdxOfFinalOfflds(pf_conf->ring_entries[tmp_iface_id].oflds_final_IPS,
+            &lv->cnt_offlds_suri_support,
+            lv->idxes_offlds_suri_support);
+}
+
 struct lcore_values *ThreadSuricataInit(struct lcore_init *init_vals)
 {
     int ret;
@@ -808,35 +849,34 @@ static void PktsReceive(struct lcore_values *lv)
     }
 }
 
-static void SetMetadataToMbuf(ring_buffer *buffer, uint16_t num_offlds, uint16_t *idx_offlds) {
-    for (int j = 0; j < buffer->len; j++) {
+static void SetMetadataToMbuf(ring_buffer *packets_buffer, uint16_t num_offlds, uint16_t *idx_offlds) {
+    for (int j = 0; j < packets_buffer->len; j++) {
         // fill the memory with 0s
-        metadata_to_suri_help_t metadata_to_suri_help;
-        memset(&metadata_to_suri_help, 0x00, sizeof(metadata_to_suri_help));
-        metadata_to_suri_t *metadata_to_suri = (metadata_to_suri_t *)rte_mbuf_to_priv(buffer->buf[j]);
+        metadata_to_suri_help_t metadata_to_suri_help = { 0 };
+        metadata_to_suri_t *metadata_to_suri = (metadata_to_suri_t *)rte_mbuf_to_priv(packets_buffer->buf[j]);
         memset(&metadata_to_suri->events, 0x00, sizeof(PacketEngineEvents));
 
         // decode L3 and L4 layers and fill the structure with metadata
-        if (!buffer->decoded[j] || MetadataDecodePacketL3(buffer->buf[j], metadata_to_suri, &metadata_to_suri_help)) {
-            // Log().error(99, "Decoding of the packets failed"); // throw packet away?
-            memset(metadata_to_suri->set_metadata, 0x00, CNT_METADATA_TO_SURI);
+        if ( (!packets_buffer->decoded[j]) ||
+                MetadataDecodePacketL3(packets_buffer->buf[j], metadata_to_suri, &metadata_to_suri_help)) {
+            memset(metadata_to_suri->metadata_set, 0x00, CNT_METADATA_TO_SURI * sizeof(metadata_to_suri->metadata_set[0]));
             memset(&metadata_to_suri->events, 0x00, sizeof(PacketEngineEvents));
             continue;
         }
 
-        for (int t = 0; t < num_offlds; t++) {
+        for (uint16_t t = 0; t < num_offlds; t++) {
             switch (idx_offlds[t]) {
                 case IPV4_ID:
-                    metadata_to_suri->set_metadata[IPV4_ID] = metadata_to_suri_help.ipv4_hdr ? true : false;
+                    metadata_to_suri->metadata_set[IPV4_ID] = (uint32_t)(metadata_to_suri_help.ipv4_hdr != NULL);
                     break;
                 case IPV6_ID:
-                    metadata_to_suri->set_metadata[IPV6_ID] = metadata_to_suri_help.ipv6_hdr ? true : false;
+                    metadata_to_suri->metadata_set[IPV6_ID] = (uint32_t)(metadata_to_suri_help.ipv6_hdr != NULL);
                     break;
                 case TCP_ID:
-                    metadata_to_suri->set_metadata[TCP_ID] = metadata_to_suri_help.tcp_hdr ? true : false;
+                    metadata_to_suri->metadata_set[TCP_ID] = (uint32_t)(metadata_to_suri_help.tcp_hdr != NULL);
                     break;
                 case UDP_ID:
-                    metadata_to_suri->set_metadata[UDP_ID] = metadata_to_suri_help.udp_hdr ? true : false;
+                    metadata_to_suri->metadata_set[UDP_ID] = (uint32_t)(metadata_to_suri_help.udp_hdr != NULL);
                     break;
                 default:
                     break;
@@ -856,7 +896,7 @@ static void PktsEnqueue(struct lcore_values *lv)
         if (lv->tmp_ring_bufs[i].len > 2 * BURST_SIZE)
             Log().error(EINVAL, "Ring buffer length over the buffer");
 
-        // if no one offload is not required, skip offloads setting up part
+        // if no offload is required, skip offloads setting up part
         if (lv->cnt_offlds_suri_requested > 0) {
             SetMetadataToMbuf(&lv->tmp_ring_bufs[i], lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested);
         }
@@ -897,16 +937,16 @@ static uint16_t PktsTx(
     uint16_t tx_cnt;
     Log().debug("Sending %d pkts to P%dQ%d", pkts_cnt, port_id, lv->qid);
 
-    for (int i = 0; i < pkts_cnt; ++i) {
+    for (uint16_t i = 0; i < pkts_cnt; ++i) {
         metadata_from_suri_t *metadata = (metadata_from_suri_t *)rte_mbuf_to_priv(pkts[i]);
 
-        for (int t = 0; t < lv->cnt_offlds_suri_support; t++) {
+        for (uint16_t t = 0; t < lv->cnt_offlds_suri_support; t++) {
             switch (lv->idxes_offlds_suri_support[t]) {
                 case MATCH_RULES:
-                    if (!metadata->set_metadata[MATCH_RULES])
+                    if (!metadata->metadata_set[MATCH_RULES])
                         continue;
 
-                    for (int j = 0; j < metadata->rules_metadata.cnt; j++) {
+                    for (size_t j = 0; j < metadata->rules_metadata.cnt; j++) {
                         Log().info("id: %d", metadata->rules_metadata.rules[j]);
                     }
 

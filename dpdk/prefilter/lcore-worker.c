@@ -97,8 +97,6 @@ int ThreadMain(void *init_values)
 {
     struct lcore_init *vals = (struct lcore_init *)init_values;
     struct lcore_values *lv = NULL;
-    int tmp_iface_id;
-    char tmp_iface[RTE_RING_NAMESIZE] = { 0 }; // make constant
 
     while (1) {
         if (ShouldStop() && LcoreStateCheck(vals->state, LCORE_WAIT)) {
@@ -115,37 +113,9 @@ int ThreadMain(void *init_values)
             Log().debug("Lcore %d initialised", rte_lcore_id());
         } else if (LcoreStateCheck(vals->state, LCORE_OFFLOADS_INIT)) {
             Log().debug("Lcore %d setting up offloads", rte_lcore_id());
-            struct rte_memzone *mz = ctx.shared_conf;
-            struct PFConf *pf_conf = (struct PFConf *)mz->addr;
-
-            sprintf(tmp_iface, "_%s_", vals->re->main_ring.name_base);
-
-            for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++) {
-                if ( !strstr(pf_conf->ring_entries[i].rx_ring_name, tmp_iface) ) {
-                    continue;
-                }
-
-                tmp_iface_id = i;
-                pf_conf->ring_entries[i].oflds_final_IDS =
-                        pf_conf->ring_entries[i].oflds_suri_requested &
-                        pf_conf->ring_entries[i].oflds_pf_support;
-            }
-
-            Log().info("%d - IPS, %d - IDS, interface - %s\n",
-                    pf_conf->ring_entries[tmp_iface_id].oflds_final_IPS,
-                    pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS,
-                    pf_conf->ring_entries[tmp_iface_id].rx_ring_name);
-
-            SetIdxOfFinalOfflds(pf_conf->ring_entries[tmp_iface_id].oflds_final_IDS,
-                                &lv->cnt_offlds_suri_requested,
-                                lv->idxes_offlds_suri_requested);
-            SetIdxOfFinalOfflds(pf_conf->ring_entries[tmp_iface_id].oflds_final_IPS,
-                                &lv->cnt_offlds_suri_support,
-                                lv->idxes_offlds_suri_support);
-
+            ThreadSuricataOffloadsSetup(vals, lv);
             LcoreStateSet(lv->state, LCORE_OFFLOADS_DONE);
             Log().debug("Lcore %d setting up offloads finished", rte_lcore_id());
-
         } else if (LcoreStateCheck(vals->state, LCORE_RUN)) {
             Log().debug("Lcore %d PKTS process", rte_lcore_id());
             ThreadSuricataRun(lv);
