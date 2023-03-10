@@ -160,14 +160,14 @@ const struct RingEntryAttributes pf_yaml = {
 };
 
 #define PF_NODE_NAME_MAX 1024
-#define OFFLOADS_PF                                     \
-    X(pf_yaml.oflds_from_pf_to_suri.ipv4, IPV4_OFFLOAD) \
-    X(pf_yaml.oflds_from_pf_to_suri.ipv6, IPV6_OFFLOAD) \
-    X(pf_yaml.oflds_from_pf_to_suri.tcp,  TCP_OFFLOAD)  \
-    X(pf_yaml.oflds_from_pf_to_suri.udp,  UDP_OFFLOAD)
-
-#define OFFLOADS_SUR \
-    X(pf_yaml.oflds_from_suri_to_pf.matchRules, MATCH_RULES_OFFLOAD)
+//#define OFFLOADS_PF                                     \
+//    X(pf_yaml.oflds_from_pf_to_suri.ipv4, IPV4_OFFLOAD) \
+//    X(pf_yaml.oflds_from_pf_to_suri.ipv6, IPV6_OFFLOAD) \
+//    X(pf_yaml.oflds_from_pf_to_suri.tcp,  TCP_OFFLOAD)  \
+//    X(pf_yaml.oflds_from_pf_to_suri.udp,  UDP_OFFLOAD)
+//
+//#define OFFLOADS_SUR \
+//    X(pf_yaml.oflds_from_suri_to_pf.matchRules, MATCH_RULES_OFFLOAD)
 
 /**
  * \brief Find the configuration node for a specific item.
@@ -526,21 +526,51 @@ int DevConfSuricataLoadRingEntryConf(ConfNode *rnode, struct ring_list_entry *re
         re->msgs.mempool.cache_entries = entry_int;
     }
 
-#define X(str, MACRO) \
-    if ((retval = SetOffloadsFromConf(rnode, str)) > -1) \
-        re->oflds_pf_support |= MACRO(retval); \
-    else \
+    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.oflds_from_pf_to_suri.ipv4)) > -1) {
+        re->oflds_pf_support |= IPV4_OFFLOAD(retval);
+    } else {
         return retval;
-    OFFLOADS_PF
-#undef X
+    }
 
-#define X(str, MACRO) \
-    if ((retval = SetOffloadsFromConf(rnode, str)) > -1) \
-        re->oflds_pf_requested |= MACRO(retval); \
-    else \
+    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.oflds_from_pf_to_suri.ipv6)) > -1) {
+        re->oflds_pf_support |= IPV6_OFFLOAD(retval);
+    } else {
         return retval;
-    OFFLOADS_SUR
-#undef X
+    }
+
+    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.oflds_from_pf_to_suri.tcp)) > -1) {
+        re->oflds_pf_support |= TCP_OFFLOAD(retval);
+    } else {
+        return retval;
+    }
+
+    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.oflds_from_pf_to_suri.udp)) > -1) {
+        re->oflds_pf_support |= UDP_OFFLOAD(retval);
+    } else {
+        return retval;
+    }
+
+    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.oflds_from_suri_to_pf.matchRules)) > -1) {
+        re->oflds_pf_requested |= MATCH_RULES_OFFLOAD(retval);
+    } else {
+        return retval;
+    }
+
+//#define X(str, MACRO) \
+//    if ((retval = SetOffloadsFromConf(rnode, str)) > -1) \
+//        re->oflds_pf_support |= MACRO(retval); \
+//    else \
+//        return retval;
+//    OFFLOADS_PF
+//#undef X
+//
+//#define X(str, MACRO) \
+//    if ((retval = SetOffloadsFromConf(rnode, str)) > -1) \
+//        re->oflds_pf_requested |= MACRO(retval); \
+//    else \
+//        return retval;
+//    OFFLOADS_SUR
+//#undef X
 
     Log().notice("OFFLOADS: Prefilter reads from conf file offloads: %d, %d", re->oflds_pf_support, re->oflds_pf_requested);
 
