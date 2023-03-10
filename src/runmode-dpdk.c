@@ -51,8 +51,6 @@
 #include "flow-bypass.h"
 #include "util-dpdk-bypass.h"
 
-#include <rte_ring.h>
-
 #ifdef HAVE_DPDK
 
 #define RSS_HKEY_LEN 40
@@ -164,16 +162,14 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
 
 };
 
-#define OFFLOADS_PF                                       \
-    X(dpdk_yaml.oflds_from_pf_to_suri.ipv4, IPV4_OFFLOAD) \
-    X(dpdk_yaml.oflds_from_pf_to_suri.ipv6, IPV6_OFFLOAD) \
-    X(dpdk_yaml.oflds_from_pf_to_suri.tcp,  TCP_OFFLOAD)  \
-    X(dpdk_yaml.oflds_from_pf_to_suri.udp,  UDP_OFFLOAD)
-
-#define OFFLOADS_SUR \
-    X(dpdk_yaml.oflds_from_suri_to_pf.matchRules, MATCH_RULES_OFFLOAD)
-
-
+//#define OFFLOADS_PF                                       \
+//    X(dpdk_yaml.oflds_from_pf_to_suri.ipv4, IPV4_OFFLOAD) \
+//    X(dpdk_yaml.oflds_from_pf_to_suri.ipv6, IPV6_OFFLOAD) \
+//    X(dpdk_yaml.oflds_from_pf_to_suri.tcp,  TCP_OFFLOAD)  \
+//    X(dpdk_yaml.oflds_from_pf_to_suri.udp,  UDP_OFFLOAD)
+//
+//#define OFFLOADS_SUR \
+//    X(dpdk_yaml.oflds_from_suri_to_pf.matchRules, MATCH_RULES_OFFLOAD)
 
 char mz_name[RTE_MEMZONE_NAMESIZE] = {0};
 
@@ -943,27 +939,59 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     if (config == NULL)
         FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-pf-to-suri\" for Suricata");
 
-    // perform the same code for each offload, where MACRO depends
-    // on the string with the name of the required offload
-#define X(str, MACRO)                                                    \
-    if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1) \
-        iconf->oflds_suri_requested |= MACRO(entry_bool);                \
-    else                                                                 \
+    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.ipv4, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= IPV4_OFFLOAD(entry_bool);
+    } else {
         SCReturnInt(retval);
-    OFFLOADS_PF
-#undef X
+    }
+
+    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.ipv6, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= IPV6_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.tcp, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= TCP_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_pf_to_suri.udp, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= UDP_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
 
     config = ConfGetChildWithDefault(if_root, if_default, "offloads-from-suri-to-pf");
     if (config == NULL)
         FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-suri-to-pf\" for Suricata");
 
-#define X(str, MACRO)                                                     \
-    if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1)  \
-        iconf->oflds_suri_support |= MACRO(entry_bool);                   \
-    else                                                                  \
-      SCReturnInt(retval);
-    OFFLOADS_SUR
-#undef X
+    if ((retval = ConfGetChildValueBool(config, dpdk_yaml.oflds_from_suri_to_pf.matchRules, &entry_bool)) == 1) {
+        iconf->oflds_suri_support |= MATCH_RULES_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+//#define X(str, MACRO)                                                    \
+//    if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1) \
+//        iconf->oflds_suri_requested |= MACRO(entry_bool);                \
+//    else                                                                 \
+//        SCReturnInt(retval);
+//    OFFLOADS_PF
+//#undef X
+//
+//    config = ConfGetChildWithDefault(if_root, if_default, "offloads-from-suri-to-pf");
+//    if (config == NULL)
+//        FatalError(SC_ERR_DPDK_OFFLOADS_INIT, "failed to find \"offloads-from-suri-to-pf\" for Suricata");
+//
+//#define X(str, MACRO)                                                     \
+//    if ((retval = ConfGetChildValueBool(config, str, &entry_bool)) == 1)  \
+//        iconf->oflds_suri_support |= MACRO(entry_bool);                   \
+//    else                                                                  \
+//      SCReturnInt(retval);
+//    OFFLOADS_SUR
+//#undef X
 
     SCReturnInt(0);
 }
