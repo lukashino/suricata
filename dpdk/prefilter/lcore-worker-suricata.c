@@ -462,6 +462,10 @@ void PrintInfoMetadata(struct PFConfRingEntry *ring_entry) {
                "\tOffload matchedRules (bit %d) is %s",
             ring_entry->rx_ring_name,
             MATCH_RULES, ring_entry->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+    Log().info("SIZE OF SINGLE OFFLOADS FOR SURICATA METADATA:\n"
+               "\tSize of IPv4 offloads is %d,\n\tSize of IPv6 offloads is %d,\n"
+               "\tSize of TCP offloads is %d,\n\tSize of UDP offloads is %d",
+            sizeof(metadata_ipv4_t), sizeof(metadata_ipv6_t), sizeof(metadata_tcp_t), sizeof(metadata_udp_t));
 }
 
 int FindIfaceRings(struct PFConf *pf_conf, const char *ring_name_base) {
