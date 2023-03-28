@@ -201,6 +201,10 @@ typedef struct SCLogConfig_ {
 /* The log format prefix for the format specifiers */
 #define SC_LOG_FMT_PREFIX           '%'
 
+#ifndef __SCFILENAME__
+#define __SCFILENAME__ "unknown"
+#endif
+
 /* Module and thread tagging */
 /* The module name, usually the containing source-module name */
 static const char *_sc_module __attribute__((unused)) = __SCFILENAME__;

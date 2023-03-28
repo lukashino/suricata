@@ -31,6 +31,8 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <dirent.h>
+#include <sys/time.h>
+#include <time.h>
 #include "suricata-common.h"
 #include "conf.h"
 #include "conf-yaml-loader.h"

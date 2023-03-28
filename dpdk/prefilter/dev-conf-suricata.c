@@ -23,6 +23,9 @@
 
 #define PCRE2_CODE_UNIT_WIDTH 8
 #define _POSIX_C_SOURCE       200809L
+#define _DEFAULT_SOURCE 1 // for time.h
+#define __rtems__ 1 // for time.h
+#define __USE_MISC 1 // for time.h
 #include <string.h>
 #include <netinet/in.h>
 #include <dirent.h>

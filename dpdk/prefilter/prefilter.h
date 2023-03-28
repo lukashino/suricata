@@ -26,6 +26,10 @@
 #define SURICATA_PREFILTER_H
 
 #define _POSIX_C_SOUCRE 200809L
+#define _DEFAULT_SOURCE 1
+
+#include <sys/time.h>
+#include <time.h>
 
 #include <rte_eal.h>
 #include <rte_atomic.h>

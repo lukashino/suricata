@@ -23,6 +23,9 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE 1 // for time.h
+#define __rtems__ 1 // for time.h
+#define __USE_MISC 1 // for time.h
 #define CLS             64 // sysconf(_SC_LEVEL1_DCACHE_LINESIZE)
 #include <getopt.h>
 #include <rte_ethdev.h>

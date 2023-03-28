@@ -22,6 +22,9 @@
  *
  */
 #define _POSIX_SOURCE
+#define _DEFAULT_SOURCE 1 // for time.h
+#define __rtems__ 1 // for time.h
+#define __USE_MISC 1 // for time.h
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
