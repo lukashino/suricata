@@ -75,16 +75,21 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 {
     StatsIncr(tv, dtv->counter_udp);
 
+#ifdef BUILD_DPDK_APPS
     if (p->dpdk_v.metadata_flags & (1 << UDP_ID)) {
-#ifdef HAVE_DPDK
         p->udph = (UDPHdr *)pkt;
         p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
-#endif
     }
     else if (unlikely(DecodeUDPPacket(tv, p, pkt, len) < 0)) {
         CLEAR_UDP_PACKET(p);
         return TM_ECODE_FAILED;
     }
+#else
+    if (unlikely(DecodeUDPPacket(tv, p, pkt, len) < 0)) {
+        CLEAR_UDP_PACKET(p);
+        return TM_ECODE_FAILED;
+    }
+#endif /* BUILD_DPDK_APPS */
 
     p->proto = IPPROTO_UDP;
 

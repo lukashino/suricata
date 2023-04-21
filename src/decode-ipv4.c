@@ -528,17 +528,23 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
         return TM_ECODE_FAILED;
     }
 
+#ifdef BUILD_DPDK_APPS
     /* do the actual decoding */
     if (p->dpdk_v.metadata_flags & (1 << IPV4_ID)) {
-#ifdef HAVE_DPDK
         p->ip4h = (IPV4Hdr *)pkt;
-#endif
     }
     else if (unlikely(DecodeIPV4Packet (p, pkt, len) < 0)) {
         SCLogDebug("decoding IPv4 packet failed");
         CLEAR_IPV4_PACKET((p));
         return TM_ECODE_FAILED;
     }
+#else
+    if (unlikely(DecodeIPV4Packet (p, pkt, len) < 0)) {
+        SCLogDebug("decoding IPv4 packet failed");
+        CLEAR_IPV4_PACKET((p));
+        return TM_ECODE_FAILED;
+    }
+#endif /* BUILD_DPDK_APPS */
 
     p->proto = IPV4_GET_IPPROTO(p);
 

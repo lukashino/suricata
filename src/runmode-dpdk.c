@@ -150,6 +150,8 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
+
+#ifdef BUILD_DPDK_APPS
     .metadata = {
         .oflds_from_pf_to_suri = {
                 .ipv4 = "IPV4",
@@ -162,6 +164,7 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
         },
         .private_space_size = "private-space-size",
     }
+#endif /* BUILD_DPDK_APPS */
 };
 
 char mz_name[RTE_MEMZONE_NAMESIZE] = {0};
@@ -925,6 +928,7 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     if (retval < 0)
         SCReturnInt(retval);
 
+#ifdef BUILD_DPDK_APPS
     ConfNode *config, *next_node;
     config = ConfGetChildWithDefault(if_root, if_default, "metadata");
     if (config == NULL) {
@@ -976,6 +980,8 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     }
 
     SCLogInfo("OFFLOADS: Suricata reads from conf file offloads: %d, %d", iconf->oflds_suri_requested, iconf->oflds_suri_support);
+#endif /* BUILD_DPDK_APPS */
+
     SCReturnInt(0);
 }
 

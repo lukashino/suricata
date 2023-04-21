@@ -40,7 +40,9 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *tx_descriptors;
     const char *copy_mode;
     const char *copy_iface;
+#ifdef BUILD_DPDK_APPS
     struct MetadataAttrs metadata;
+#endif /* BUILD_DPDK_APPS */
 } DPDKIfaceConfigAttributes;
 
 int DeviceConfigure(DPDKIfaceConfig *iconf);

@@ -64,10 +64,10 @@ void DPDKCleanupEAL(void)
 #endif
 }
 
+#ifdef HAVE_DPDK
 void DPDKCloseDevice(LiveDevice *ldev)
 {
     (void)ldev; // avoid warnings of unused variable
-#ifdef HAVE_DPDK
     uint16_t port_id;
     int retval;
     if (run_mode == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
@@ -80,7 +80,7 @@ void DPDKCloseDevice(LiveDevice *ldev)
         SCLogInfo("%s: closing device", ldev->dev);
         rte_eth_dev_close(port_id);
     }
-#endif
 }
+#endif /* HAVE_DPDK */
 
 #endif /* UTIL_DPDK_C */

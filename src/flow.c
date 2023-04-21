@@ -1172,7 +1172,11 @@ uint8_t FlowGetDisruptionFlags(const Flow *f, uint8_t flags)
 void FlowUpdateState(Flow *f, const enum FlowState s)
 {
     if (s != f->flow_state) {
-        if ((f->flow_state != FLOW_STATE_CAPTURE_BYPASSED) || s == FLOW_STATE_LOCAL_BYPASSED) {
+        if (
+#ifdef CAPTURE_OFFLOAD
+                (f->flow_state != FLOW_STATE_CAPTURE_BYPASSED) ||
+#endif /* CAPTURE_OFFLOAD */
+                s == FLOW_STATE_LOCAL_BYPASSED) {
             /* set the state */
             // Explicit cast from the enum type to the compact version
             f->flow_state = (FlowStateType)s;

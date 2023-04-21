@@ -260,8 +260,6 @@ uint32_t ArrayMaxValue(const uint32_t *arr, uint16_t arr_len);
 uint8_t CountDigits(uint32_t n);
 void DPDKCleanupEAL(void);
 
-void DPDKCloseDevice(LiveDevice *ldev);
-
 #ifdef HAVE_DPDK
 struct PFConfRingEntry {
     char rx_ring_name[RTE_RING_NAMESIZE];
@@ -304,6 +302,8 @@ struct DPDKFlowBypassData {
     struct rte_mempool_cache *msg_mp_cache;
     uint8_t pending_msgs;
 };
+
+void DPDKCloseDevice(LiveDevice *ldev);
 
 #endif /* HAVE_DPDK */
 

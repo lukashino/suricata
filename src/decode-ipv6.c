@@ -569,15 +569,20 @@ int DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, const uint8_t *
         return TM_ECODE_FAILED;
     }
 
+#ifdef BUILD_DPDK_APPS
     if (p->dpdk_v.metadata_flags & (1 << IPV6_ID)) {
-#ifdef HAVE_DPDK
         p->ip6h = (IPV6Hdr *)pkt;
-#endif
     }
     else if (unlikely(DecodeIPV6Packet (tv, dtv, p, pkt, len) < 0)) {
         CLEAR_IPV6_PACKET(p);
         return TM_ECODE_FAILED;
     }
+#else
+    if (unlikely(DecodeIPV6Packet (tv, dtv, p, pkt, len) < 0)) {
+        CLEAR_IPV6_PACKET(p);
+        return TM_ECODE_FAILED;
+    }
+#endif /* BUILD_DPDK_APPS */
 
 #ifdef DEBUG
     if (SCLogDebugEnabled()) { /* only convert the addresses if debug is really enabled */

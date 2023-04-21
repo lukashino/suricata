@@ -2278,7 +2278,9 @@ void PostRunDeinit(const int runmode, struct timeval *start_time)
     FlowDisableFlowManagerThread();
     TmThreadDisableReceiveThreads();
 
+#ifdef HAVE_DPDK
     DpdkIpcDumpStats();
+#endif /* HAVE_DPDK */
 
     FlowForceReassembly();
     TmThreadDisablePacketThreads();
@@ -3028,18 +3030,22 @@ int SuricataMain(int argc, char **argv)
     OnNotifyRunning();
 
     PostRunStartedDetectSetup(&suricata);
-
+#ifdef HAVE_DPDK
     DpdkIpcRegisterActions();
     DpdkIpcStart();
+#endif /* HAVE_DPDK */
+
 
     SCPledge();
     SuricataMainLoop(&suricata);
 
+#ifdef HAVE_DPDK
     if (sigterm_count || sigint_count) {
         // don't issue stop command unless user signalled
         // (e.g. Suricata received shutdown command)
         DpdkIpcStop();
     }
+#endif /* HAVE_DPDK */
 
     /* Update the engine stage/status flag */
     SC_ATOMIC_SET(engine_stage, SURICATA_DEINIT);
@@ -3048,7 +3054,10 @@ int SuricataMain(int argc, char **argv)
     PostRunDeinit(suricata.run_mode, &suricata.start_time);
     /* kill remaining threads */
     TmThreadKillThreads();
+
+#ifdef HAVE_DPDK
     DpdkIpcDetach();
+#endif /* HAVE_DPDK */
 
 out:
     GlobalsDestroy(&suricata);
