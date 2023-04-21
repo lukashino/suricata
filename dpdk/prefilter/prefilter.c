@@ -298,7 +298,7 @@ static int IPCActionBtDumpStop(const struct rte_mp_msg *msg, const void *peer)
 static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer) {
     int ret;
     struct rte_mp_msg mp_resp;
-    struct rte_memzone *mz = ctx.shared_conf;
+    const struct rte_memzone *mz = ctx.shared_conf;
     struct PFConf *pf_conf = (struct PFConf *)mz->addr;
     memset(&mp_resp, 0, sizeof(mp_resp));
     strlcpy(mp_resp.name, msg->name, sizeof(mp_resp.name) / sizeof(mp_resp.name[0]));

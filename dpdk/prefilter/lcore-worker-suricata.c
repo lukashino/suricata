@@ -486,7 +486,7 @@ int FindIfaceRings(struct PFConf *pf_conf, const char *ring_name_base) {
 }
 
 void ThreadSuricataOffloadsSetup(struct lcore_init *vals, struct lcore_values *lv) {
-    struct rte_memzone *mz = ctx.shared_conf;
+    const struct rte_memzone *mz = ctx.shared_conf;
     struct PFConf *pf_conf = (struct PFConf *)mz->addr;
     int iface_id = FindIfaceRings(pf_conf, vals->re->main_ring.name_base);
 

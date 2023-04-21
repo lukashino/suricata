@@ -1492,7 +1492,7 @@ int OffloadsAgreemnet(DPDKIfaceConfig *iconf, struct PFConfRingEntry *pf_re, int
     struct rte_mp_reply reply;
     memset(&req, 0, sizeof(req));
     strlcpy(req.name, IPC_ACTION_OFFLOADS_SETUP, RTE_MP_MAX_NAME_LEN);
-    strlcpy(req.param, iconf->iface, RTE_RING_NAMESIZE);
+    strlcpy((char*)req.param, iconf->iface, RTE_RING_NAMESIZE);
     const struct timespec tss = {.tv_sec = 5, .tv_nsec = 0};
     retval = rte_mp_request_sync(&req, &reply, &tss);
 
@@ -1546,7 +1546,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
 {
     SCEnter();
     uint16_t rings_cnt = iconf->threads;
-    struct PFConfRingEntry *pf_re;
+    struct PFConfRingEntry *pf_re = NULL;
     int retval;
 
     if (!DeviceRingNameIsValid(iconf->iface, rings_cnt))

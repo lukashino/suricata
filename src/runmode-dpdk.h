@@ -47,6 +47,7 @@ int DeviceConfigure(DPDKIfaceConfig *iconf);
 int RunModeIdsDpdkWorkers(void);
 void RunModeDpdkRegister(void);
 const char *RunModeDpdkGetDefaultMode(void);
-void SetIdxOfFinalOfflds(uint16_t , uint16_t*, uint16_t*);
+void SetIdxOfFinalOfflds(uint16_t finalOffloads, uint16_t *cntOffloads, uint16_t *indexOffloads);
+int OffloadsAgreemnet(DPDKIfaceConfig *iconf, struct PFConfRingEntry *pf_re, int rings_cnt);
 
 #endif /* __RUNMODE_DPDK_H__ */

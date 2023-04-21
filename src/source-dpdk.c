@@ -859,11 +859,11 @@ void ReceiveDPDKSetRings(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf, uint16_t q
     ptv->rings.cnt_offlds_suri_requested = iconf->cnt_offlds_suri_requested[queue_id];
     iconf->cnt_offlds_suri_requested[queue_id] = 0;
     memcpy(ptv->rings.idxes_offlds_suri_requested, iconf->idxes_offlds_suri_requested[queue_id], 16);
-    memset(iconf->idxes_offlds_suri_requested[queue_id], 0, 16);
+    memset(iconf->idxes_offlds_suri_requested[queue_id], 0, 16 * sizeof(uint16_t));
     ptv->rings.cnt_offlds_pf_requested = iconf->cnt_offlds_suri_support;
     iconf->cnt_offlds_suri_support = 0;
     memcpy(ptv->rings.idxes_offlds_pf_requested, iconf->idxes_offlds_suri_support, 16);
-    memset(iconf->idxes_offlds_suri_support, 0, 16);
+    memset(iconf->idxes_offlds_suri_support, 0, 16 * sizeof(uint16_t));
 }
 
 /**
