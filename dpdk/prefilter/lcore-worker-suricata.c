@@ -59,7 +59,7 @@
 // The flag is used to set mbuf offload flags
 // Prefilter receives from 2 NICs but aggregates the traffic into a single DPDK ring
 // This flag notes, from which NIC it was received, so the other NIC is for transmitting the packet.
-#define PKT_ORIGIN_PORT1 PKT_FIRST_FREE
+#define PKT_ORIGIN_PORT1 RTE_MBUF_F_FIRST_FREE
 
 // not used - explanation above MessagesCheckBulk
 static void MessagesHandleAddBulk(struct lcore_values *lv, struct FlowKeyDirection *msgs_flow_dirs,
