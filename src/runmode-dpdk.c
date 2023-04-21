@@ -1217,7 +1217,7 @@ static int DeviceValidateMTU(const DPDKIfaceConfig *iconf, const struct rte_eth_
 #if RTE_VERSION < RTE_VERSION_NUM(21, 11, 0, 0)
     // check if jumbo frames are set and are available
     if (iconf->mtu > RTE_ETHER_MAX_LEN &&
-            !(dev_info->rx_offload_capa & DEV_RX_OFFLOAD_JUMBO_FRAME)) {
+            !(dev_info->rx_offload_capa & RTE_ETH_RX_OFFLOAD_RSS_HASH)) {
         SCLogError("%s: jumbo frames not supported, set MTU to 1500", iconf->iface);
         SCReturnInt(-EINVAL);
     }
@@ -1233,7 +1233,7 @@ static void DeviceSetMTU(struct rte_eth_conf *port_conf, uint16_t mtu)
 #else
     port_conf->rxmode.max_rx_pkt_len = mtu;
     if (mtu > RTE_ETHER_MAX_LEN) {
-        port_conf->rxmode.offloads |= DEV_RX_OFFLOAD_JUMBO_FRAME;
+        port_conf->rxmode.offloads |= RTE_ETH_RX_OFFLOAD_RSS_HASH;
     }
 #endif
 }
@@ -1275,7 +1275,7 @@ static void DeviceInitPortConf(const DPDKIfaceConfig *iconf,
     };
 
     // configure RX offloads
-    if (dev_info->rx_offload_capa & DEV_RX_OFFLOAD_RSS_HASH) {
+    if (dev_info->rx_offload_capa & RTE_ETH_RX_OFFLOAD_RSS_HASH) {
         if (iconf->nb_rx_queues >= 1) {
             SCLogConfig("RSS enabled on %s for %d queues", iconf->iface, iconf->nb_rx_queues);
             port_conf->rx_adv_conf.rss_conf = (struct rte_eth_rss_conf){
