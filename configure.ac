@@ -1427,6 +1427,7 @@
                 AS_HELP_STRING([--enable-dpdk-apps], [Enable support for DPDK applications [default=no]]),
                             [enable_dpdk_apps=$enableval],[enable_dpdk_apps=no])
     AS_IF([test "x$enable_dpdk_apps" = "xyes"], [
+        AC_DEFINE([BUILD_DPDK_APPS],[1],(DPDK apps support enabled))
         DPDK_PKG_CONFIG_VAR="$(pkg-config --exists libdpdk && echo 0)"
         LIBDPDK_PC_FILE="$(pkg-config --path libdpdk 2>/dev/null)"
         AC_SUBST(LIBDPDK_PC_FILE)
