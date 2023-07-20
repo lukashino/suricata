@@ -38,10 +38,11 @@ void LiveSetOffloadWarn(void);
 int LiveGetOffload(void);
 
 #define MAX_DEVNAME 10
+#define DPDK_MAX_THREADS 256
 
 #ifdef HAVE_DPDK
 typedef struct {
-    struct rte_mempool *pkt_mp;
+    struct rte_mempool *pkt_mp[DPDK_MAX_THREADS];
 } DPDKDeviceResources;
 #endif /* HAVE_DPDK */
 

@@ -537,9 +537,6 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     ptv->port_id = dpdk_config->port_id;
     ptv->out_port_id = dpdk_config->out_port_id;
     ptv->port_socket_id = dpdk_config->socket_id;
-    // pass the pointer to the mempool and then forget about it. Mempool is freed in thread deinit.
-    ptv->pkt_mempool = dpdk_config->pkt_mempool;
-    dpdk_config->pkt_mempool = NULL;
 
     thread_numa = GetNumaNode();
     if (thread_numa >= 0 && ptv->port_socket_id != SOCKET_ID_ANY &&
@@ -550,7 +547,11 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     }
 
     uint16_t queue_id = SC_ATOMIC_ADD(dpdk_config->queue_id, 1);
+    SCLogNotice("initting thread %d", queue_id);
     ptv->queue_id = queue_id;
+    // pass the pointer to the mempool and then forget about it. Mempool is freed in thread deinit.
+    ptv->pkt_mempool = dpdk_config->pkt_mempool[ptv->queue_id];
+    dpdk_config->pkt_mempool[ptv->queue_id] = NULL;
 
     // the last thread starts the device
     if (queue_id == dpdk_config->threads - 1) {
