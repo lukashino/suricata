@@ -1403,8 +1403,15 @@
             exit 1
         fi
         CFLAGS="${CFLAGS} `pkg-config --cflags libdpdk`"
-        LIBS="${LIBS} -Wl,-R,`pkg-config --libs-only-L libdpdk | cut -c 3-` -lnuma `pkg-config --libs libdpdk`"
+        # Solves "Cannot initialize tailq: RTE_FIB/RTE_DISTRIBUTOR" startup err
+        dpdk_libs_cut="$(pkg-config --libs-only-L libdpdk | cut -c 3-)"
+        if test "${dpdk_libs_cut}" = ""; then
+            DPDK_RPATH=""
+        else
+            DPDK_RPATH="-Wl,-R,`${dpdk_libs_cut}`"
+        fi
 
+        LIBS="${LIBS} ${DPDK_RPATH} `pkg-config --libs libdpdk`"
         if test ! -z "$(ldconfig -p | grep librte_net_bond)"; then
             AC_DEFINE([HAVE_DPDK_BOND],[1],(DPDK Bond PMD support enabled))
             enable_dpdk_bond_pmd="yes"
