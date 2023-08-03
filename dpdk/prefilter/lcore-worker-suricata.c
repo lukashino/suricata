@@ -991,17 +991,6 @@ void ThreadSuricataStatsDump(struct lcore_values *lv)
                         msgs_lookup_hitmask != 0 ? "found" : "not found", msgs_lookup_hitmask);
 
                 if (msgs_lookup_hitmask) {
-<<<<<<< HEAD
-                    Log().debug(
-                            "Flow dumping - todst B %lu todst pkts %lu tosrc B %lu tosrc pkts %lu",
-                            flow_data[0]->bytestodst, flow_data[0]->pktstodst,
-                            flow_data[0]->bytestosrc, flow_data[0]->pktstosrc);
-                    MessagesHandleSoftDeleteSingleOnStatsDump(msgs[i], &msgs_flow_dirs[i],
-                            flow_data[0], lv->bt, lv->results_ring, lv->message_mp, &lv->stats);
-                } else {
-                    MessagesHandleNotFoundSingle(msgs[i], &msgs_flow_dirs[i], lv->results_ring,
-                            lv->message_mp, &lv->stats);
-=======
                     Log().debug(
                             "Flow dumping - todst B %lu todst pkts %lu tosrc B %lu tosrc pkts %lu",
                             flow_data[0]->bytestodst, flow_data[0]->pktstodst,
@@ -1013,7 +1002,6 @@ void ThreadSuricataStatsDump(struct lcore_values *lv)
                     msgs[i]->use_cnt--;
                     MessagesHandleNotFoundSingle(msgs[i], &msgs_flow_dirs[i], lv->results_ring,
                             lv->message_mp, &lv->stats);
->>>>>>> 0359310ad (dpdk: add strict message checks for async message consistency)
                     Log().debug("Flow not found, unable to get stats");
                 }
             } else if (msgs[i]->msg_type == PF_MESSAGE_BYPASS_HARD_DELETE) {

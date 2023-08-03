@@ -310,11 +310,7 @@ static inline void DPDKReleasePacketTxOrFree(Packet *p)
         BUG_ON(PKT_IS_PSEUDOPKT(p));
         ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
         if (ret != 0) {
-<<<<<<< HEAD
-            SCLogError("Error (%s): Unable to enqueue packet to TX ring", rte_strerror(-ret));
-=======
             SCLogDebug("Error (%s): Unable to enqueue packet to TX ring", rte_strerror(-ret));
->>>>>>> bf568a190 (dpdk: add a prefilter app that hands over traffic to Suricata running as a secondary process)
             rte_pktmbuf_free(p->dpdk_v.mbuf);
         }
     }
@@ -958,23 +954,6 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
 
     if (ptv->op_mode == DPDK_ETHDEV_MODE) {
-<<<<<<< HEAD
-        struct rte_eth_dev_info dev_info;
-        int retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
-        if (retval != 0) {
-            SCLogError("%s: error (%s) when getting device info", ptv->livedev->dev,
-                    rte_strerror(-retval));
-            SCReturnInt(TM_ECODE_FAILED);
-        }
-
-        DevicePreStopPMDSpecificActions(ptv, dev_info.driver_name);
-        rte_eth_dev_stop(ptv->port_id);
-        if (ptv->copy_mode == DPDK_COPY_MODE_TAP || ptv->copy_mode == DPDK_COPY_MODE_IPS) {
-            rte_eth_dev_stop(ptv->out_port_id);
-        }
-
-        ptv->pkt_mempool = NULL; // MP is released when device is closed
-=======
         if (ptv->queue_id == 0) {
             struct rte_eth_dev_info dev_info;
             int retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
@@ -992,7 +971,6 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
 
             ptv->pkt_mempool = NULL; // MP is released when device is closed
         }
->>>>>>> 80cb55e69 (dpdk: make functions available for Suricata library)
     }
 
     SCFree(ptv);

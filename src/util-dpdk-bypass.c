@@ -29,6 +29,7 @@
 
 int32_t ipc_app_id = -1; // not set
 
+#ifdef BUILD_DPDK_APPS
 static int DpdkIpcActionShutdown(const struct rte_mp_msg *msg, const void *peer)
 {
     EngineStop();
@@ -51,7 +52,6 @@ static int DpdkIpcActionShutdown(const struct rte_mp_msg *msg, const void *peer)
 
 void DpdkIpcRegisterActions(void)
 {
-#ifdef HAVE_DPDK
     if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
@@ -61,12 +61,10 @@ void DpdkIpcRegisterActions(void)
         FatalError("Error (%s): Unable to register action (%s)", rte_strerror(rte_errno),
                 IPC_ACTION_SHUTDOWN);
     }
-#endif /* HAVE_DPDK */
 }
 
 void DpdkIpcStart(void)
 {
-#ifdef HAVE_DPDK
     if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
@@ -87,12 +85,10 @@ void DpdkIpcStart(void)
         FatalError("Prefilter responsed %s instead of %s message", (char *)reply.msgs[0].param,
                 IPC_VALID_RESPONSE);
     }
-#endif
 }
 
 void DpdkIpcStop(void)
 {
-#ifdef HAVE_DPDK
     if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
@@ -111,12 +107,10 @@ void DpdkIpcStop(void)
         FatalError("Prefilter responsed %s instead of %s message", (char *)reply.msgs[0].param,
                 IPC_VALID_RESPONSE);
     }
-#endif
 }
 
 void DpdkIpcDumpStats(void)
 {
-#ifdef HAVE_DPDK
     if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
@@ -229,12 +223,10 @@ void DpdkIpcDumpStats(void)
         FatalError("Prefilter responsed %s instead of %s message", (char *)reply.msgs[0].param,
                 IPC_VALID_RESPONSE);
     }
-#endif
 }
 
 void DpdkIpcDetach(void)
 {
-#ifdef HAVE_DPDK
     if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
@@ -261,10 +253,7 @@ void DpdkIpcDetach(void)
     while (rte_eal_primary_proc_alive(NULL)) {
         sleep(1);
     }
-#endif
 }
-
-#ifdef HAVE_DPDK
 
 void PFMessageAddBypassInit(struct PFMessage *msg)
 {
@@ -899,4 +888,4 @@ int DPDKCheckBypassMessages(
     return new_stats;
 }
 
-#endif /* HAVE_DPDK */
+#endif /* BUILD_DPDK_APPS */

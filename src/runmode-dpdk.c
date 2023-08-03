@@ -1569,13 +1569,8 @@ static bool DeviceRingNameIsValid(const char *name, uint16_t rings_cnt)
     return true;
 }
 
-<<<<<<< HEAD
-static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(
-        const char *memzone_name, const char *rx_ring_name)
-=======
 static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(
         const char *mz_name, const char *rx_ring_name)
->>>>>>> cdd409772 (dpdkprefilter: function prototype change and pf_re inited with null)
 {
     const struct rte_memzone *mz = NULL;
     struct PFConf *pf_conf;
