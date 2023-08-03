@@ -53,6 +53,7 @@
 #include "util-dpdk-bypass.h"
 #include "runmode-dpdk.h"
 #include "source-dpdk.h"
+#include "metadata.h"
 
 // The flag is used to set mbuf offload flags
 // Prefilter receives from 2 NICs but aggregates the traffic into a single DPDK ring
@@ -447,6 +448,61 @@ static void MessagesCheckSingle(struct lcore_values *lv)
     }
 }
 
+void PrintInfoMetadata(struct PFConfRingEntry *ring_entry)
+{
+    Log().info("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
+               "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
+               "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
+            ring_entry->rx_ring_name, IPV4_ID,
+            ring_entry->oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled", IPV6_ID,
+            ring_entry->oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled", TCP_ID,
+            ring_entry->oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled", UDP_ID,
+            ring_entry->oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
+    Log().info("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
+               "\tOffload matchedRules (bit %d) is %s",
+            ring_entry->rx_ring_name, MATCH_RULES,
+            ring_entry->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+    Log().info("SIZE OF SINGLE OFFLOADS FOR SURICATA METADATA:\n"
+               "\tSize of IPv4 offloads is %d,\n\tSize of IPv6 offloads is %d,\n"
+               "\tSize of TCP offloads is %d,\n\tSize of UDP offloads is %d",
+            sizeof(metadata_ipv4_t), sizeof(metadata_ipv6_t), sizeof(metadata_tcp_t),
+            sizeof(metadata_udp_t));
+}
+
+int FindIfaceRings(struct PFConf *pf_conf, const char *ring_name_base)
+{
+    int tmp_iface_id;
+    char tmp_iface[RTE_RING_NAMESIZE + 2] = { 0 };
+    sprintf(tmp_iface, "_%s_", ring_name_base);
+
+    for (uint32_t i = 0; i < pf_conf->ring_entries_cnt; i++) {
+        if (strstr(pf_conf->ring_entries[i].rx_ring_name, ring_name_base)) {
+            tmp_iface_id = i;
+            pf_conf->ring_entries[i].oflds_final_IDS =
+                    pf_conf->ring_entries[i].oflds_suri_requested &
+                    pf_conf->ring_entries[i].oflds_pf_support;
+        }
+    }
+
+    return tmp_iface_id;
+}
+
+void ThreadSuricataOffloadsSetup(struct lcore_init *vals, struct lcore_values *lv)
+{
+    const struct rte_memzone *mz = ctx.shared_conf;
+    struct PFConf *pf_conf = (struct PFConf *)mz->addr;
+    int iface_id = FindIfaceRings(pf_conf, vals->re->main_ring.name_base);
+
+    if (lv->qid == 0) {
+        PrintInfoMetadata(&pf_conf->ring_entries[iface_id]);
+    }
+
+    SetIdxOfFinalOfflds(pf_conf->ring_entries[iface_id].oflds_final_IDS,
+            &lv->cnt_offlds_suri_requested, lv->idxes_offlds_suri_requested);
+    SetIdxOfFinalOfflds(pf_conf->ring_entries[iface_id].oflds_final_IPS,
+            &lv->cnt_offlds_suri_support, lv->idxes_offlds_suri_support);
+}
+
 struct lcore_values *ThreadSuricataInit(struct lcore_init *init_vals)
 {
     int ret;
@@ -584,8 +640,8 @@ struct lcore_values *ThreadSuricataInit(struct lcore_init *init_vals)
  * @param pkt_origin_port1 - mark the mbuf with the port of origin
  * @return returns to which ring it was added
  */
-static uint32_t MbufAddToRing(
-        struct rte_mbuf *pkt, ring_buffer *rings, uint16_t rings_cnt, bool pkt_origin_port1)
+static uint32_t MbufAddToRing(struct rte_mbuf *pkt, ring_buffer *rings, uint16_t rings_cnt,
+        bool pkt_origin_port1, bool value_decoded)
 {
     // RSS distribution among NIC queues uses `mod` operation,
     // using the `mod` operation on packets received on the NIC queue
@@ -607,6 +663,7 @@ static uint32_t MbufAddToRing(
         rings[queue_id].buf[buf_len]->ol_flags &= ~PKT_ORIGIN_PORT1;
 
     rings[queue_id].len = buf_len + 1;
+    rings[queue_id].decoded[buf_len] = value_decoded;
     return queue_id;
 }
 
@@ -646,7 +703,7 @@ static uint16_t MbufsBypassSort(struct rte_mbuf **pkts, uint16_t pkt_cnt,
         ret = FlowKeyExtendedInitFromMbuf(&fk_arr[fke_len], &fd_arr[fke_len], pkts[i]);
         Log().debug("conversion mbuf to FlowKey: %s", ret == 0 ? "success" : "failure");
         if (ret != 0) {
-            MbufAddToRing(pkts[i], no_inspect_rings, rings_cnt, on_port1);
+            MbufAddToRing(pkts[i], no_inspect_rings, rings_cnt, on_port1, false);
         } else {
             inspect_pkts[fke_len] = pkts[i];
             fke_len++;
@@ -704,7 +761,7 @@ static uint32_t PktsBypassSort(struct rte_mbuf **pkts, uint32_t pkt_cnt, struct 
             continue;
         }
         Log().debug("Putting pkt %d (%p) to Suri array 0x%x", i, pkts[i], hmask);
-        MbufAddToRing(pkts[i], lv->tmp_ring_bufs, lv->rings_cnt, pkt_origin_port1);
+        MbufAddToRing(pkts[i], lv->tmp_ring_bufs, lv->rings_cnt, pkt_origin_port1, true);
     }
     return bypassed_cnt;
 }
@@ -807,6 +864,49 @@ static void PktsReceive(struct lcore_values *lv)
     }
 }
 
+static void SetMetadataToMbuf(
+        ring_buffer *packets_buffer, uint16_t num_offlds, uint16_t *idx_offlds)
+{
+    for (int j = 0; j < packets_buffer->len; j++) {
+        // fill the memory with 0s
+        metadata_to_suri_help_t metadata_to_suri_help = { 0 };
+        metadata_to_suri_t *metadata_to_suri =
+                (metadata_to_suri_t *)rte_mbuf_to_priv(packets_buffer->buf[j]);
+        memset(&metadata_to_suri->events, 0x00, sizeof(PacketEngineEvents));
+
+        // decode L3 and L4 layers and fill the structure with metadata
+        if ((!packets_buffer->decoded[j]) || MetadataDecodePacketL3(packets_buffer->buf[j],
+                                                     metadata_to_suri, &metadata_to_suri_help)) {
+            memset(metadata_to_suri->metadata_set, 0x00,
+                    CNT_METADATA_TO_SURI * sizeof(metadata_to_suri->metadata_set[0]));
+            continue;
+        }
+
+        for (uint16_t t = 0; t < num_offlds; t++) {
+            switch (idx_offlds[t]) {
+                case IPV4_ID:
+                    metadata_to_suri->metadata_set[IPV4_ID] =
+                            (uint32_t)(metadata_to_suri_help.ipv4_hdr != NULL);
+                    break;
+                case IPV6_ID:
+                    metadata_to_suri->metadata_set[IPV6_ID] =
+                            (uint32_t)(metadata_to_suri_help.ipv6_hdr != NULL);
+                    break;
+                case TCP_ID:
+                    metadata_to_suri->metadata_set[TCP_ID] =
+                            (uint32_t)(metadata_to_suri_help.tcp_hdr != NULL);
+                    break;
+                case UDP_ID:
+                    metadata_to_suri->metadata_set[UDP_ID] =
+                            (uint32_t)(metadata_to_suri_help.udp_hdr != NULL);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
 static void PktsEnqueue(struct lcore_values *lv)
 {
     uint32_t pkt_count;
@@ -817,6 +917,12 @@ static void PktsEnqueue(struct lcore_values *lv)
         lv->stats.pkts_to_ring_enq_total[stats_index] += lv->tmp_ring_bufs[i].len;
         if (lv->tmp_ring_bufs[i].len > 2 * BURST_SIZE)
             Log().error(EINVAL, "Ring buffer length over the buffer");
+
+        // if no offload is required, skip offloads setting up part
+        if (lv->cnt_offlds_suri_requested > 0) {
+            SetMetadataToMbuf(&lv->tmp_ring_bufs[i], lv->cnt_offlds_suri_requested,
+                    lv->idxes_offlds_suri_requested);
+        }
 
         pkt_count = rte_ring_enqueue_burst(lv->rings_from_pf[i], (void **)lv->tmp_ring_bufs[i].buf,
                 lv->tmp_ring_bufs[i].len, NULL);
@@ -852,6 +958,27 @@ static uint16_t PktsTx(
 {
     uint16_t tx_cnt;
     Log().debug("Sending %d pkts to P%dQ%d", pkts_cnt, port_id, lv->qid);
+
+    for (uint16_t i = 0; i < pkts_cnt; ++i) {
+        metadata_from_suri_t *metadata = (metadata_from_suri_t *)rte_mbuf_to_priv(pkts[i]);
+
+        for (uint16_t t = 0; t < lv->cnt_offlds_suri_support; t++) {
+            switch (lv->idxes_offlds_suri_support[t]) {
+                case MATCH_RULES:
+                    if (!metadata->metadata_set[MATCH_RULES])
+                        continue;
+
+                    for (size_t j = 0; j < metadata->rules_metadata.cnt; j++) {
+                        Log().info("id: %d", metadata->rules_metadata.rules[j]);
+                    }
+
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
     tx_cnt = rte_eth_tx_burst(port_id, lv->qid, pkts, pkts_cnt);
     return tx_cnt;
 }
@@ -991,17 +1118,6 @@ void ThreadSuricataStatsDump(struct lcore_values *lv)
                         msgs_lookup_hitmask != 0 ? "found" : "not found", msgs_lookup_hitmask);
 
                 if (msgs_lookup_hitmask) {
-<<<<<<< HEAD
-                    Log().debug(
-                            "Flow dumping - todst B %lu todst pkts %lu tosrc B %lu tosrc pkts %lu",
-                            flow_data[0]->bytestodst, flow_data[0]->pktstodst,
-                            flow_data[0]->bytestosrc, flow_data[0]->pktstosrc);
-                    MessagesHandleSoftDeleteSingleOnStatsDump(msgs[i], &msgs_flow_dirs[i],
-                            flow_data[0], lv->bt, lv->results_ring, lv->message_mp, &lv->stats);
-                } else {
-                    MessagesHandleNotFoundSingle(msgs[i], &msgs_flow_dirs[i], lv->results_ring,
-                            lv->message_mp, &lv->stats);
-=======
                     Log().debug(
                             "Flow dumping - todst B %lu todst pkts %lu tosrc B %lu tosrc pkts %lu",
                             flow_data[0]->bytestodst, flow_data[0]->pktstodst,
@@ -1013,7 +1129,6 @@ void ThreadSuricataStatsDump(struct lcore_values *lv)
                     msgs[i]->use_cnt--;
                     MessagesHandleNotFoundSingle(msgs[i], &msgs_flow_dirs[i], lv->results_ring,
                             lv->message_mp, &lv->stats);
->>>>>>> 0359310ad (dpdk: add strict message checks for async message consistency)
                     Log().debug("Flow not found, unable to get stats");
                 }
             } else if (msgs[i]->msg_type == PF_MESSAGE_BYPASS_HARD_DELETE) {

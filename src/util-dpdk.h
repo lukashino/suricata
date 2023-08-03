@@ -142,6 +142,90 @@ typedef enum {
 // Offloads
 #define DPDK_RX_CHECKSUM_OFFLOAD (1 << 4) /**< Enable chsum offload */
 
+/* Offloads IPS flags */
+enum ofldsIdxsSur { MATCH_RULES };
+
+#define IPV4_OFFLOAD(val) ((val) << IPV4_ID)
+#define IPV6_OFFLOAD(val) ((val) << IPV6_ID)
+#define TCP_OFFLOAD(val)  ((val) << TCP_ID)
+#define UDP_OFFLOAD(val)  ((val) << UDP_ID)
+
+#define MATCH_RULES_OFFLOAD(val) ((val) << MATCH_RULES)
+
+#define MAX_CNT_OFFLOADS       16
+#define MAX_CNT_MATCHED_RULES  32
+#define CNT_METADATA_TO_SURI   4
+#define CNT_METADATA_FROM_SURI 1
+
+struct PfOffloadsAttrs {
+    const char *ipv4;
+    const char *ipv6;
+    const char *tcp;
+    const char *udp;
+};
+
+struct SuriOffloadsAttrs {
+    const char *matchRules;
+};
+
+struct MetadataAttrs {
+    struct PfOffloadsAttrs oflds_from_pf_to_suri;
+    struct SuriOffloadsAttrs oflds_from_suri_to_pf;
+    const char *private_space_size;
+};
+
+typedef struct MetadataRules {
+    size_t cnt;
+    uint32_t rules[32]; // change then
+} metadata_rules_t;
+
+typedef struct MetadataFromSuri {
+    uint32_t metadata_set[CNT_METADATA_FROM_SURI];
+    metadata_rules_t rules_metadata;
+} metadata_from_suri_t;
+
+typedef struct MetadataIpv4 {
+    Address src_addr;
+    Address dst_addr;
+    IPV4Vars ipv4Vars;
+} metadata_ipv4_t;
+
+typedef struct MetadataIpv6 {
+    Address src_addr;
+    Address dst_addr;
+} metadata_ipv6_t;
+
+typedef struct MetadataTcp {
+    Port src_port;
+    Port dst_port;
+    uint16_t payload_len;
+    uint16_t l4_len;
+    TCPVars tcpVars;
+} metadata_tcp_t;
+
+typedef struct MetadataUdp {
+    Port src_port;
+    Port dst_port;
+    uint16_t payload_len;
+    uint16_t l4_len;
+} metadata_udp_t;
+
+typedef struct MetadataToSuri {
+    uint32_t metadata_set[CNT_METADATA_TO_SURI];
+    metadata_ipv4_t metadata_ipv4;
+    metadata_ipv6_t metadata_ipv6;
+    metadata_tcp_t metadata_tcp;
+    metadata_udp_t metadata_udp;
+    PacketEngineEvents events;
+} metadata_to_suri_t;
+
+typedef struct MetadataToSuriHelp {
+    struct rte_ipv4_hdr *ipv4_hdr;
+    struct rte_ipv6_hdr *ipv6_hdr;
+    struct rte_tcp_hdr *tcp_hdr;
+    struct rte_udp_hdr *udp_hdr;
+} metadata_to_suri_help_t;
+
 #endif /* HAVE_DPDK */
 
 typedef struct DPDKIfaceConfig_ {
@@ -159,6 +243,13 @@ typedef struct DPDKIfaceConfig_ {
     struct rte_ring **tasks_rings;
     struct rte_ring **results_rings;
     struct rte_mempool **messages_mempools;
+    uint16_t *cnt_offlds_suri_requested;
+    uint16_t (*idxes_offlds_suri_requested)[MAX_CNT_OFFLOADS];
+    uint16_t oflds_suri_requested;
+    uint16_t cnt_offlds_suri_support;
+    uint16_t idxes_offlds_suri_support[MAX_CNT_OFFLOADS];
+    uint16_t oflds_suri_support;
+    uint16_t private_space_size;
     /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;
@@ -251,6 +342,11 @@ struct PFConfRingEntry {
     struct rte_ring *tasks_ring;
     struct rte_ring *results_ring;
     struct rte_mempool *message_mp;
+    uint16_t oflds_pf_support;
+    uint16_t oflds_suri_requested;
+    uint16_t oflds_final_IDS;
+    uint16_t oflds_pf_requested;
+    uint16_t oflds_final_IPS;
 };
 
 struct PFConf {

@@ -18,21 +18,16 @@
 /**
  * \file
  *
- * \author Lukas Sismis <lukas.sismis@cesnet.cz>
+ * \author Andrei Shchapaniak <xshcha00@vutbr.cz>
+ *
  */
 
-#ifndef LCORE_WORKER_SURICATA_H
-#define LCORE_WORKER_SURICATA_H
+#ifndef SURICATA_METADATA_L4_TCP_H
+#define SURICATA_METADATA_L4_TCP_H
 
-#include "dev-conf.h"
-#include "lcore-worker.h"
-#include "lcores-manager.h"
+#include "metadata.h"
 
-struct lcore_values *ThreadSuricataInit(struct lcore_init *init_vals);
-void ThreadSuricataRun(struct lcore_values *lv);
-void ThreadSuricataStatsDump(struct lcore_values *lv);
-void ThreadSuricataStatsExit(struct lcore_values *lv, struct pf_stats *stats);
-void ThreadSuricataDeinit(struct lcore_init *vals, struct lcore_values *lv);
-void ThreadSuricataOffloadsSetup(struct lcore_init *vals, struct lcore_values *lv);
+int MetadataDecodePacketTCP(metadata_to_suri_t *, metadata_to_suri_help_t *, uint16_t);
+static int MetadataDecodeTCPOptions(uint8_t *, metadata_to_suri_t *, uint8_t);
 
-#endif // LCORE_WORKER_SURICATA_H
+#endif // SURICATA_METADATA_L4_TCP_H

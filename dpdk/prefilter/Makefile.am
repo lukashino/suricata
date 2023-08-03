@@ -15,7 +15,12 @@ SRCS = \
     lcore-worker.c \
     lcore-worker-suricata.c \
     stats.c \
-    hash-table-bypass.c
+    hash-table-bypass.c \
+    metadata.c \
+    metadata-l3-ipv4.c \
+    metadata-l3-ipv6.c \
+    metadata-l4-udp.c \
+    metadata-l4-tcp.c
 
 OBJS = \
     prefilter.o \
@@ -28,7 +33,12 @@ OBJS = \
     lcore-worker.o \
     lcore-worker-suricata.o \
     stats.o \
-    hash-table-bypass.o
+    hash-table-bypass.o \
+    metadata.o \
+    metadata-l3-ipv4.o \
+    metadata-l3-ipv6.o \
+    metadata-l4-udp.o \
+    metadata-l4-tcp.o
 
 all:
 	if [ $$test -e $(CONFIGURE_PREFIX)/lib/libsuricata.so ] \

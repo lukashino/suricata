@@ -56,29 +56,6 @@ uint8_t CountDigits(uint32_t n)
     return digits_cnt;
 }
 
-uint32_t ArrayMaxValue(const uint32_t *arr, uint16_t arr_len)
-{
-    uint32_t max = 0;
-    for (uint16_t i = 0; i < arr_len; i++) {
-        max = MAX(arr[i], max);
-    }
-    return max;
-}
-
-// Used to determine size for memory allocation of a string
-uint8_t CountDigits(uint32_t n)
-{
-    uint8_t digits_cnt = 0;
-    if (n == 0)
-        return 1;
-
-    while (n != 0) {
-        n = n / 10;
-        digits_cnt++;
-    }
-    return digits_cnt;
-}
-
 void DPDKCleanupEAL(void)
 {
 #ifdef HAVE_DPDK
@@ -90,13 +67,15 @@ void DPDKCleanupEAL(void)
 #endif
 }
 
+#ifdef HAVE_DPDK
 void DPDKCloseDevice(LiveDevice *ldev)
 {
     (void)ldev; // avoid warnings of unused variable
 #ifdef HAVE_DPDK
-    if (SCRunmodeGet() == RUNMODE_DPDK) {
+    int retval;
+    if (run_mode == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
         uint16_t port_id;
-        int retval = rte_eth_dev_get_port_by_name(ldev->dev, &port_id);
+        retval = rte_eth_dev_get_port_by_name(ldev->dev, &port_id);
         if (retval < 0) {
             SCLogError("%s: failed get port id, error: %s", ldev->dev, rte_strerror(-retval));
             return;
@@ -116,8 +95,8 @@ void DPDKFreeDevice(LiveDevice *ldev)
         SCLogDebug("%s: releasing packet mempool", ldev->dev);
         rte_mempool_free(ldev->dpdk_vars.pkt_mp);
     }
-#endif
 }
+#endif /* HAVE_DPDK */
 
 #ifdef HAVE_DPDK
 /**

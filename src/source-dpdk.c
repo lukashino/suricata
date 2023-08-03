@@ -43,6 +43,7 @@
 #include "util-privs.h"
 #include "action-globals.h"
 #include "util-dpdk.h"
+#include "detect.h"
 
 #ifndef HAVE_DPDK
 
@@ -339,6 +340,31 @@ static inline int DPDKReleasePacketEthDevTx(Packet *p)
     }
 }
 
+static inline void SetMetadataToMbuf(Packet *p, uint16_t num_offlds, uint16_t *idx_offlds)
+{
+    metadata_from_suri_t *metadata_from_suri =
+            (metadata_from_suri_t *)rte_mbuf_to_priv(p->dpdk_v.mbuf);
+    uint16_t max_cnt;
+
+    for (int t = 0; t < num_offlds; t++) {
+        switch (idx_offlds[t]) {
+            case MATCH_RULES:
+                max_cnt = p->alerts.cnt > MAX_CNT_MATCHED_RULES ? MAX_CNT_MATCHED_RULES
+                                                                : p->alerts.cnt;
+                metadata_from_suri->metadata_set[MATCH_RULES] = max_cnt;
+
+                metadata_from_suri->rules_metadata.cnt = max_cnt;
+                for (int i = 0; i < max_cnt; i++) {
+                    metadata_from_suri->rules_metadata.rules[i] = p->alerts.alerts[i].s->id;
+                }
+
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 static inline void DPDKReleasePacketTxOrFree(Packet *p)
 {
     int ret;
@@ -350,6 +376,14 @@ static inline void DPDKReleasePacketTxOrFree(Packet *p)
     } else if (p->dpdk_v.copy_mode != DPDK_COPY_MODE_IPS || !PacketCheckAction(p, ACTION_DROP)) {
         // in IDS ring mode the tx ring is not set
         BUG_ON(PKT_IS_PSEUDOPKT(p));
+
+#ifdef BUILD_DPDK_APPS
+        // TODO: add a check if metadata is needed
+        // send packet mbuf, cnt of offloads, array of offloads
+        uint16_t tmp_arr[1] = { 0 };
+        SetMetadataToMbuf(p, 1, tmp_arr);
+#endif /* BUILD_DPDK_APPS */
+
         ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
         if (ret != 0) {
             SCLogDebug("Error (%s): Unable to enqueue packet to TX ring", rte_strerror(-ret));
@@ -850,6 +884,58 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 p->dpdk_v.message_mp = ptv->rings.msg_mp;
             }
 
+#ifdef BUILD_DPDK_APPS
+            void *priv_sec = rte_mbuf_to_priv(ptv->received_mbufs[i]);
+            uint16_t offset;
+            p->dpdk_v.PF_l4_len = 0;
+            p->dpdk_v.metadata_flags = 0;
+            metadata_to_suri_t *metadata =
+                    (metadata_to_suri_t *)rte_mbuf_to_priv(ptv->received_mbufs[i]);
+            p->events = metadata->events;
+
+            for (int t = 0; t < ptv->rings.cnt_offlds_suri_requested; t++) {
+                switch (ptv->rings.idxes_offlds_suri_requested[t]) {
+                    case IPV4_ID:
+                        if (!metadata->metadata_set[IPV4_ID])
+                            continue;
+
+                        p->src = metadata->metadata_ipv4.src_addr;
+                        p->dst = metadata->metadata_ipv4.dst_addr;
+                        p->ip4vars = metadata->metadata_ipv4.ipv4Vars;
+                        p->dpdk_v.metadata_flags |= IPV4_OFFLOAD(1);
+                        break;
+                    case IPV6_ID:
+                        if (!metadata->metadata_set[IPV6_ID])
+                            continue;
+
+                        p->src = metadata->metadata_ipv6.src_addr;
+                        p->dst = metadata->metadata_ipv6.dst_addr;
+                        p->dpdk_v.metadata_flags |= IPV6_OFFLOAD(1);
+                        break;
+                    case TCP_ID:
+                        if (!metadata->metadata_set[TCP_ID])
+                            continue;
+
+                        p->sp = metadata->metadata_tcp.src_port;
+                        p->dp = metadata->metadata_tcp.dst_port;
+                        p->payload_len = metadata->metadata_tcp.payload_len;
+                        p->dpdk_v.PF_l4_len = metadata->metadata_tcp.l4_len;
+                        p->tcpvars = metadata->metadata_tcp.tcpVars;
+                        p->dpdk_v.metadata_flags |= TCP_OFFLOAD(1);
+                        break;
+                    case UDP_ID:
+                        if (!metadata->metadata_set[UDP_ID])
+                            continue;
+
+                        p->sp = metadata->metadata_udp.src_port;
+                        p->dp = metadata->metadata_udp.dst_port;
+                        p->payload_len = metadata->metadata_udp.payload_len;
+                        p->dpdk_v.PF_l4_len = metadata->metadata_udp.l4_len;
+                        p->dpdk_v.metadata_flags |= UDP_OFFLOAD(1);
+                        break;
+                }
+            }
+#endif /* BUILD_DPDK_APPS */
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
                     rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
@@ -885,6 +971,17 @@ void ReceiveDPDKSetRings(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf, uint16_t q
     iconf->results_rings[queue_id] = NULL;
     ptv->rings.msg_mp = iconf->messages_mempools[queue_id];
     iconf->messages_mempools[queue_id] = NULL;
+    ptv->rings.cnt_offlds_suri_requested = iconf->cnt_offlds_suri_requested[queue_id];
+    iconf->cnt_offlds_suri_requested[queue_id] = 0;
+    memcpy(ptv->rings.idxes_offlds_suri_requested, iconf->idxes_offlds_suri_requested[queue_id],
+            sizeof(ptv->rings.idxes_offlds_suri_requested));
+    memset(iconf->idxes_offlds_suri_requested[queue_id], 0,
+            sizeof(iconf->idxes_offlds_suri_requested[queue_id]));
+    ptv->rings.cnt_offlds_pf_requested = iconf->cnt_offlds_suri_support;
+    iconf->cnt_offlds_suri_support = 0;
+    memcpy(ptv->rings.idxes_offlds_pf_requested, iconf->idxes_offlds_suri_support,
+            sizeof(ptv->rings.idxes_offlds_pf_requested));
+    memset(iconf->idxes_offlds_suri_support, 0, sizeof(iconf->idxes_offlds_suri_support));
 }
 
 /**

@@ -527,7 +527,13 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
     if (!PacketIncreaseCheckLayers(p)) {
         return TM_ECODE_FAILED;
     }
+
+#ifdef BUILD_DPDK_APPS
     /* do the actual decoding */
+    if (p->dpdk_v.metadata_flags & (1 << IPV4_ID)) {
+        p->ip4h = (IPV4Hdr *)pkt;
+    } else {
+#endif /* BUILD_DPDK_APPS */
     const IPV4Hdr *ip4h = DecodeIPV4Packet(p, pkt, len);
     if (unlikely(ip4h == NULL)) {
         SCLogDebug("decoding IPv4 packet failed");
@@ -535,6 +541,9 @@ int DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
         return TM_ECODE_FAILED;
     }
     p->proto = IPV4_GET_RAW_IPPROTO(ip4h);
+#ifdef BUILD_DPDK_APPS
+    }
+#endif /* BUILD_DPDK_APPS */
 
     /* If a fragment, pass off for re-assembly. */
     if (unlikely(IPV4_GET_RAW_FRAGOFFSET(ip4h) > 0 || IPV4_GET_RAW_FLAG_MF(ip4h))) {

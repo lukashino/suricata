@@ -152,12 +152,42 @@ bool LcoreStateCheckAll(enum LcoreStateEnum check_state)
     return all_set;
 }
 
+bool LcoreStateCheckAllByRing(enum LcoreStateEnum check_state, char *iface)
+{
+    bool all_set = true;
+    for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
+        if (strstr(iface, ctx.lcores_state.lcores_arr[i].name_ring)) {
+            Log().debug("State - desired %u actual %u", check_state,
+                    rte_atomic16_read(ctx.lcores_state.lcores_arr[i].state));
+            all_set &= LcoreStateCheck(ctx.lcores_state.lcores_arr[i].state, check_state);
+        }
+    }
+
+    return all_set;
+}
+
 int LcoreStateCheckAllWTimeout(enum LcoreStateEnum check_state, uint16_t timeout_sec)
 {
     time_t init_time, tmp_time;
     time(&init_time);
 
     while (!LcoreStateCheckAll(check_state)) {
+        rte_delay_us_sleep(10 * 1000);
+        time(&tmp_time);
+        if (tmp_time - init_time > timeout_sec)
+            return -ETIMEDOUT;
+    }
+
+    return 0;
+}
+
+int LcoreStateCheckAllByRingTimeout(
+        enum LcoreStateEnum check_state, char *iface, uint16_t timeout_sec)
+{
+    time_t init_time, tmp_time;
+    time(&init_time);
+
+    while (!LcoreStateCheckAllByRing(check_state, iface)) {
         rte_delay_us_sleep(10 * 1000);
         time(&tmp_time);
         if (tmp_time - init_time > timeout_sec)
@@ -212,6 +242,9 @@ int LcoreManagerRunWorker(
             rte_free(lcore_state);
             return -rte_errno;
         }
+
+        snprintf(ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].name_ring,
+                RTE_RING_NAMESIZE + 2, "_%s_", re->main_ring.name_base);
 
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].state = lcore_state;
         ctx.lcores_state.lcores_arr[ctx.lcores_state.lcores_arr_len].bypass_table = t;

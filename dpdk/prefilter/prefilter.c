@@ -194,7 +194,7 @@ static int IPCActionPktsStart(const struct rte_mp_msg *msg, const void *peer)
     mp_resp.len_param = (int)strlen((char *)mp_resp.param);
 
     uint8_t tout_sec = 5;
-    ret = LcoreStateCheckAllWTimeout(LCORE_INIT_DONE, tout_sec);
+    ret = LcoreStateCheckAllWTimeout(LCORE_OFFLOADS_DONE, tout_sec);
     if (ret != 0) {
         Log().error(ETIMEDOUT, "Workers has not initialised in time (%s sec)", tout_sec);
         exit(1);
@@ -299,6 +299,43 @@ static int IPCActionBtDumpStop(const struct rte_mp_msg *msg, const void *peer)
     return 0;
 }
 
+static int IPCSetupOffloads(const struct rte_mp_msg *msg, const void *peer)
+{
+    int ret;
+    struct rte_mp_msg mp_resp;
+    const struct rte_memzone *mz = ctx.shared_conf;
+    struct PFConf *pf_conf = (struct PFConf *)mz->addr;
+    memset(&mp_resp, 0, sizeof(mp_resp));
+    strlcpy(mp_resp.name, msg->name, sizeof(mp_resp.name) / sizeof(mp_resp.name[0]));
+    strlcpy((char *)mp_resp.param, IPC_VALID_RESPONSE,
+            sizeof(mp_resp.param) / sizeof(mp_resp.param[0]));
+    mp_resp.len_param = (int)strlen((char *)mp_resp.param);
+
+    uint8_t tout_sec = 2;
+    ret = LcoreStateCheckAllByRingTimeout(LCORE_INIT_DONE, (char *)msg->param, tout_sec);
+    if (ret != 0) {
+        Log().error(ETIMEDOUT, "Workers have not initialised in time (%s sec)", tout_sec);
+        exit(1);
+    }
+
+    for (uint16_t i = 0; i < ctx.lcores_state.lcores_arr_len; i++) {
+        if (strstr((char *)msg->param, ctx.lcores_state.lcores_arr[i].name_ring)) {
+            LcoreStateSet(ctx.lcores_state.lcores_arr[i].state, LCORE_OFFLOADS_INIT);
+        }
+    }
+
+    ret = LcoreStateCheckAllByRingTimeout(LCORE_OFFLOADS_DONE, (char *)msg->param, tout_sec);
+    if (ret != 0) {
+        Log().error(ETIMEDOUT, "Offloads have not initialised in time (%s sec)", tout_sec);
+        exit(1);
+    }
+
+    rte_mp_reply((struct rte_mp_msg *)&mp_resp, peer);
+    Log().debug("IPC action for %s", IPC_ACTION_OFFLOADS_SETUP);
+
+    return 0;
+}
+
 static int IPCInit(struct action_control *actions,
         struct ctx_ring_conf_list_entry_resource *ring_conf_entries, uint16_t ring_conf_entries_cnt)
 {
@@ -342,6 +379,13 @@ static int IPCInit(struct action_control *actions,
     if (ret != 0) {
         Log().warning(ENOTSUP, "Error (%s): Unable to register action (%s)",
                 rte_strerror(rte_errno), IPC_ACTION_BYPASS_TBL_DUMP_STOP);
+        return -rte_errno;
+    }
+
+    ret = rte_mp_action_register(IPC_ACTION_OFFLOADS_SETUP, IPCSetupOffloads);
+    if (ret != 0) {
+        Log().warning(ENOTSUP, "Error (%s): Unable to register action (%s)",
+                rte_strerror(rte_errno), IPC_ACTION_OFFLOADS_SETUP);
         return -rte_errno;
     }
 

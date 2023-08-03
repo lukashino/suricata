@@ -2289,7 +2289,9 @@ void PostRunDeinit(const int runmode, struct timeval *start_time)
     FlowDisableFlowManagerThread();
     TmThreadDisableReceiveThreads();
 
+#ifdef BUILD_DPDK_APPS
     DpdkIpcDumpStats();
+#endif /* BUILD_DPDK_APPS */
 
     FlowForceReassembly();
     TmThreadDisablePacketThreads();
@@ -2839,7 +2841,10 @@ void SuricataMainLoop(void)
     SCInstance *suri = &suricata;
     while(1) {
         if (sigterm_count || sigint_count) {
-            suricata_ctl_flags |= SURICATA_STOP;
+            // suricata_ctl_flags |= SURICATA_STOP;
+            // don't issue stop command unless user signalled
+            // (e.g. Suricata received shutdown command)
+            DpdkIpcStop();
         }
 
         if (suricata_ctl_flags & SURICATA_STOP) {
@@ -3079,7 +3084,9 @@ void SuricataPostInit(void)
         SystemHugepageSnapshotDestroy(postrun_snap);
     }
 
+#ifdef BUILD_DPDK_APPS
     DpdkIpcRegisterActions();
     DpdkIpcStart();
+#endif /* BUILD_DPDK_APPS */
     SCPledge();
 }

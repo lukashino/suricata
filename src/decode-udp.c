@@ -67,8 +67,6 @@ static int DecodeUDPPacket(ThreadVars *t, Packet *p, const uint8_t *pkt, uint16_
     p->payload = (uint8_t *)pkt + UDP_HEADER_LEN;
     p->payload_len = UDP_GET_RAW_LEN(udph) - UDP_HEADER_LEN;
 
-    p->proto = IPPROTO_UDP;
-
     return 0;
 }
 
@@ -77,6 +75,12 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 {
     StatsIncr(tv, dtv->counter_udp);
 
+#ifdef BUILD_DPDK_APPS
+    if (p->dpdk_v.metadata_flags & (1 << UDP_ID)) {
+        p->udph = (UDPHdr *)pkt;
+        p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
+    } else {
+#endif /* BUILD_DPDK_APPS */
     if (unlikely(DecodeUDPPacket(tv, p, pkt,len) < 0)) {
         PacketClearL4(p);
         return TM_ECODE_FAILED;
@@ -84,7 +88,9 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 
     SCLogDebug("UDP sp: %u -> dp: %u - HLEN: %" PRIu32 " LEN: %" PRIu32 "", p->sp, p->dp,
             UDP_HEADER_LEN, p->payload_len);
-
+#ifdef BUILD_DPDK_APPS
+    }
+#endif /* BUILD_DPDK_APPS */
     if (DecodeTeredoEnabledForPort(p->sp, p->dp) &&
             likely(DecodeTeredo(tv, dtv, p, p->payload, p->payload_len) == TM_ECODE_OK)) {
         /* Here we have a Teredo packet and don't need to handle app
