@@ -27,6 +27,9 @@
 #include <sys/types.h>
 
 #include <rte_atomic.h>
+#include <stdio.h>
+#include <string.h>
+#include <rte_ring.h>
 
 #include "lcore-worker.h"
 #include "dev-conf.h"
@@ -84,6 +87,7 @@ int ThreadMain(void *init_values)
 {
     struct lcore_init *vals = (struct lcore_init *)init_values;
     struct lcore_values *lv = NULL;
+
     while (1) {
         if (ShouldStop() && LcoreStateCheck(vals->state, LCORE_WAIT)) {
             Log().info("Lcore %s:%d shutting down", vals->re->main_ring.name_base, vals->lcore_id);
@@ -98,6 +102,11 @@ int ThreadMain(void *init_values)
                 return -EINVAL;
             LcoreStateSet(lv->state, LCORE_INIT_DONE);
             Log().debug("Lcore %d initialised", rte_lcore_id());
+        } else if (LcoreStateCheck(vals->state, LCORE_OFFLOADS_INIT)) {
+            Log().debug("Lcore %d setting up offloads", rte_lcore_id());
+            ThreadSuricataOffloadsSetup(vals, lv);
+            LcoreStateSet(lv->state, LCORE_OFFLOADS_DONE);
+            Log().debug("Lcore %d setting up offloads finished", rte_lcore_id());
         } else if (LcoreStateCheck(vals->state, LCORE_RUN)) {
             Log().debug("Lcore %d PKTS process", rte_lcore_id());
             ThreadSuricataRun(lv);

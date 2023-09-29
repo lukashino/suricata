@@ -41,6 +41,8 @@
 #include "util-napatech.h"
 #endif /* HAVE_NAPATECH */
 
+enum ofldsIdxsPf { IPV4_ID, IPV6_ID, TCP_ID, UDP_ID };
+
 typedef enum {
     CHECKSUM_VALIDATION_DISABLE,
     CHECKSUM_VALIDATION_ENABLE,

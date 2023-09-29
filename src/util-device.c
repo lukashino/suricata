@@ -328,7 +328,9 @@ int LiveDeviceListClean(void)
         }
 
         RestoreIfaceOffloading(pd);
+#ifdef HAVE_DPDK
         DPDKCloseDevice(pd);
+#endif /* HAVE_DPDK */
 
         if (pd->dev)
             SCFree(pd->dev);

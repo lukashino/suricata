@@ -55,6 +55,8 @@ enum LcoreStateEnum {
     LCORE_RUNNING_DONE,
     LCORE_STAT_DUMP_DONE,
     LCORE_STOP_DONE,
+    LCORE_OFFLOADS_INIT,
+    LCORE_OFFLOADS_DONE
 };
 
 extern struct lcore_init *LcoreMainAsWorker;
@@ -69,5 +71,9 @@ bool LcoreStateCheckAll(enum LcoreStateEnum check_state);
 int LcoreStateCheckAllWTimeout(enum LcoreStateEnum check_state, uint16_t timeout_sec);
 uint32_t LcoreManagerGetLcoreIdFromRingId(
         uint16_t ring_id, uint16_t sec_app_lcores_cnt, uint16_t pf_lcores_cnt);
+
+int LcoreStateCheckAllByRingTimeout(
+        enum LcoreStateEnum check_state, char *iface, uint16_t timeout_sec);
+bool LcoreStateCheckAllByRing(enum LcoreStateEnum check_state, char *iface);
 
 #endif // LCORES_MANAGER_H

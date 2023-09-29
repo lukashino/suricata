@@ -164,6 +164,13 @@ const char *DevConfRingGetRxName(const char *base, uint16_t ring_id)
     return buffer;
 }
 
+const char *DevConfGetRxDefaultName(const char *base)
+{
+    static char buffer[RTE_RING_NAMESIZE];
+    snprintf(buffer, RTE_RING_NAMESIZE, "rx_%s_%s", base, "$QQQ");
+    return buffer;
+}
+
 const char *DevConfRingGetTxName(const char *base, uint16_t ring_id)
 {
     static char buffer[RTE_RING_NAMESIZE];
@@ -405,6 +412,8 @@ int DevConfSharedConfInit(void)
             pf->ring_entries[pf->ring_entries_cnt].message_mp = mp;
             Log().notice("Found %s", name);
 
+            pf->ring_entries[pf->ring_entries_cnt].oflds_pf_support = re->oflds_pf_support;
+            pf->ring_entries[pf->ring_entries_cnt].oflds_pf_requested = re->oflds_pf_requested;
             pf->ring_entries_cnt++;
         }
     }

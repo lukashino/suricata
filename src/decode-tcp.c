@@ -237,8 +237,6 @@ static int DecodeTCPPacket(ThreadVars *tv, Packet *p, const uint8_t *pkt, uint16
     SET_TCP_SRC_PORT(p,&p->sp);
     SET_TCP_DST_PORT(p,&p->dp);
 
-    p->proto = IPPROTO_TCP;
-
     p->payload = (uint8_t *)pkt + hlen;
     p->payload_len = len - hlen;
 
@@ -250,11 +248,17 @@ int DecodeTCP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 {
     StatsIncr(tv, dtv->counter_tcp);
 
-    if (unlikely(DecodeTCPPacket(tv, p, pkt,len) < 0)) {
-        SCLogDebug("invalid TCP packet");
-        CLEAR_TCP_PACKET(p);
-        return TM_ECODE_FAILED;
-    }
+#ifdef BUILD_DPDK_APPS
+    if (p->dpdk_v.metadata_flags & (1 << TCP_ID)) {
+        p->tcph = (TCPHdr *)pkt;
+        p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
+    } else
+#endif /* BUILD_DPDK_APPS */
+        if (unlikely(DecodeTCPPacket(tv, p, pkt, len) < 0)) {
+            SCLogDebug("invalid TCP packet");
+            CLEAR_TCP_PACKET(p);
+            return TM_ECODE_FAILED;
+        }
 
     /* update counters */
     if ((p->tcph->th_flags & (TH_SYN | TH_ACK)) == (TH_SYN | TH_ACK)) {
@@ -265,6 +269,8 @@ int DecodeTCP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
     if (p->tcph->th_flags & (TH_RST)) {
         StatsIncr(tv, dtv->counter_tcp_rst);
     }
+    p->proto = IPPROTO_TCP;
+
 #ifdef DEBUG
     SCLogDebug("TCP sp: %" PRIu32 " -> dp: %" PRIu32 " - HLEN: %" PRIu32 " LEN: %" PRIu32 " %s%s%s%s%s%s",
         GET_TCP_SRC_PORT(p), GET_TCP_DST_PORT(p), TCP_GET_HLEN(p), len,

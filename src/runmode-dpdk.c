@@ -152,6 +152,20 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
+
+#ifdef BUILD_DPDK_APPS
+    .metadata = {
+        .oflds_from_pf_to_suri = {
+                .ipv4 = "IPV4",
+                .ipv6 = "IPV6",
+                .tcp = "TCP",
+                .udp = "UDP",
+        },
+        .oflds_from_suri_to_pf = {
+                .matchRules = "matchRules",
+        },
+    }
+#endif /* BUILD_DPDK_APPS */
 };
 
 char mz_name[RTE_MEMZONE_NAMESIZE] = { 0 };
@@ -471,6 +485,12 @@ static void DPDKDerefConfig(void *conf)
         }
         if (iconf->messages_mempools != NULL) {
             SCFree(iconf->messages_mempools);
+        }
+        if (iconf->cnt_offlds_suri_requested != NULL) {
+            SCFree(iconf->cnt_offlds_suri_requested);
+        }
+        if (iconf->idxes_offlds_suri_requested != NULL) {
+            SCFree(iconf->idxes_offlds_suri_requested);
         }
 
         SCFree(iconf);
@@ -959,6 +979,66 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     if (retval < 0)
         SCReturnInt(retval);
 
+#ifdef BUILD_DPDK_APPS
+    ConfNode *config, *next_node;
+    config = ConfGetChildWithDefault(if_root, if_default, "metadata");
+    if (config == NULL) {
+        SCLogInfo("OFFLOADS: Suricata was not able to locate the \"metadata\" node."
+                  " Default values have been set for the offloads: 0, 0");
+        iconf->oflds_suri_requested = 0;
+        iconf->oflds_suri_support = 0;
+        SCReturnInt(0);
+    }
+
+    next_node = ConfNodeLookupChild(config, "offloads-from-pf-to-suri");
+    if (next_node == NULL) {
+        FatalError("failed to find \"offloads-from-pf-to-suri\" for Suricata");
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.ipv4, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= IPV4_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.ipv6, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= IPV6_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.tcp, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= TCP_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    if ((retval = ConfGetChildValueBool(
+                 next_node, dpdk_yaml.metadata.oflds_from_pf_to_suri.udp, &entry_bool)) == 1) {
+        iconf->oflds_suri_requested |= UDP_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    next_node = ConfNodeLookupChild(config, "offloads-from-suri-to-pf");
+    if (next_node == NULL) {
+        FatalError("failed to find \"offloads-from-suri-to-pf\" for Suricata");
+    }
+
+    if ((retval = ConfGetChildValueBool(next_node,
+                 dpdk_yaml.metadata.oflds_from_suri_to_pf.matchRules, &entry_bool)) == 1) {
+        iconf->oflds_suri_support |= MATCH_RULES_OFFLOAD(entry_bool);
+    } else {
+        SCReturnInt(retval);
+    }
+
+    SCLogInfo("OFFLOADS: Suricata reads from conf file offloads: %d, %d",
+            iconf->oflds_suri_requested, iconf->oflds_suri_support);
+#endif /* BUILD_DPDK_APPS */
+
     SCReturnInt(0);
 }
 
@@ -1351,7 +1431,7 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
             iconf->iface, mempool_name, iconf->mempool_size, iconf->mempool_cache_size, mbuf_size);
 
     iconf->pkt_mempool = rte_pktmbuf_pool_create(mempool_name, iconf->mempool_size,
-            iconf->mempool_cache_size, 0, mbuf_size, (int)iconf->socket_id);
+            iconf->mempool_cache_size, iconf->private_space_size, mbuf_size, (int)iconf->socket_id);
     if (iconf->pkt_mempool == NULL) {
         retval = -rte_errno;
         SCLogError("%s: rte_pktmbuf_pool_create failed with code %d (mempool: %s) - %s",
@@ -1590,6 +1670,81 @@ static struct PFConfRingEntry *DeviceRingsFindPFConfRingEntry(
     return NULL;
 }
 
+/*
+ * This function contains the main idea of the acceleration
+ * of the setting up of the offloads. Not used offloads are eliminated
+ * and an array with indexes of setting up offloads is created.
+ *
+ * Example:
+ * input: finalOffloads = 0101010000000010 (binary MSB)
+ * output: cntOffloads = 4, indexOffloads = {1, 10, 12, 14}
+ */
+void SetIdxOfFinalOfflds(uint16_t finalOffloads, uint16_t *cntOffloads, uint16_t *indexOffloads)
+{
+    for (int i = 0; i < MAX_CNT_OFFLOADS; i++) {
+        if (((1 << i) & finalOffloads) != 0) {
+            indexOffloads[*cntOffloads] = i;
+            (*cntOffloads)++;
+        }
+    }
+}
+
+int OffloadsAgreement(DPDKIfaceConfig *iconf, struct PFConfRingEntry *pf_re, int rings_cnt)
+{
+    int retval;
+    struct rte_mp_msg req;
+    struct rte_mp_reply reply;
+    memset(&req, 0, sizeof(req));
+    strlcpy(req.name, IPC_ACTION_OFFLOADS_SETUP, RTE_MP_MAX_NAME_LEN);
+    strlcpy((char *)req.param, iconf->iface, RTE_RING_NAMESIZE);
+    const struct timespec tss = { .tv_sec = 5, .tv_nsec = 0 };
+    retval = rte_mp_request_sync(&req, &reply, &tss);
+
+    if (retval != 0 || reply.nb_sent != reply.nb_received) {
+        FatalError(
+                "%s req-response failed (%s)", IPC_ACTION_OFFLOADS_SETUP, rte_strerror(rte_errno));
+    }
+
+    for (int32_t i = 0; i < rings_cnt; ++i) {
+        const char *name;
+        name = DeviceRingNameInit(iconf->iface, i);
+        SCLogDebug("Looking up rx ring: %s", name);
+        iconf->rx_rings[i] = rte_ring_lookup(name);
+        if (iconf->rx_rings[i] == NULL) {
+            SCLogError("rte_ring_lookup(): cannot get rx ring '%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+        pf_re = DeviceRingsFindPFConfRingEntry(mz_name, name);
+        if (pf_re == NULL) {
+            SCLogError("cannot get prefilter ring entry'%s'", name);
+            SCReturnInt(-ENOENT);
+        }
+
+        if (i == 0) {
+            SCLogInfo("METADATA FROM PREFILTER TO SURICATA ON THE INTERFACE %s:\n"
+                      "\tOffload ipv4 (bit %d) is %s\n\tOffload ipv6 (bit %d) is %s\n"
+                      "\tOffload tcp (bit %d) is %s\n\tOffload udp (bit %d) is %s",
+                    iconf->iface, IPV4_ID,
+                    pf_re->oflds_final_IDS & IPV4_OFFLOAD(1) ? "enabled" : "disabled", IPV6_ID,
+                    pf_re->oflds_final_IDS & IPV6_OFFLOAD(1) ? "enabled" : "disabled", TCP_ID,
+                    pf_re->oflds_final_IDS & TCP_OFFLOAD(1) ? "enabled" : "disabled", UDP_ID,
+                    pf_re->oflds_final_IDS & UDP_OFFLOAD(1) ? "enabled" : "disabled");
+            SCLogInfo("METADATA FROM SURICATA TO PREFILTER ON THE INTERFACE %s:\n"
+                      "\tOffload matchedRules (bit %d) is %s",
+                    iconf->iface, MATCH_RULES,
+                    pf_re->oflds_final_IPS & MATCH_RULES_OFFLOAD(1) ? "enabled" : "disabled");
+        }
+
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IDS, &iconf->cnt_offlds_suri_requested[i],
+                iconf->idxes_offlds_suri_requested[i]);
+        SetIdxOfFinalOfflds(pf_re->oflds_final_IPS, &iconf->cnt_offlds_suri_support,
+                iconf->idxes_offlds_suri_support);
+    }
+
+    SCReturnInt(0);
+}
+
 static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
 {
     SCEnter();
@@ -1639,6 +1794,18 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         SCReturnInt(-ENOMEM);
     }
 
+    iconf->cnt_offlds_suri_requested = SCCalloc(rings_cnt, sizeof(uint16_t));
+    if (iconf->cnt_offlds_suri_requested == NULL) {
+        SCLogError("Failed to calloc cnt_offlds_suri_requested");
+        SCReturnInt(-ENOMEM);
+    }
+
+    iconf->idxes_offlds_suri_requested = SCCalloc(rings_cnt, sizeof(uint16_t[16]));
+    if (iconf->idxes_offlds_suri_requested == NULL) {
+        SCLogError("Failed to calloc idxes_offlds_suri_requested");
+        SCReturnInt(-ENOMEM);
+    }
+
     for (int32_t i = 0; i < rings_cnt; ++i) {
         const char *name;
         name = DeviceRingNameInit(iconf->iface, i);
@@ -1658,6 +1825,9 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         iconf->results_rings[i] = pf_re->results_ring;
         iconf->messages_mempools[i] = pf_re->message_mp;
 
+        pf_re->oflds_suri_requested = iconf->oflds_suri_requested;
+        pf_re->oflds_final_IPS = iconf->oflds_suri_support & pf_re->oflds_pf_requested;
+
         if (iconf->copy_mode == DPDK_COPY_MODE_NONE) {
             iconf->tx_rings[i] = NULL;
         } else {
@@ -1671,7 +1841,8 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
         }
     }
 
-    SCReturnInt(0);
+    retval = OffloadsAgreement(iconf, pf_re, rings_cnt);
+    SCReturnInt(retval);
 }
 
 int DeviceConfigure(DPDKIfaceConfig *iconf)

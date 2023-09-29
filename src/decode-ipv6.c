@@ -568,12 +568,16 @@ int DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, const uint8_t *
     if (!PacketIncreaseCheckLayers(p)) {
         return TM_ECODE_FAILED;
     }
-    /* do the actual decoding */
-    int ret = DecodeIPV6Packet (tv, dtv, p, pkt, len);
-    if (unlikely(ret < 0)) {
-        CLEAR_IPV6_PACKET(p);
-        return TM_ECODE_FAILED;
-    }
+
+#ifdef BUILD_DPDK_APPS
+    if (p->dpdk_v.metadata_flags & (1 << IPV6_ID)) {
+        p->ip6h = (IPV6Hdr *)pkt;
+    } else
+#endif /* BUILD_DPDK_APPS */
+        if (unlikely(DecodeIPV6Packet(tv, dtv, p, pkt, len) < 0)) {
+            CLEAR_IPV6_PACKET(p);
+            return TM_ECODE_FAILED;
+        }
     p->proto = IPV6_GET_NH(p);
 
 #ifdef DEBUG

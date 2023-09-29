@@ -67,8 +67,6 @@ static int DecodeUDPPacket(ThreadVars *t, Packet *p, const uint8_t *pkt, uint16_
     p->payload = (uint8_t *)pkt + UDP_HEADER_LEN;
     p->payload_len = UDP_GET_LEN(p) - UDP_HEADER_LEN;
 
-    p->proto = IPPROTO_UDP;
-
     return 0;
 }
 
@@ -77,11 +75,18 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 {
     StatsIncr(tv, dtv->counter_udp);
 
-    if (unlikely(DecodeUDPPacket(tv, p, pkt,len) < 0)) {
-        CLEAR_UDP_PACKET(p);
-        return TM_ECODE_FAILED;
-    }
+#ifdef BUILD_DPDK_APPS
+    if (p->dpdk_v.metadata_flags & (1 << UDP_ID)) {
+        p->udph = (UDPHdr *)pkt;
+        p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
+    } else
+#endif /* BUILD_DPDK_APPS */
+        if (unlikely(DecodeUDPPacket(tv, p, pkt, len) < 0)) {
+            CLEAR_UDP_PACKET(p);
+            return TM_ECODE_FAILED;
+        }
 
+    p->proto = IPPROTO_UDP;
     SCLogDebug("UDP sp: %" PRIu32 " -> dp: %" PRIu32 " - HLEN: %" PRIu32 " LEN: %" PRIu32 "",
         UDP_GET_SRC_PORT(p), UDP_GET_DST_PORT(p), UDP_HEADER_LEN, p->payload_len);
 
