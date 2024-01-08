@@ -41,7 +41,8 @@ int LiveGetOffload(void);
 
 #ifdef HAVE_DPDK
 typedef struct {
-    struct rte_mempool *pkt_mp;
+    uint16_t worker_cnt;
+    struct rte_mempool **pkt_mp;
 } DPDKDeviceResources;
 #endif /* HAVE_DPDK */
 

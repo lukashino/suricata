@@ -60,8 +60,16 @@ void DPDKFreeDevice(LiveDevice *ldev)
     (void)ldev; // avoid warnings of unused variable
 #ifdef HAVE_DPDK
     if (run_mode == RUNMODE_DPDK) {
-        SCLogDebug("%s: releasing packet mempool", ldev->dev);
-        rte_mempool_free(ldev->dpdk_vars.pkt_mp);
+        SCLogDebug("%s: releasing packet mempools", ldev->dev);
+        if (ldev->dpdk_vars.pkt_mp != NULL) {
+            for (int32_t i = 0; i < ldev->dpdk_vars.worker_cnt; i++) {
+                if (ldev->dpdk_vars.pkt_mp[i] != NULL) {
+                    rte_mempool_free(ldev->dpdk_vars.pkt_mp[i]);
+                }
+            }
+            SCFree(ldev->dpdk_vars.pkt_mp);
+            ldev->dpdk_vars.pkt_mp = NULL;
+        }
     }
 #endif
 }

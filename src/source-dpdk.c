@@ -129,7 +129,7 @@ static void InterruptsTurnOnOff(uint16_t port_id, uint16_t queue_id, bool on)
         rte_eth_dev_rx_intr_disable(port_id, queue_id);
 }
 
-#define BURST_SIZE 32
+#define BURST_SIZE 64
 static struct timeval machine_start_time = { 0, 0 };
 
 /**
@@ -181,7 +181,7 @@ static uint64_t CyclesToSeconds(uint64_t cycles);
 static void DPDKFreeMbufArray(struct rte_mbuf **mbuf_array, uint16_t mbuf_cnt, uint16_t offset);
 static uint64_t DPDKGetSeconds(void);
 
-static void DPDKFreeMbufArray(struct rte_mbuf **mbuf_array, uint16_t mbuf_cnt, uint16_t offset)
+static inline void DPDKFreeMbufArray(struct rte_mbuf **mbuf_array, uint16_t mbuf_cnt, uint16_t offset)
 {
     for (int i = offset; i < mbuf_cnt; i++) {
         rte_pktmbuf_free(mbuf_array[i]);
@@ -460,8 +460,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 struct rte_epoll_event event;
                 rte_epoll_wait(RTE_EPOLL_PER_THREAD, &event, 1, MAX_EPOLL_TIMEOUT_S);
                 InterruptsTurnOnOff(ptv->port_id, ptv->queue_id, false);
-                continue;
             }
+            continue;
         } else if (ptv->intr_en && pwd_zero_rx_packet_polls_count) {
             pwd_zero_rx_packet_polls_count = 0;
         }
@@ -470,6 +470,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
         for (uint16_t i = 0; i < nb_rx; i++) {
             p = PacketGetFromQueueOrAlloc();
             if (unlikely(p == NULL)) {
+                SCLogNotice("Could'nt allocate packet, forgetting it");
                 continue;
             }
             PKT_SET_SRC(p, PKT_SRC_WIRE);
@@ -513,11 +514,11 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 enum rte_proc_type_t eal_t = rte_eal_process_type();
                 if (eal_t == RTE_PROC_SECONDARY) {
                     SCLogWarning("%s. To avoid segmented mbufs, "
-                                 "try to increase mbuf size in your primary application",
+                                "try to increase mbuf size in your primary application",
                             warn_s);
                 } else if (eal_t == RTE_PROC_PRIMARY) {
                     SCLogWarning("%s. To avoid segmented mbufs, "
-                                 "try to increase MTU in your suricata.yaml",
+                                "try to increase MTU in your suricata.yaml",
                             warn_s);
                 }
 
@@ -525,7 +526,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             }
 
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
-                    rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
+                    rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));             
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
                 TmqhOutputPacketpool(ptv->tv, p);
                 DPDKFreeMbufArray(ptv->received_mbufs, nb_rx - i - 1, i + 1);
@@ -536,8 +537,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
         /* Trigger one dump of stats every second */
         current_time = DPDKGetSeconds();
         if (current_time != last_dump) {
-            DPDKDumpCounters(ptv);
-            last_dump = current_time;
+           DPDKDumpCounters(ptv);
+           last_dump = current_time;
         }
         StatsSyncCountersIfSignalled(tv);
     }
@@ -591,10 +592,7 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     ptv->port_id = dpdk_config->port_id;
     ptv->out_port_id = dpdk_config->out_port_id;
     ptv->port_socket_id = dpdk_config->socket_id;
-    // pass the pointer to the mempool and then forget about it. Mempool is freed in thread deinit.
-    ptv->pkt_mempool = dpdk_config->pkt_mempool;
-    dpdk_config->pkt_mempool = NULL;
-
+    
     thread_numa = GetNumaNode();
     if (thread_numa >= 0 && ptv->port_socket_id != SOCKET_ID_ANY &&
             thread_numa != ptv->port_socket_id) {
@@ -605,6 +603,9 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
 
     uint16_t queue_id = SC_ATOMIC_ADD(dpdk_config->queue_id, 1);
     ptv->queue_id = queue_id;
+    // pass the pointer to the mempool and then forget about it. Mempool is freed in thread deinit.
+    ptv->pkt_mempool = dpdk_config->pkt_mempool[queue_id];
+    dpdk_config->pkt_mempool[queue_id] = NULL;
 
     // the last thread starts the device
     if (queue_id == dpdk_config->threads - 1) {

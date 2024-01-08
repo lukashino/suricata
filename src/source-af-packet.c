@@ -989,6 +989,9 @@ static inline int AFPParsePacketV3(AFPThreadVars *ptv, struct tpacket_block_desc
     p->afp_v.copy_mode = ptv->copy_mode;
     p->afp_v.peer = (p->afp_v.copy_mode == AFP_COPY_MODE_NONE) ? NULL : ptv->mpeer->peer;
 
+    // for (volatile int i = 0; i < 1500; i++);
+    // p->ReleasePacket(p);
+
     /* Timestamp */
     p->ts = (SCTime_t){ .secs = ppd->tp_sec, .usecs = ppd->tp_nsec / 1000 };
     SCLogDebug("pktlen: %" PRIu32 " (pkt %p, pkt data %p)",
