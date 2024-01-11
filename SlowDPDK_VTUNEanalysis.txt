@@ -1,0 +1,68 @@
+VTUNE analysis
+
+now two main questions,
+- why pattern teeth in perf usage
+- why 8c8k worse than 4c16k
+
+
+########### New measurement ###########
+# 8 cores
+r008ue
+Notice: device: 0000:3b:00.0: packets: 139110046, drops: 631827 (0.45%), invalid chksum: 0 [LiveDeviceListClean:unix-list.c:113]
+
+# 6 cores
+r009ue
+Notice: device: 0000:3b:00.0: packets: 128325713, drops: 1680783 (1.31%), invalid chksum: 0 [LiveDeviceListClean:util-device.c:331]
+
+# 4 cores
+r010ue
+Notice: device: 0000:3b:00.0: packets: 214592929, drops: 3759587 (1.75%), invalid chksum: 0 [LiveDeviceListClean:util-device.c:331]
+
+r011ue
+AFPACKET 8 threads - runs more continuously
+
+r012ue
+DPDK polling mode 8 threads
+
+r022hs 
+DPDK interrupt, 4c16k
+
+r023hs
+DPDK interrupt, 8c8k
+
+r024hs
+DPDK interrupt, 8c16k
+
+r025hs
+DPDK interrupt, 8c32k
+
+r026hs
+DPDK testpmd, 8c16k
+
+r032hs
+AFPACKET 8c, 
+ups and downs can be caused by the traffic pattern - flows can be bigger and bigger and that can consume more cpu on tcp reassembly, then they are shutted down.
+likely not - because the PCAP has 1 second duration. 
+
+r033hs
+wider scope of addresses used in the trex profile to test 30 sec windows of high/low CPU usage / result: not confirmed, must be something else.
+High CPU usage is linked to memory intensive operations.
+
+sending 500 Mbps through tcpreplay vs trex seems to be different,
+tcpreplay has much smoother cpu activity
+trex has the usual teeth activity in 2 groups
+
+r049hs
+x710 DPDK 8c4k, big ring buffer inserted 32k elms, 
+no thread groups (good),  better performance than MLX, 
+
+r050hs
+MLNX DPDK 8c4k, same pattern as usual
+
+
+
+# skus vacsi traffic na 8 cores - ten isty pattern
+# sprofilovat testpmd na 8 cores - odlisny pattern
+# run suri on an empty iface - no activity, nothing seen
+# try some traffic on x710 iface - so far only able to do  that through tcpreplay - smooth line, the same with MLX though.
+
