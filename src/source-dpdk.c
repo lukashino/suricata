@@ -130,6 +130,7 @@ static void InterruptsTurnOnOff(uint16_t port_id, uint16_t queue_id, bool on)
 }
 
 #define BURST_SIZE 64
+#define RING_DEQUEUE_SIZE 32
 static struct timeval machine_start_time = { 0, 0 };
 
 /**
@@ -422,6 +423,19 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
     uint32_t pwd_zero_rx_packet_polls_count = 0;
 
+    // rte_ring_create
+    char ring_name[64];
+    snprintf(ring_name, sizeof(ring_name), "dpdk_ring_%u", ptv->queue_id);
+    struct rte_ring *ring = rte_ring_create(ring_name, 32768, ptv->port_socket_id, 0);
+    if (ring == NULL) {
+        SCLogError("Failed to create ring %s", ring_name);
+        SCReturnInt(TM_ECODE_FAILED);
+    }
+
+    // ask if this is lcore thread
+    SCLogError("Lcore id %d", rte_lcore_id());
+    
+
     while (1) {
         if (unlikely(suricata_ctl_flags != 0)) {
             SCLogDebug("Stopping Suricata!");
@@ -435,15 +449,34 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             break;
         }
 
+        SCTime_t ts_pre = (DPDKSetTimevalReal(&machine_start_time));
+        uint64_t us_pre = ts_pre.secs * 1000000 + ts_pre.usecs;
         nb_rx = rte_eth_rx_burst(ptv->port_id, ptv->queue_id, ptv->received_mbufs, BURST_SIZE);
-        if (unlikely(nb_rx == 0)) {
+        SCTime_t ts_post = (DPDKSetTimevalReal(&machine_start_time));
+        uint64_t us_post = ts_post.secs * 1000000 + ts_post.usecs;
+        if (nb_rx == 0) {
             t = DPDKSetTimevalReal(&machine_start_time);
             uint64_t msecs = SCTIME_MSECS(t);
             if (msecs > last_timeout_msec + 100) {
                 TmThreadsCaptureHandleTimeout(tv, NULL);
                 last_timeout_msec = msecs;
             }
+        }
 
+        if (us_post - us_pre > 100) {
+            SCLogInfo("DPDK RX burst took %" PRIu64 " us", us_post - us_pre);
+        }
+
+        ptv->pkts += (uint64_t)nb_rx;
+        uint32_t left_ring_space, ring_enqueued;
+        ring_enqueued = rte_ring_sp_enqueue_bulk(ring, (void **)ptv->received_mbufs, nb_rx, &left_ring_space);
+        if (unlikely(ring_enqueued != nb_rx)) {
+            SCLogError("Only enqueued %u pkt of %u packets to ring %s releasing from index %u count %u", ring_enqueued, nb_rx, ring_name, ring_enqueued, nb_rx - ring_enqueued - 1);
+            DPDKFreeMbufArray(ptv->received_mbufs, nb_rx - ring_enqueued, ring_enqueued);
+        }
+
+        nb_rx = rte_ring_sc_dequeue_bulk(ring, (void **)ptv->received_mbufs, RING_DEQUEUE_SIZE, NULL);
+        if (unlikely(nb_rx == 0)) {
             if (!ptv->intr_en)
                 continue;
 
@@ -452,21 +485,20 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 continue;
 
             uint32_t pwd_idle_hint = InterruptsSleepHeuristic(pwd_zero_rx_packet_polls_count);
+            rte_delay_us(pwd_idle_hint);
 
-            if (pwd_idle_hint < STANDARD_SLEEP_TIME_US) {
-                rte_delay_us(pwd_idle_hint);
-            } else {
-                InterruptsTurnOnOff(ptv->port_id, ptv->queue_id, true);
-                struct rte_epoll_event event;
-                rte_epoll_wait(RTE_EPOLL_PER_THREAD, &event, 1, MAX_EPOLL_TIMEOUT_S);
-                InterruptsTurnOnOff(ptv->port_id, ptv->queue_id, false);
-            }
-            continue;
+            // if (pwd_idle_hint < STANDARD_SLEEP_TIME_US) {
+            //     rte_delay_us(pwd_idle_hint);
+            // } else {
+            //     InterruptsTurnOnOff(ptv->port_id, ptv->queue_id, true);
+            //     struct rte_epoll_event event;
+            //     rte_epoll_wait(RTE_EPOLL_PER_THREAD, &event, 1, MAX_EPOLL_TIMEOUT_S);
+            //     InterruptsTurnOnOff(ptv->port_id, ptv->queue_id, false);
+            // }
         } else if (ptv->intr_en && pwd_zero_rx_packet_polls_count) {
             pwd_zero_rx_packet_polls_count = 0;
         }
 
-        ptv->pkts += (uint64_t)nb_rx;
         for (uint16_t i = 0; i < nb_rx; i++) {
             p = PacketGetFromQueueOrAlloc();
             if (unlikely(p == NULL)) {
@@ -537,11 +569,13 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
         /* Trigger one dump of stats every second */
         current_time = DPDKGetSeconds();
         if (current_time != last_dump) {
-           DPDKDumpCounters(ptv);
-           last_dump = current_time;
+            DPDKDumpCounters(ptv);
+            last_dump = current_time;
         }
         StatsSyncCountersIfSignalled(tv);
     }
+
+    rte_ring_free(ring);
 
     SCReturnInt(TM_ECODE_OK);
 }
