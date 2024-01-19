@@ -373,8 +373,10 @@ static TmEcode ReceiveDPDKLoopInit(ThreadVars *tv, DPDKThreadVars *ptv)
     TmThreadsSetFlag(tv, THV_RUNNING);
     PacketPoolWait();
 
-    rte_eth_stats_reset(ptv->port_id);
-    rte_eth_xstats_reset(ptv->port_id);
+    if (ptv->op_mode == DPDK_ETHDEV_MODE) {
+        rte_eth_stats_reset(ptv->port_id);
+        rte_eth_xstats_reset(ptv->port_id);
+    }
 
     if (ptv->intr_enabled && !InterruptsRXEnable(ptv->port_id, ptv->queue_id))
         SCReturnInt(TM_ECODE_FAILED);
