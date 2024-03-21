@@ -4,10 +4,9 @@
 dpdk:
   eal-params:
     proc-type: primary
-    match-allocations:
     no-huge:
-    m: 1024
     vdev: net_null0
+    m: 256
 
   # DPDK capture support
   # RX queues (and TX queues in IPS mode) are assigned to cores in 1:1 ratio
