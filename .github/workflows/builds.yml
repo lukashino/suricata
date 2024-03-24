@@ -522,4 +522,10 @@ jobs:
       - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-dpdk
       - run: make -j ${{ env.CPUS }}
       - run: make check
-      - run: ./src/suricata -c suricata-null.yaml -S /dev/null -l ./ -vvvv --dpdk
+      # IDS config
+      - run: timeout --kill-after=5 3 ./src/suricata -c .github/workflows/dpdk/suricata-null-ids.yaml -S /dev/null -l ./ --dpdk -vvvv
+      - run: test $(jq -c 'select(.event_type == "stats")' ./eve.json | tail -n1 | jq '.stats.capture.packets > 0')  = true
+      - run: rm -f ./eve.json
+      # IPS config
+      - run: timeout --kill-after=5 3 ./src/suricata -c .github/workflows/dpdk/suricata-null-ips.yaml -S /dev/null -l ./ --dpdk -vvvv
+      - run: test $(jq -c 'select(.event_type == "stats")' ./eve.json | tail -n1 | jq '.stats.capture.packets > 0')  = true
