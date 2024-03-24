@@ -523,9 +523,9 @@ jobs:
       - run: make -j ${{ env.CPUS }}
       - run: make check
       # IDS config
-      - run: timeout --kill-after=30 5 ./src/suricata -c .github/workflows/dpdk/suricata-null-ids.yaml -S /dev/null -l ./ --dpdk -vvvv
+      - run: timeout --kill-after=30 --preserve-status 3 ./src/suricata -c .github/workflows/dpdk/suricata-null-ids.yaml -S /dev/null -l ./ --dpdk -vvvv
       - run: test $(jq -c 'select(.event_type == "stats")' ./eve.json | tail -n1 | jq '.stats.capture.packets > 0')  = true
       - run: rm -f ./eve.json
       # IPS config
-      - run: timeout --kill-after=30 5 ./src/suricata -c .github/workflows/dpdk/suricata-null-ips.yaml -S /dev/null -l ./ --dpdk -vvvv
+      - run: timeout --kill-after=30 --preserve-status 3 ./src/suricata -c .github/workflows/dpdk/suricata-null-ips.yaml -S /dev/null -l ./ --dpdk -vvvv
       - run: test $(jq -c 'select(.event_type == "stats")' ./eve.json | tail -n1 | jq '.stats.capture.packets > 0')  = true
