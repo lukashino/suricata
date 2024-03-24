@@ -573,6 +573,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
         SCReturnInt(ret);
     }
     while (true) {
+        FatalError("Expected fails");
         if (unlikely(suricata_ctl_flags != 0)) {
             HandleShutdown(ptv);
             break;
