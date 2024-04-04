@@ -390,7 +390,10 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
                      "affinity configuration");
     }
 
+    printf("sched_cpus: %d\n", sched_cpus);
+
     const char *active_runmode = RunmodeGetActive();
+    printf("active_runmode: %s\n", active_runmode);
     if (active_runmode && !strcmp("single", active_runmode)) {
         iconf->threads = 1;
         SCReturnInt(0);
@@ -1636,7 +1639,7 @@ static int DPDKRunmodeSetThreads01(void)
     DPDKIfaceConfig iconf;
     const char *entry_str;
     threading_set_cpu_affinity = true;
-
+    // What if you set too many threads? in the cpu set - more than available CPUs
     thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
         .name = "worker-cpu-set",
         .cpu_set = 0x1111,
@@ -1650,22 +1653,52 @@ static int DPDKRunmodeSetThreads01(void)
     int r = ConfigSetThreads(&iconf, entry_str);
     FAIL_IF(r != -EINVAL);
 
-    // entry_str = "";
-    // r = ConfigSetThreads(&iconf, entry_str);
-    // FAIL_IF(r != -EINVAL);
+    PASS;
+}
 
-    // entry_str = "0";
-    // r = ConfigSetThreads(&iconf, entry_str);
-    // FAIL_IF(r != -EINVAL);
+static int DPDKRunmodeSetThreads02(void)
+{
+    DPDKIfaceConfig iconf;
+    const char *entry_str;
+    threading_set_cpu_affinity = true;
+    // What if you set too many threads? in the cpu set - more than available CPUs
+    thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
+        .name = "worker-cpu-set",
+        .cpu_set = 0x111111111111111111,
+    };
+    thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
+        .name = "management-cpu-set",
+        .cpu_set = 0x1,
+    };
 
-    // entry_str = "1";
-    // r = ConfigSetThreads(&iconf, entry_str);
-    // FAIL_IF(r != 0);
-    // FAIL_IF(iconf.threads != 1);
+    entry_str = NULL;
+    int r = ConfigSetThreads(&iconf, entry_str);
+    FAIL_IF(r != -EINVAL);
 
-    // entry_str = "999999999999999999";
-    // r = ConfigSetThreads(&iconf, entry_str);
-    // FAIL_IF(r != -EINVAL);
+    PASS;
+}
+
+static int DPDKRunmodeSetThreads03(void)
+{
+    DPDKIfaceConfig iconf;
+    const char *entry_str;
+    threading_set_cpu_affinity = true;
+    // What if you set too many threads? in the cpu set - more than available CPUs
+    thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
+        .name = "worker-cpu-set",
+        .cpu_set = 0x110,
+    };
+    thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
+        .name = "management-cpu-set",
+        .cpu_set = 0x1,
+    };
+
+    entry_str = "auto";
+    LiveRegisterDevice("test_dev");
+    int r = ConfigSetThreads(&iconf, entry_str);
+    printf("r: %d threads %d\n", r, iconf.threads);
+    FAIL_IF(iconf.threads != 2);
+    FAIL_IF(r != 0);
 
     PASS;
 }
@@ -1747,6 +1780,8 @@ void DPDKRunmodeRegisterTests(void)
 #ifdef UNITTESTS
 
     UtRegisterTest("DPDKRunmodeSetThreads01", DPDKRunmodeSetThreads01);
+    UtRegisterTest("DPDKRunmodeSetThreads02", DPDKRunmodeSetThreads02);
+    UtRegisterTest("DPDKRunmodeSetThreads03", DPDKRunmodeSetThreads03);
     
     UtRegisterTest("DPDKRunmodeSetMempoolCacheSize01", DPDKRunmodeSetMempoolCacheSize01);
     UtRegisterTest("DPDKRunmodeSetMempoolCacheSize02", DPDKRunmodeSetMempoolCacheSize02);

@@ -295,11 +295,6 @@ static int GetNumaNode(void)
     return node;
 }
 
-static int DPDKTetst01(void)
-{
-    PASS;
-}
-
 /**
  * \brief Registration Function for ReceiveDPDK.
  * \todo Unit tests are needed for this module.
@@ -315,14 +310,6 @@ void TmModuleReceiveDPDKRegister(void)
     tmm_modules[TMM_RECEIVEDPDK].ThreadDeinit = ReceiveDPDKThreadDeinit;
     tmm_modules[TMM_RECEIVEDPDK].cap_flags = SC_CAP_NET_RAW;
     tmm_modules[TMM_RECEIVEDPDK].flags = TM_FLAG_RECEIVE_TM;
-    printf("TmModuleReceiveDPDKRegister\n");
-
-#ifdef UNITTESTS
-    
-    UtRegisterTest("DPDKTetst01", DPDKTetst01);
-    // DPDKRunmodeRegisterTests();
-
-#endif /* UNITTESTS */
 }
 
 /**
