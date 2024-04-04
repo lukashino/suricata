@@ -1630,6 +1630,132 @@ static int DPDKConfigGetThreadsCount(void *conf)
     return dpdk_conf->threads;
 }
 
+#ifdef UNITTESTS
+static int DPDKRunmodeSetThreads01(void)
+{
+    DPDKIfaceConfig iconf;
+    const char *entry_str;
+    threading_set_cpu_affinity = true;
+
+    thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
+        .name = "worker-cpu-set",
+        .cpu_set = 0x1111,
+    };
+    thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
+        .name = "management-cpu-set",
+        .cpu_set = 0x1,
+    };
+
+    entry_str = NULL;
+    int r = ConfigSetThreads(&iconf, entry_str);
+    FAIL_IF(r != -EINVAL);
+
+    // entry_str = "";
+    // r = ConfigSetThreads(&iconf, entry_str);
+    // FAIL_IF(r != -EINVAL);
+
+    // entry_str = "0";
+    // r = ConfigSetThreads(&iconf, entry_str);
+    // FAIL_IF(r != -EINVAL);
+
+    // entry_str = "1";
+    // r = ConfigSetThreads(&iconf, entry_str);
+    // FAIL_IF(r != 0);
+    // FAIL_IF(iconf.threads != 1);
+
+    // entry_str = "999999999999999999";
+    // r = ConfigSetThreads(&iconf, entry_str);
+    // FAIL_IF(r != -EINVAL);
+
+    PASS;
+}
+
+static int DPDKRunmodeSetMempoolCacheSize01(void)
+{
+    DPDKIfaceConfig iconf;
+    const char *entry_str;
+
+    entry_str = NULL;
+    int r = ConfigSetMempoolCacheSize(&iconf, entry_str);
+    FAIL_IF(r != -EINVAL);
+
+    entry_str = "";
+    r = ConfigSetMempoolCacheSize(&iconf, entry_str);
+    FAIL_IF(r != -EINVAL);
+
+    entry_str = "-1";
+    r = ConfigSetMempoolCacheSize(&iconf, entry_str);
+    FAIL_IF(r != -EINVAL);
+
+    entry_str = "999999999999999999";
+    r = ConfigSetMempoolCacheSize(&iconf, entry_str);
+    FAIL_IF(r != -EINVAL);
+
+    PASS;
+}
+
+static int DPDKRunmodeSetMempoolCacheSize02(void)
+{
+    DPDKIfaceConfig iconf;
+    char entry_str[32];
+
+    snprintf(entry_str, sizeof(entry_str), "auto");
+    iconf.mempool_size = 1023;
+    int r = ConfigSetMempoolCacheSize(&iconf, entry_str);
+    FAIL_IF(r != 0);
+    FAIL_IF(iconf.mempool_cache_size >= RTE_MEMPOOL_CACHE_MAX_SIZE);
+    FAIL_IF(iconf.mempool_cache_size >= iconf.mempool_size / 1.5);
+    FAIL_IF(iconf.mempool_size % iconf.mempool_cache_size != 0);
+
+    PASS;
+}
+
+static int DPDKRunmodeSetMempoolCacheSize03(void)
+{
+    DPDKIfaceConfig iconf;
+    char entry_str[32];
+
+    snprintf(entry_str, sizeof(entry_str), "%d", 1);
+    iconf.mempool_size = 1023;
+    int r = ConfigSetMempoolCacheSize(&iconf, entry_str);
+    FAIL_IF(r != 0);
+    FAIL_IF(iconf.mempool_cache_size != 1);
+
+    PASS;
+}
+
+static int DPDKRunmodeSetMempoolCacheSize04(void)
+{
+    DPDKIfaceConfig iconf;
+    char entry_str[32];
+
+    snprintf(entry_str, sizeof(entry_str), "%d", RTE_MEMPOOL_CACHE_MAX_SIZE + 1);
+    int r = ConfigSetMempoolCacheSize(&iconf, entry_str);
+    FAIL_IF(r != -ERANGE);
+
+    PASS;
+}
+
+#endif /* UNITTESTS */
+
+/**
+ * \brief This function registers unit tests for AlertFastLog API.
+ */
+void DPDKRunmodeRegisterTests(void)
+{
+
+#ifdef UNITTESTS
+
+    UtRegisterTest("DPDKRunmodeSetThreads01", DPDKRunmodeSetThreads01);
+    
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize01", DPDKRunmodeSetMempoolCacheSize01);
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize02", DPDKRunmodeSetMempoolCacheSize02);
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize03", DPDKRunmodeSetMempoolCacheSize03);
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize04", DPDKRunmodeSetMempoolCacheSize04);
+
+#endif /* UNITTESTS */
+}
+
 #endif /* HAVE_DPDK */
 
 static int DPDKRunModeIsIPS(void)

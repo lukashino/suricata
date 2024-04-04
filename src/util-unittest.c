@@ -112,6 +112,7 @@ void UtRegisterTest(const char *name, int(*TestFn)(void))
 
     /* append */
     UtAppendTest(&ut_list, ut);
+    printf("Registered test: %s to ut_list 0x%p\n", name, ut_list);
 }
 
 /**
