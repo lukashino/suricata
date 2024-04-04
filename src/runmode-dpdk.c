@@ -1771,13 +1771,13 @@ static int DPDKRunmodeSetMempoolCacheSize04(void)
 
 #endif /* UNITTESTS */
 
+#ifdef UNITTESTS
 /**
  * \brief This function registers unit tests for AlertFastLog API.
  */
 void DPDKRunmodeRegisterTests(void)
 {
 
-#ifdef UNITTESTS
 
     UtRegisterTest("DPDKRunmodeSetThreads01", DPDKRunmodeSetThreads01);
     UtRegisterTest("DPDKRunmodeSetThreads02", DPDKRunmodeSetThreads02);
@@ -1788,8 +1788,8 @@ void DPDKRunmodeRegisterTests(void)
     UtRegisterTest("DPDKRunmodeSetMempoolCacheSize03", DPDKRunmodeSetMempoolCacheSize03);
     UtRegisterTest("DPDKRunmodeSetMempoolCacheSize04", DPDKRunmodeSetMempoolCacheSize04);
 
-#endif /* UNITTESTS */
 }
+#endif /* UNITTESTS */
 
 #endif /* HAVE_DPDK */
 
