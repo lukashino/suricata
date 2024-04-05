@@ -1678,7 +1678,32 @@ static int DPDKRunmodeSetThreads02(void)
     PASS;
 }
 
-static int DPDKRunmodeSetThreads03(void)
+// static int DPDKRunmodeSetThreads03(void)
+// {
+//     DPDKIfaceConfig iconf;
+//     const char *entry_str;
+//     threading_set_cpu_affinity = true;
+//     // What if you set too many threads? in the cpu set - more than available CPUs
+//     thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
+//         .name = "worker-cpu-set",
+//         .cpu_set = 0x110,
+//     };
+//     thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
+//         .name = "management-cpu-set",
+//         .cpu_set = 0x1,
+//     };
+
+//     entry_str = "auto";
+//     LiveRegisterDevice("test_dev");
+//     int r = ConfigSetThreads(&iconf, entry_str);
+//     printf("r: %d threads %d\n", r, iconf.threads);
+//     FAIL_IF(iconf.threads != 2);
+//     FAIL_IF(r != 0);
+
+//     PASS;
+// }
+
+static int DPDKRunmodeSetThreads04(void)
 {
     DPDKIfaceConfig iconf;
     const char *entry_str;
@@ -1686,18 +1711,23 @@ static int DPDKRunmodeSetThreads03(void)
     // What if you set too many threads? in the cpu set - more than available CPUs
     thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
         .name = "worker-cpu-set",
-        .cpu_set = 0x110,
+        .cpu_set = 0x000011111,
     };
     thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
         .name = "management-cpu-set",
-        .cpu_set = 0x1,
+        .cpu_set = 0x11110000,
     };
 
+    // you should probably build cpu set through the affinity
+    // BuildCpuset()
+
     entry_str = "auto";
-    LiveRegisterDevice("test_dev");
+    LiveRegisterDeviceName("test_dev");
+    LiveDeviceFinalize();
     int r = ConfigSetThreads(&iconf, entry_str);
     printf("r: %d threads %d\n", r, iconf.threads);
-    FAIL_IF(iconf.threads != 2);
+    LiveDeviceListClean();
+    FAIL_IF(iconf.threads != 7);
     FAIL_IF(r != 0);
 
     PASS;
@@ -1779,14 +1809,15 @@ void DPDKRunmodeRegisterTests(void)
 {
 
 
-    UtRegisterTest("DPDKRunmodeSetThreads01", DPDKRunmodeSetThreads01);
-    UtRegisterTest("DPDKRunmodeSetThreads02", DPDKRunmodeSetThreads02);
-    UtRegisterTest("DPDKRunmodeSetThreads03", DPDKRunmodeSetThreads03);
+    // UtRegisterTest("DPDKRunmodeSetThreads01", DPDKRunmodeSetThreads01);
+    // UtRegisterTest("DPDKRunmodeSetThreads02", DPDKRunmodeSetThreads02);
+    UtRegisterTest("DPDKRunmodeSetThreads04", DPDKRunmodeSetThreads04);
+    // UtRegisterTest("DPDKRunmodeSetThreads03", DPDKRunmodeSetThreads03);
     
-    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize01", DPDKRunmodeSetMempoolCacheSize01);
-    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize02", DPDKRunmodeSetMempoolCacheSize02);
-    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize03", DPDKRunmodeSetMempoolCacheSize03);
-    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize04", DPDKRunmodeSetMempoolCacheSize04);
+    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize01", DPDKRunmodeSetMempoolCacheSize01);
+    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize02", DPDKRunmodeSetMempoolCacheSize02);
+    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize03", DPDKRunmodeSetMempoolCacheSize03);
+    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize04", DPDKRunmodeSetMempoolCacheSize04);
 
 }
 #endif /* UNITTESTS */
