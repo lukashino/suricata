@@ -88,6 +88,7 @@ ThreadsAffinityType * GetAffinityTypeFromName(const char *name);
 
 uint16_t AffinityGetNextCPU(ThreadsAffinityType *taf);
 uint16_t UtilAffinityGetAffinedCPUNum(ThreadsAffinityType *taf);
+int UnitTestsUtilAffinityVerifyCPURequirement(void);
 #ifdef HAVE_DPDK
 uint16_t UtilAffinityCpusOverlap(ThreadsAffinityType *taf1, ThreadsAffinityType *taf2);
 void UtilAffinityCpusExclude(ThreadsAffinityType *mod_taf, ThreadsAffinityType *static_taf);

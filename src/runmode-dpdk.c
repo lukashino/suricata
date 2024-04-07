@@ -49,6 +49,7 @@
 #include "util-conf.h"
 #include "suricata.h"
 #include "util-affinity.h"
+#include "conf-yaml-loader.h"
 
 #ifdef HAVE_DPDK
 
@@ -355,10 +356,45 @@ static void ConfigSetIface(DPDKIfaceConfig *iconf, const char *entry_str)
     SCReturn;
 }
 
+static int32_t remaining_auto_cpus = -1;
+/**
+ * Initialize the number of remaining auto-assigned threads
+ * \param total_cpus Total number of CPU cores available
+ * \param force_reinit Force reinitialization of the remaining threads after auto-assign
+ */
+static void AutoRemainingThreadsInit(bool force_reinit)
+{
+    if (remaining_auto_cpus == -1 || force_reinit) {
+        ThreadsAffinityType *wtaf = GetAffinityTypeFromName("worker-cpu-set");
+        if (wtaf == NULL)
+            FatalError("Worker-cpu-set not listed in the threading section");
+        
+        int32_t total_cpus = UtilAffinityGetAffinedCPUNum(wtaf);
+        remaining_auto_cpus = total_cpus % LiveGetDeviceCount();
+    }
+}
+
+/**
+ * Decrease the number of remaining auto-assigned threads by one
+ * \return Remaining number of the auto-assigned leftover threads
+*/
+static bool AutoRemainingThreadsUsedOne(void)
+{
+    if (remaining_auto_cpus == -1) {
+        FatalError("Not yet initialized");
+    }
+    
+    if (remaining_auto_cpus > 0) {
+        remaining_auto_cpus--;
+        return true;
+    }
+
+    return false;
+}
+
 static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
 {
     SCEnter();
-    static int32_t remaining_auto_cpus = -1;
     if (!threading_set_cpu_affinity) {
         SCLogError("DPDK runmode requires configured thread affinity");
         SCReturnInt(-EINVAL);
@@ -390,10 +426,7 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
                      "affinity configuration");
     }
 
-    printf("sched_cpus: %d\n", sched_cpus);
-
     const char *active_runmode = RunmodeGetActive();
-    printf("active_runmode: %s\n", active_runmode);
     if (active_runmode && !strcmp("single", active_runmode)) {
         iconf->threads = 1;
         SCReturnInt(0);
@@ -411,15 +444,9 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
             SCReturnInt(-ERANGE);
         }
 
-        if (remaining_auto_cpus > 0) {
+        AutoRemainingThreadsInit(false);
+        if (AutoRemainingThreadsUsedOne()) {
             iconf->threads++;
-            remaining_auto_cpus--;
-        } else if (remaining_auto_cpus == -1) {
-            remaining_auto_cpus = (int32_t)sched_cpus % LiveGetDeviceCount();
-            if (remaining_auto_cpus > 0) {
-                iconf->threads++;
-                remaining_auto_cpus--;
-            }
         }
         SCLogConfig("%s: auto-assigned %u threads", iconf->iface, iconf->threads);
         SCReturnInt(0);
@@ -1634,51 +1661,7 @@ static int DPDKConfigGetThreadsCount(void *conf)
 }
 
 #ifdef UNITTESTS
-static int DPDKRunmodeSetThreads01(void)
-{
-    DPDKIfaceConfig iconf;
-    const char *entry_str;
-    threading_set_cpu_affinity = true;
-    // What if you set too many threads? in the cpu set - more than available CPUs
-    thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
-        .name = "worker-cpu-set",
-        .cpu_set = 0x1111,
-    };
-    thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
-        .name = "management-cpu-set",
-        .cpu_set = 0x1,
-    };
-
-    entry_str = NULL;
-    int r = ConfigSetThreads(&iconf, entry_str);
-    FAIL_IF(r != -EINVAL);
-
-    PASS;
-}
-
-static int DPDKRunmodeSetThreads02(void)
-{
-    DPDKIfaceConfig iconf;
-    const char *entry_str;
-    threading_set_cpu_affinity = true;
-    // What if you set too many threads? in the cpu set - more than available CPUs
-    thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
-        .name = "worker-cpu-set",
-        .cpu_set = 0x111111111111111111,
-    };
-    thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
-        .name = "management-cpu-set",
-        .cpu_set = 0x1,
-    };
-
-    entry_str = NULL;
-    int r = ConfigSetThreads(&iconf, entry_str);
-    FAIL_IF(r != -EINVAL);
-
-    PASS;
-}
-
-// static int DPDKRunmodeSetThreads03(void)
+// static int DPDKRunmodeSetThreads01(void)
 // {
 //     DPDKIfaceConfig iconf;
 //     const char *entry_str;
@@ -1686,50 +1669,211 @@ static int DPDKRunmodeSetThreads02(void)
 //     // What if you set too many threads? in the cpu set - more than available CPUs
 //     thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
 //         .name = "worker-cpu-set",
-//         .cpu_set = 0x110,
+//         .cpu_set = 0x1111,
 //     };
 //     thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
 //         .name = "management-cpu-set",
 //         .cpu_set = 0x1,
 //     };
 
-//     entry_str = "auto";
-//     LiveRegisterDevice("test_dev");
+//     entry_str = NULL;
 //     int r = ConfigSetThreads(&iconf, entry_str);
-//     printf("r: %d threads %d\n", r, iconf.threads);
-//     FAIL_IF(iconf.threads != 2);
-//     FAIL_IF(r != 0);
+//     FAIL_IF(r != -EINVAL);
 
 //     PASS;
 // }
 
-static int DPDKRunmodeSetThreads04(void)
+// static int DPDKRunmodeSetThreads02(void)
+// {
+//     DPDKIfaceConfig iconf;
+//     const char *entry_str;
+//     threading_set_cpu_affinity = true;
+//     // What if you set too many threads? in the cpu set - more than available CPUs
+//     thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
+//         .name = "worker-cpu-set",
+//         .cpu_set = 0x111111111111111111,
+//     };
+//     thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
+//         .name = "management-cpu-set",
+//         .cpu_set = 0x1,
+//     };
+
+//     entry_str = NULL;
+//     int r = ConfigSetThreads(&iconf, entry_str);
+//     FAIL_IF(r != -EINVAL);
+
+//     PASS;
+// }
+
+static int DPDKRunmodeSetThreads03(void)
 {
-    DPDKIfaceConfig iconf;
-    const char *entry_str;
-    threading_set_cpu_affinity = true;
-    // What if you set too many threads? in the cpu set - more than available CPUs
-    thread_affinity[WORKER_CPU_SET] = (ThreadsAffinityType) {
-        .name = "worker-cpu-set",
-        .cpu_set = 0x000011111,
-    };
-    thread_affinity[MANAGEMENT_CPU_SET] = (ThreadsAffinityType) {
-        .name = "management-cpu-set",
-        .cpu_set = 0x11110000,
-    };
+    char input[] = "\
+%YAML 1.1\n\
+---\n\
+unittest-ifaces:\n\
+    - iface: test_dev\n\
+threading:\n\
+    set-cpu-affinity: yes\n\
+    cpu-affinity:\n\
+        - management-cpu-set:\n\
+            cpu: [ 0 ] \n\
+        - worker-cpu-set:\n\
+            cpu: [ \"1-2\" ]\n\
+";
 
-    // you should probably build cpu set through the affinity
-    // BuildCpuset()
-
-    entry_str = "auto";
-    LiveRegisterDeviceName("test_dev");
+    // prep stage - config
+    ConfCreateContextBackup();
+    ConfInit();
+    int ret = ConfYamlLoadString(input, strlen(input));
+    FAIL_IF(ret != 0);
+    // prep stage - threading
+    RunModeInitializeThreadSettings();
+    // prep stage - interfaces
+    LiveBuildDeviceListCustom("unittest-ifaces", "iface");
     LiveDeviceFinalize();
-    int r = ConfigSetThreads(&iconf, entry_str);
-    printf("r: %d threads %d\n", r, iconf.threads);
+    // prep stage - DPDK threading
+    AutoRemainingThreadsInit(true);
+
+    // pre-test check stage
+    ret = UnitTestsUtilAffinityVerifyCPURequirement();
+    FAIL_IF(ret < 0);
+    if (ret != 0)
+        return ret;
+
+    // test stage
+    DPDKIfaceConfig iconf = {0};
+    int r = ConfigSetThreads(&iconf, "auto");
+    
+    // cleanup stage
     LiveDeviceListClean();
-    FAIL_IF(iconf.threads != 7);
+    ConfDeInit();
+    ConfRestoreContextBackup();
+
+    // evaluation stage
+    FAIL_IF(iconf.threads != 2);
     FAIL_IF(r != 0);
 
+    // What if one cpu?
+    // -> success if it fails because no cpu is left to assign
+    // -> the same for multicpu variant with multi ifaces -> if number of cpus - 1 is less than number of ifaces
+    // -> what about odd number of cpus? -> if number of cpus - 1 mod iface_cnt is not zero then manually calculate number of threads
+    // What other scenarios to test?
+
+    // skip the test if doesn't have enough cpus
+    PASS;
+}
+
+static int DPDKRunmodeSetThreads04(void)
+{
+    char input[] = "\
+%YAML 1.1\n\
+---\n\
+unittest-ifaces:\n\
+    - iface: test_dev1\n\
+    - iface: test_dev2\n\
+threading:\n\
+    set-cpu-affinity: yes\n\
+    cpu-affinity:\n\
+        - management-cpu-set:\n\
+            cpu: [ 0 ] \n\
+        - worker-cpu-set:\n\
+            cpu: [ \"1-2\" ]\n\
+";
+
+    // prep stage - config
+    ConfCreateContextBackup();
+    ConfInit();
+    int ret = ConfYamlLoadString(input, strlen(input));
+    FAIL_IF(ret != 0);
+    // prep stage - threading
+    RunModeInitializeThreadSettings();
+    // prep stage - interfaces
+    LiveBuildDeviceListCustom("unittest-ifaces", "iface");
+    LiveDeviceFinalize();
+    // prep stage - DPDK threading
+    AutoRemainingThreadsInit(true);
+
+    // pre-test check stage
+    ret = UnitTestsUtilAffinityVerifyCPURequirement();
+    FAIL_IF(ret < 0);
+    if (ret != 0)
+        return ret;
+
+    // test stage
+    DPDKIfaceConfig iconf1 = {0};
+    int r1 = ConfigSetThreads(&iconf1, "auto");
+    DPDKIfaceConfig iconf2 = {0};
+    int r2 = ConfigSetThreads(&iconf2, "auto");
+    // print threads
+    
+    // cleanup stage
+    LiveDeviceListClean();
+    ConfDeInit();
+    ConfRestoreContextBackup();
+
+    // evaluation stage
+    FAIL_IF(iconf1.threads != 1);
+    FAIL_IF(r1 != 0);
+    FAIL_IF(iconf2.threads != 1);
+    FAIL_IF(r2 != 0);
+
+    PASS;
+}
+
+static int DPDKRunmodeSetThreads05(void)
+{
+    char input[] = "\
+%YAML 1.1\n\
+---\n\
+unittest-ifaces:\n\
+    - iface: test_dev1\n\
+    - iface: test_dev2\n\
+threading:\n\
+    set-cpu-affinity: yes\n\
+    cpu-affinity:\n\
+        - management-cpu-set:\n\
+            cpu: [ 0 ] \n\
+        - worker-cpu-set:\n\
+            cpu: [ \"1-3\" ]\n\
+";
+
+    // prep stage - config
+    ConfCreateContextBackup();
+    ConfInit();
+    int ret = ConfYamlLoadString(input, strlen(input));
+    FAIL_IF(ret != 0);
+    // prep stage - threading
+    RunModeInitializeThreadSettings();
+    // prep stage - interfaces
+    LiveBuildDeviceListCustom("unittest-ifaces", "iface");
+    LiveDeviceFinalize();
+    // prep stage - DPDK threading
+    AutoRemainingThreadsInit(true);
+
+    // pre-test check stage
+    ret = UnitTestsUtilAffinityVerifyCPURequirement();
+    FAIL_IF(ret < 0);
+    if (ret != 0)
+        return ret;
+
+    // test stage
+    DPDKIfaceConfig iconf1 = {0};
+    int r1 = ConfigSetThreads(&iconf1, "auto");
+    DPDKIfaceConfig iconf2 = {0};
+    int r2 = ConfigSetThreads(&iconf2, "auto");
+    // print threads
+    
+    // cleanup stage
+    LiveDeviceListClean();
+    ConfDeInit();
+    ConfRestoreContextBackup();
+
+    // evaluation stage
+    FAIL_IF(iconf1.threads != 2);
+    FAIL_IF(r1 != 0);
+    FAIL_IF(iconf2.threads != 1);
+    FAIL_IF(r2 != 0);
+    
     PASS;
 }
 
@@ -1811,13 +1955,14 @@ void DPDKRunmodeRegisterTests(void)
 
     // UtRegisterTest("DPDKRunmodeSetThreads01", DPDKRunmodeSetThreads01);
     // UtRegisterTest("DPDKRunmodeSetThreads02", DPDKRunmodeSetThreads02);
+    UtRegisterTest("DPDKRunmodeSetThreads03", DPDKRunmodeSetThreads03);
     UtRegisterTest("DPDKRunmodeSetThreads04", DPDKRunmodeSetThreads04);
-    // UtRegisterTest("DPDKRunmodeSetThreads03", DPDKRunmodeSetThreads03);
+    UtRegisterTest("DPDKRunmodeSetThreads05", DPDKRunmodeSetThreads05);
     
-    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize01", DPDKRunmodeSetMempoolCacheSize01);
-    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize02", DPDKRunmodeSetMempoolCacheSize02);
-    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize03", DPDKRunmodeSetMempoolCacheSize03);
-    // UtRegisterTest("DPDKRunmodeSetMempoolCacheSize04", DPDKRunmodeSetMempoolCacheSize04);
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize01", DPDKRunmodeSetMempoolCacheSize01);
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize02", DPDKRunmodeSetMempoolCacheSize02);
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize03", DPDKRunmodeSetMempoolCacheSize03);
+    UtRegisterTest("DPDKRunmodeSetMempoolCacheSize04", DPDKRunmodeSetMempoolCacheSize04);
 
 }
 #endif /* UNITTESTS */
