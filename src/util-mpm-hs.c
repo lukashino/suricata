@@ -679,6 +679,70 @@ int SCHSPreparePatterns(MpmCtx *mpm_ctx)
 
     BUG_ON(mpm_ctx->pattern_cnt == 0);
 
+    // Dump the patterns into a readable format together with the ids and flags
+    SCLogNotice("Dumping patterns for Hyperscan compilation with MPM context");
+    for (uint32_t i = 0; i < mpm_ctx->pattern_cnt; i++) {
+        // Dump the flags into a readable format
+        char flags_str[1024] = {0};
+        if (cd->flags[i] & HS_FLAG_CASELESS) {
+            strcat(flags_str, "CASELESS ");
+        }
+        if (cd->flags[i] & HS_FLAG_SINGLEMATCH) {
+            strcat(flags_str, "SINGLEMATCH ");
+        }
+        if (cd->flags[i] & HS_FLAG_ALLOWEMPTY) {
+            strcat(flags_str, "ALLOWEMPTY ");
+        }
+        if (cd->flags[i] & HS_FLAG_UTF8) {
+            strcat(flags_str, "UTF8 ");
+        }
+        if (cd->flags[i] & HS_FLAG_UCP) {
+            strcat(flags_str, "UCP ");
+        }
+        if (cd->flags[i] & HS_FLAG_PREFILTER) {
+            strcat(flags_str, "PREFILTER ");
+        }
+        if (cd->flags[i] & HS_FLAG_SOM_LEFTMOST) {
+            strcat(flags_str, "SOM_LEFTMOST ");
+        }
+        if (cd->flags[i] & HS_FLAG_COMBINATION) {
+            strcat(flags_str, "COMBINATION ");
+        }
+        if (cd->flags[i] & HS_FLAG_QUIET) {
+            strcat(flags_str, "QUIET ");
+        }
+        // Dump ext flags into a readable format
+        if (cd->ext[i] != NULL) {
+            if (cd->ext[i]->flags & HS_EXT_FLAG_MIN_OFFSET) {
+                char ext_str[512] = {0};
+                snprintf(ext_str, sizeof(ext_str), "MIN_OFFSET %llu ", cd->ext[i]->min_offset);
+                strcat(flags_str, ext_str);
+            }
+            if (cd->ext[i]->flags & HS_EXT_FLAG_MAX_OFFSET) {
+                char ext_str[512] = {0};
+                snprintf(ext_str, sizeof(ext_str), "MAX_OFFSET %llu ", cd->ext[i]->max_offset);
+                strcat(flags_str, ext_str);
+            }
+            if (cd->ext[i]->flags & HS_EXT_FLAG_MIN_LENGTH) {
+                char ext_str[512] = {0};
+                snprintf(ext_str, sizeof(ext_str), "MIN_LENGTH %llu ", cd->ext[i]->min_length);
+                strcat(flags_str, ext_str);
+            }
+            if (cd->ext[i]->flags & HS_EXT_FLAG_EDIT_DISTANCE) {
+                char ext_str[512] = {0};
+                snprintf(ext_str, sizeof(ext_str), "EDIT_DISTANCE %llu ", cd->ext[i]->edit_distance);
+                strcat(flags_str, ext_str);
+            }
+            if (cd->ext[i]->flags & HS_EXT_FLAG_HAMMING_DISTANCE) {
+                char ext_str[512] = {0};
+                snprintf(ext_str, sizeof(ext_str), "HAMMING_DISTANCE %u ", cd->ext[i]->hamming_distance);
+                strcat(flags_str, ext_str);
+            }
+        }
+        SCLogNotice("Pattern %s id %u flags %s", cd->expressions[i], cd->ids[i], flags_str);
+    }
+    SCLogNotice("Dumping patterns for Hyperscan compilation finished");
+
     err = hs_compile_ext_multi((const char *const *)cd->expressions, cd->flags,
                                cd->ids, (const hs_expr_ext_t *const *)cd->ext,
                                cd->pattern_cnt, HS_MODE_BLOCK, NULL, &pd->hs_db,

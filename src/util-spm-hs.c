@@ -78,6 +78,39 @@ static int HSBuildDatabase(const uint8_t *needle, uint16_t needle_len,
 
     hs_database_t *db = NULL;
     hs_compile_error_t *compile_err = NULL;
+    // Dump the patterns into a readable format together with the ids and flags
+    SCLogNotice("Single Pattern matching begin");
+    // Dump the flags into a readable format
+    char flags_str[1024] = {0};
+    if (flags & HS_FLAG_CASELESS) {
+        strcat(flags_str, "CASELESS ");
+    }
+    if (flags & HS_FLAG_SINGLEMATCH) {
+        strcat(flags_str, "SINGLEMATCH ");
+    }
+    if (flags & HS_FLAG_ALLOWEMPTY) {
+        strcat(flags_str, "ALLOWEMPTY ");
+    }
+    if (flags & HS_FLAG_UTF8) {
+        strcat(flags_str, "UTF8 ");
+    }
+    if (flags & HS_FLAG_UCP) {
+        strcat(flags_str, "UCP ");
+    }
+    if (flags & HS_FLAG_PREFILTER) {
+        strcat(flags_str, "PREFILTER ");
+    }
+    if (flags & HS_FLAG_SOM_LEFTMOST) {
+        strcat(flags_str, "SOM_LEFTMOST ");
+    }
+    if (flags & HS_FLAG_COMBINATION) {
+        strcat(flags_str, "COMBINATION ");
+    }
+    if (flags & HS_FLAG_QUIET) {
+        strcat(flags_str, "QUIET ");
+    }
+    SCLogNotice("Single Pattern %s flags %s", expr, flags_str);
+    SCLogNotice("Single Pattern matching end");
     hs_error_t err = hs_compile(expr, flags, HS_MODE_BLOCK, NULL, &db,
                                 &compile_err);
     if (err != HS_SUCCESS) {
