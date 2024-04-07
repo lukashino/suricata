@@ -2162,7 +2162,7 @@ jobs:
       - run: tar xf prep/suricata-update.tar.gz
       - run: tar xf prep/suricata-verify.tar.gz
       - run: ./autogen.sh
-      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-unittests
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-unittests --enable-dpdk
       - run: make -j ${{ env.CPUS }}
       - run: make check
         # -j2 caused random failures during cargo vendor

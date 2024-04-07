@@ -220,7 +220,9 @@ static void RegisterUnittests(void)
     SCProtoNameRegisterTests();
     UtilCIDRTests();
     OutputJsonStatsRegisterTests();
+#ifdef HAVE_DPDK
     DPDKRunmodeRegisterTests();
+#endif
 }
 #endif
 

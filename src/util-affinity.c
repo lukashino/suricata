@@ -339,7 +339,7 @@ int UnitTestsUtilAffinityVerifyCPURequirement()
         SCReturnInt(-EINVAL);
     }
     UtilAffinityCpusExclude(wtaf, mtaf);
-    uint32_t sched_cpus = UtilAffinityGetAffinedCPUNum(wtaf);
+    uint32_t sched_cpus = UtilAffinityGetAffinedCPUNum(wtaf) + UtilAffinityGetAffinedCPUNum(mtaf);
 
     if (UtilCpuGetNumProcessorsOnline() < sched_cpus) {
         char err_msg[256];
@@ -348,9 +348,10 @@ int UnitTestsUtilAffinityVerifyCPURequirement()
     }
     return 0;
 #endif
+    return 0;
 }
 
-#ifdef HAVE_DPDK
+#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined sun
 /**
  * Find if CPU sets overlap
  * \return 1 if CPUs overlap, 0 otherwise
@@ -394,4 +395,4 @@ void UtilAffinityCpusExclude(ThreadsAffinityType *mod_taf, ThreadsAffinityType *
     SCMutexUnlock(&static_taf->taf_mutex);
     SCMutexUnlock(&mod_taf->taf_mutex);
 }
-#endif /* HAVE_DPDK */
+#endif 
