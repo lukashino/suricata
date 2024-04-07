@@ -42,7 +42,6 @@
 #include "tmqh-packetpool.h"
 #include "util-privs.h"
 #include "action-globals.h"
-#include "runmode-dpdk.h"
 
 #ifndef HAVE_DPDK
 

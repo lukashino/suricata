@@ -346,7 +346,6 @@ int UnitTestsUtilAffinityVerifyCPURequirement()
         snprintf(err_msg, sizeof(err_msg), "not enough cpus in the system, the test requires at least %d cores", sched_cpus);
         SKIP(err_msg);
     }
-    return 0;
 #endif
     return 0;
 }
