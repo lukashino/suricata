@@ -1999,6 +1999,68 @@ jobs:
       - run: make -j ${{ env.CPUS }}
       - run: ./src/suricata --build-info | grep -E "Netmap support:\s+yes"
 
+   ubuntu-22-04-minimal-recommended-build:
+    name: Ubuntu 22.04 (Minimal Build)
+    needs: [prepare-deps, prepare-cbindgen]
+    runs-on: ubuntu-22.04
+    steps:
+      # Cache Rust stuff.
+      - name: Cache cargo registry
+        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry
+
+      - name: Determine number of CPUs
+        run: echo CPUS=$(nproc --all) >> $GITHUB_ENV
+
+      - name: Install git dependencies
+        run: |
+            sudo apt update
+            sudo apt -y install \
+              sudo \
+              git \
+              libtool
+
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      - run: git config --global --add safe.directory /__w/suricata/suricata
+      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+        with:
+          name: prep
+          path: prep
+      - run: tar xf prep/libhtp.tar.gz
+      - run: tar xf prep/suricata-update.tar.gz
+      - run: tar xf prep/suricata-verify.tar.gz
+      - run: ./autogen.sh
+      
+      - name: Install minimal dependencies
+        run: |
+          : # install-guide-documentation tag start: Minimal dependencies
+          sudo apt -y install autoconf automake build-essential cargo \
+            cbindgen libjansson-dev libpcap-dev libpcre2-dev libtool \
+            libyaml-dev make pkg-config rustc zlib1g-dev
+          : # install-guide-documentation tag end: Minimal dependencies
+
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure
+      - run: make -j ${{ env.CPUS }}
+      - run: ./src/suricata --build-info # check if we can run Suricata
+
+      # Recommended dependencies
+      - name: Install recommended dependencies
+        run: |
+          : # install-guide-documentation tag start: Recommended dependencies
+          sudo apt -y install autoconf automake build-essential cargo \
+            cbindgen clang libbpf-dev libgeoip-dev libhiredis-dev \
+            libjansson-dev liblua5.1-dev libmagic-dev libpcap-dev libpcre2-dev \
+            libtool libyaml-dev make pkg-config python3 python3-dev \
+            python3-yaml rustc zlib1g-dev
+          : # install-guide-documentation tag end: Recommended dependencies
+
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-ebpf --enable-ebpf-build
+      - run: make -j ${{ env.CPUS }}
+      - run: ./src/suricata --build-info # check if we can run Suricata
+
+
   ubuntu-22-04-dpdk-build:
     name: Ubuntu 22.04 (DPDK Build)
     runs-on: ubuntu-22.04
