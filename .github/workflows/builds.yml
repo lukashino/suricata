@@ -1999,7 +1999,7 @@ jobs:
       - run: make -j ${{ env.CPUS }}
       - run: ./src/suricata --build-info | grep -E "Netmap support:\s+yes"
 
-   ubuntu-22-04-minimal-recommended-build:
+  ubuntu-22-04-minimal-recommended-build:
     name: Ubuntu 22.04 (Minimal Build)
     needs: [prepare-deps, prepare-cbindgen]
     runs-on: ubuntu-22.04
