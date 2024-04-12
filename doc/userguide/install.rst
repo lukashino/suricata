@@ -72,15 +72,15 @@ Ubuntu/Debian
 .. literalinclude:: ../../.github/workflows/builds.yml
     :caption: Minimal dependencies for Ubuntu/Debian
     :language: bash
-    :start-after: : # install-guide-documentation tag start: Minimal dependencies
-    :end-before: : # install-guide-documentation tag end: Minimal dependencies
+    :start-after: # install-guide-documentation tag start: Minimal dependencies
+    :end-before: # install-guide-documentation tag end: Minimal dependencies
     :dedent: 4
 
 .. literalinclude:: ../../.github/workflows/builds.yml
     :caption: Recommended dependencies for Ubuntu/Debian
     :language: bash
-    :start-after: : # install-guide-documentation tag start: Recommended dependencies
-    :end-before: : # install-guide-documentation tag end: Recommended dependencies
+    :start-after: # install-guide-documentation tag start: Recommended dependencies
+    :end-before: # install-guide-documentation tag end: Recommended dependencies
     :dedent: 4
 
 Extra for iptables/nftables IPS integration::
