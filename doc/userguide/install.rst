@@ -103,19 +103,19 @@ one of the following ways::
     # Oracle Linux 9
     sudo dnf config-manager --set-enable ol9_codeready_builder
 
-.. literalinclude:: ../../.github/workflows/builds.yml
-    :caption: Minimal dependencies for RPM-based distributions
-    :language: bash
-    :start-after: # install-guide-documentation tag start: Minimal RPM-based dependencies
-    :end-before: # install-guide-documentation tag end: Minimal RPM-based dependencies
-    :dedent: 10
+.. .. literalinclude:: ../../.github/workflows/builds.yml
+..     :caption: Minimal dependencies for RPM-based distributions
+..     :language: bash
+..     :start-after: # install-guide-documentation tag start: Minimal RPM-based dependencies
+..     :end-before: # install-guide-documentation tag end: Minimal RPM-based dependencies
+..     :dedent: 10
 
-.. literalinclude:: ../../.github/workflows/builds.yml
-    :caption: Recommended dependencies for RPM-based distributions
-    :language: bash
-    :start-after: # install-guide-documentation tag start: Recommended RPM-based dependencies
-    :end-before: # install-guide-documentation tag end: Recommended RPM-based dependencies
-    :dedent: 10
+.. .. literalinclude:: ../../.github/workflows/builds.yml
+..     :caption: Recommended dependencies for RPM-based distributions
+..     :language: bash
+..     :start-after: # install-guide-documentation tag start: Recommended RPM-based dependencies
+..     :end-before: # install-guide-documentation tag end: Recommended RPM-based dependencies
+..     :dedent: 10
 
 Compilation
 """""""""""
