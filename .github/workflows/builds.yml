@@ -1382,7 +1382,8 @@ jobs:
           dnf -y install \
             sudo \
             git \
-            libtool
+            libtool \
+            which
 
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
       - run: git config --global --add safe.directory /__w/suricata/suricata
@@ -1402,7 +1403,7 @@ jobs:
           cargo install --force cbindgen
           echo 'export PATH+=":~/.cargo/bin"' >> ~/.bashrc && export PATH+=":~/.cargo/bin"
           sudo dnf install -y gcc gcc-c++ jansson-devel libpcap-devel \
-            libyaml-devel make pcre2-devel which zlib-devel
+            libyaml-devel make pcre2-devel zlib-devel
           # install-guide-documentation tag end: Minimal RPM-based dependencies
 
       - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure
@@ -1420,7 +1421,7 @@ jobs:
             libnetfilter_queue-devel libnfnetlink-devel libpcap-devel \
             libyaml-devel llvm-toolset lua-devel lz4-devel make \
             nspr-devel nss-devel pcre2-devel pkgconfig python3-devel \
-            python3-sphinx python3-yaml which zlib-devel
+            python3-sphinx python3-yaml zlib-devel
           # install-guide-documentation tag end: Recommended RPM-based dependencies
 
       - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-ebpf --enable-ebpf-build
