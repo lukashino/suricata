@@ -69,14 +69,14 @@ Ubuntu/Debian
 
 .. note:: The following instructions require ``sudo`` to be installed.
 
-.. literalinclude:: ../../.github/workflows/builds.yml
+.. literalinclude:: .github/workflows/builds.yml
     :caption: Minimal dependencies for Ubuntu/Debian
     :language: bash
     :start-after: : # install-guide-documentation tag start: Minimal dependencies
     :end-before: : # install-guide-documentation tag end: Minimal dependencies
     :dedent: 10
 
-.. literalinclude:: ../../.github/workflows/builds.yml
+.. literalinclude:: .github/workflows/builds.yml
     :caption: Recommended dependencies for Ubuntu/Debian
     :language: bash
     :start-after: : # install-guide-documentation tag start: Recommended dependencies
