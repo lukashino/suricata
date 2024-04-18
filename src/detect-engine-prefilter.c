@@ -105,6 +105,8 @@ void DetectRunPrefilterTx(DetectEngineThreadCtx *det_ctx,
     SCLogDebug("packet %" PRIu64 " tx %p progress %d tx->prefilter_flags %" PRIx64, p->pcap_cnt,
             tx->tx_ptr, tx->tx_progress, tx->prefilter_flags);
 
+    SCLogNotice("Doing prefilter on Transaction %" PRIu64 " proto %d", p->pcap_cnt, p->proto);
+
     PrefilterEngine *engine = sgh->tx_engines;
     do {
         if (engine->alproto != alproto)
@@ -154,6 +156,7 @@ void Prefilter(DetectEngineThreadCtx *det_ctx, const SigGroupHead *sgh,
         PACKET_PROFILING_DETECT_END(p, PROF_DETECT_PF_RECORD);
     }
 #endif
+    SCLogNotice("Doing prefilter on pkt %" PRIu64 " proto %d", p->pcap_cnt, p->proto);
     if (sgh->pkt_engines) {
         PACKET_PROFILING_DETECT_START(p, PROF_DETECT_PF_PKT);
         /* run packet engines */

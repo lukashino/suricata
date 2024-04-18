@@ -999,6 +999,7 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     BUG_ON(pd->hs_db == NULL);
     BUG_ON(scratch == NULL);
 
+    SCLogNotice("Hyperscan search with %" PRIu32 " patterns on buf %p of length %d", pd->pattern_cnt, buf, buflen);
     hs_error_t err = hs_scan(pd->hs_db, (const char *)buf, buflen, 0, scratch,
                              SCHSMatchEvent, &cctx);
     if (err != HS_SUCCESS) {
@@ -1010,6 +1011,7 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     } else {
         ret = cctx.match_count;
     }
+    SCLogNotice("Hyperscan search found %" PRIu32 " matches", ret);
 
     return ret;
 }

@@ -177,6 +177,7 @@ static uint8_t *HSScan(const SpmCtx *ctx, SpmThreadCtx *thread_ctx,
     }
 
     uint64_t match_offset = UINT64_MAX;
+    SCLogNotice("SPM search on buf %p of length %d", haystack, haystack_len);
     hs_error_t err = hs_scan(sctx->db, (const char *)haystack, haystack_len, 0,
                              scratch, MatchEvent, &match_offset);
     if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED) {
@@ -192,6 +193,7 @@ static uint8_t *HSScan(const SpmCtx *ctx, SpmThreadCtx *thread_ctx,
     }
 
     BUG_ON(match_offset < sctx->needle_len);
+    SCLogNotice("SPM match at offset %lu", match_offset - sctx->needle_len);
 
     /* Note: existing API returns non-const ptr */
     return (uint8_t *)haystack + (match_offset - sctx->needle_len);

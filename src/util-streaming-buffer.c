@@ -731,7 +731,7 @@ static inline int WARN_UNUSED GrowRegionToSize(StreamingBuffer *sb,
 
     region->buf = ptr;
     region->buf_size = grow;
-    SCLogDebug("grown buffer to %u", grow);
+    SCLogNotice("grown buffer to %u", grow);
 #ifdef DEBUG
     if (region->buf_size > sb->buf_size_max) {
         sb->buf_size_max = region->buf_size;
@@ -1070,6 +1070,8 @@ int StreamingBufferAppend(StreamingBuffer *sb, const StreamingBufferConfig *cfg,
         StreamingBufferSegment *seg, const uint8_t *data, uint32_t data_len)
 {
     DEBUG_VALIDATE_BUG_ON(seg == NULL);
+
+    SCLogNotice("append %u bytes", data_len);
 
     if (sb->region.buf == NULL) {
         if (InitBuffer(sb, cfg) == -1)

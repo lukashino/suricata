@@ -74,6 +74,7 @@ void DetectRunPrefilterFrame(DetectEngineThreadCtx *det_ctx, const SigGroupHead 
         const Frames *frames, const Frame *frame, const AppProto alproto)
 {
     SCLogDebug("pcap_cnt %" PRIu64, p->pcap_cnt);
+    SCLogNotice("Doing prefilter on frame %" PRIu64 " proto %d", p->pcap_cnt, p->proto);
     PrefilterEngine *engine = sgh->frame_engines;
     do {
         BUG_ON(engine->alproto == ALPROTO_UNKNOWN);

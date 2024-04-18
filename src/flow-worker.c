@@ -367,6 +367,7 @@ static inline void UpdateCounters(ThreadVars *tv,
 static inline void FlowWorkerStreamTCPUpdate(ThreadVars *tv, FlowWorkerThreadData *fw, Packet *p,
         void *detect_thread, const bool timeout)
 {
+    SCLogNotice("packet %"PRIu64": extra packets %u", p->pcap_cnt, fw->pq.len);
     FLOWWORKER_PROFILING_START(p, PROFILE_FLOWWORKER_STREAM);
     StreamTcp(tv, p, fw->stream_thread, &fw->pq);
     FLOWWORKER_PROFILING_END(p, PROFILE_FLOWWORKER_STREAM);
