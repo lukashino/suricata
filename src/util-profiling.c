@@ -1247,6 +1247,7 @@ const char * PacketProfileDetectIdToString(PacketProfileDetectId id)
         CASE_CODE(PROF_DETECT_TX);
         CASE_CODE(PROF_DETECT_ALERT);
         CASE_CODE(PROF_DETECT_TX_UPDATE);
+        CASE_CODE(PROF_DETECT_RULE_INSPECT);
         CASE_CODE(PROF_DETECT_CLEANUP);
         default:
             return "UNKNOWN";

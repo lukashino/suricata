@@ -1988,15 +1988,18 @@ bool DetectEnginePktInspectionRun(ThreadVars *tv,
 {
     SCEnter();
 
+    bool ret = true;
+    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_RULE_INSPECT);
     for (DetectEnginePktInspectionEngine *e = s->pkt_inspect; e != NULL; e = e->next) {
         if (e->v1.Callback(det_ctx, e, s, p, alert_flags) != DETECT_ENGINE_INSPECT_SIG_MATCH) {
-            SCLogDebug("sid %u: e %p Callback returned no match", s->id, e);
-            return false;
+            ret = false;
+            break;
         }
         SCLogDebug("sid %u: e %p Callback returned true", s->id, e);
     }
 
-    SCLogDebug("sid %u: returning true", s->id);
+    SCLogDebug("sid %u: returning %s", s->id, ret ? "true" : "false");
+    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_RULE_INSPECT);
     return true;
 }
 
