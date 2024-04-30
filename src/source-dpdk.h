@@ -94,6 +94,7 @@ typedef struct DPDKPacketVars_ {
     uint16_t out_port_id;
     uint16_t out_queue_id;
     uint8_t copy_mode;
+    struct rte_ring *tx_ring; // pkt is sent to this ring (same as out_port_*)
 } DPDKPacketVars;
 
 void TmModuleReceiveDPDKRegister(void);
