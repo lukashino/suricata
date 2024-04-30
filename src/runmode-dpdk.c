@@ -1943,7 +1943,7 @@ int DeviceConfigure(DPDKIfaceConfig *iconf)
         SCReturnInt(-ENODEV);
     }
 
-    int32_t retval = DeviceSetSocketID(iconf->port_id, &iconf->socket_id);
+    retval = DeviceSetSocketID(iconf->port_id, &iconf->socket_id);
     if (retval < 0) {
         SCLogError("%s: invalid socket id: %s", iconf->iface, rte_strerror(-retval));
         SCReturnInt(retval);

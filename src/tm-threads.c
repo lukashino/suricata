@@ -889,7 +889,7 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
                   SCGetThreadIdLong());
 #ifdef HAVE_DPDK
         // DPDK sets affinity during EAL initialization
-        if (run_mode != RUNMODE_DPDK && tv->type != TVT_PPT) {
+        if (SCRunmodeGet() != RUNMODE_DPDK && tv->type != TVT_PPT) {
 #endif /* HAVE_DPDK */
             SetCPUAffinity(tv->cpu_affinity);
 #ifdef HAVE_DPDK

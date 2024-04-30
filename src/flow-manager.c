@@ -676,7 +676,7 @@ static TmEcode FlowManagerThreadInit(ThreadVars *t, const void *initdata, void *
     //  IPC tells Suricata the name of the shared configuration, Suricata then
     //  attaches to the memory zone and uses Conf* like functions to retrieve
     //  necessary data (e.g. size of the message mempool cache).
-    if (run_mode != RUNMODE_DPDK) {
+    if (SCRunmodeGet() != RUNMODE_DPDK) {
         ftd_local->mpcache = NULL;
     } else {
 #ifdef HAVE_DPDK

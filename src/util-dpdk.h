@@ -289,6 +289,7 @@ typedef struct DPDKThreadVars_ {
     TmSlot *slot;
     LiveDevice *livedev;
     ChecksumValidationMode checksum_mode;
+    bool intr_enabled;
     /* references to packet and drop counters */
     uint16_t capture_dpdk_packets;
     uint16_t capture_dpdk_rx_errs;
@@ -325,6 +326,7 @@ typedef struct DPDKThreadVars_ {
             uint16_t idxes_offlds_pf_requested[MAX_CNT_OFFLOADS];
         } rings;
     };
+    DPDKWorkerSync *workers_sync;
 } DPDKThreadVars;
 
 uint32_t ArrayMaxValue(const uint32_t *arr, uint16_t arr_len);

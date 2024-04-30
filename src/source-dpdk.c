@@ -567,6 +567,8 @@ static void PeriodicDPDKDumpCounters(DPDKThreadVars *ptv)
         DPDKDumpCounters(ptv);
         last_dump = current_time;
     }
+}
+
 static void DPDKBypassHardDelete(
         Flow *f, struct DPDKFlowBypassData *d, struct rte_mempool_cache *mpc)
 {
@@ -733,8 +735,8 @@ static int DPDKBypassCallback(Packet *p)
 
     struct PFMessage *msg = NULL;
 
-    /* Only bypass TCP and UDP at the moment */
-    if (!(PKT_IS_TCP(p) || PKT_IS_UDP(p))) {
+    /* Only bypass TCP and UDP */
+    if (!(PacketIsTCP(p) || PacketIsUDP(p))) {
         return 0;
     }
 
@@ -746,7 +748,7 @@ static int DPDKBypassCallback(Packet *p)
     }
 
     /* Bypassing tunneled packets currently not supported */
-    if (IS_TUNNEL_PKT(p)) {
+    if (PacketIsTunnel(p)) {
         return 0;
     }
 
@@ -758,9 +760,9 @@ static int DPDKBypassCallback(Packet *p)
     int ret = rte_mempool_generic_get(p->dpdk_v.message_mp, (void **)&msg, 1, NULL);
     if (ret != 0) {
         SCLogDebug("Unable to get flow key object from mempool");
-        if (PKT_IS_IPV4(p))
+        if (PacketIsIPv4(p))
             LiveDevAddBypassFail(p->livedev, 1, AF_INET);
-        else if (PKT_IS_IPV6(p))
+        else if (PacketIsIPv6(p))
             LiveDevAddBypassFail(p->livedev, 1, AF_INET6);
         return 0;
     }
@@ -810,9 +812,9 @@ static int DPDKBypassCallback(Packet *p)
     return 1;
 
 cleanup:
-    if (PKT_IS_IPV4(p))
+    if (PacketIsIPv4(p))
         LiveDevAddBypassFail(p->livedev, 1, AF_INET);
-    else if (PKT_IS_IPV6(p))
+    else if (PacketIsIPv6(p))
         LiveDevAddBypassFail(p->livedev, 1, AF_INET6);
 
     if (msg != NULL) {
@@ -828,6 +830,7 @@ cleanup:
 static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 {
     SCEnter();
+    uint16_t nb_rx;
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
     ptv->slot = ((TmSlot *)slot)->slot_next;
     TmEcode ret = ReceiveDPDKLoopInit(tv, ptv);
@@ -849,7 +852,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
         }
 
         if (ptv->op_mode == DPDK_ETHDEV_MODE) {
-            uint16_t nb_rx =
+            nb_rx =
                 rte_eth_rx_burst(ptv->port_id, ptv->queue_id, ptv->received_mbufs, BURST_SIZE);
             if (RXPacketCountHeuristic(tv, ptv, nb_rx)) {
                 continue;
@@ -857,16 +860,11 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
         } else if (ptv->op_mode == DPDK_RING_MODE) {
             nb_rx = rte_ring_dequeue_burst(
                     ptv->rings.rx_ring, (void **)ptv->received_mbufs, BURST_SIZE, NULL);
-        }
-        if (unlikely(nb_rx == 0)) {
-            t = DPDKSetTimevalReal(&machine_start_time);
-            uint64_t msecs = SCTIME_MSECS(t);
-            if (msecs > last_timeout_msec + 100) {
-                TmThreadsCaptureHandleTimeout(tv, NULL);
-                last_timeout_msec = msecs;
+            if (nb_rx == 0) {
+                LoopHandleTimeoutOnIdle(tv);
+                continue;
             }
         }
-            
 
         ptv->pkts += (uint64_t)nb_rx;
         for (uint16_t i = 0; i < nb_rx; i++) {
@@ -885,7 +883,6 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             }
 
 #ifdef BUILD_DPDK_APPS
-            void *priv_sec = rte_mbuf_to_priv(ptv->received_mbufs[i]);
             uint16_t offset;
             p->dpdk_v.PF_l4_len = 0;
             p->dpdk_v.metadata_flags = 0;
@@ -901,7 +898,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
                         p->src = metadata->metadata_ipv4.src_addr;
                         p->dst = metadata->metadata_ipv4.dst_addr;
-                        p->ip4vars = metadata->metadata_ipv4.ipv4Vars;
+                        // p->ip4vars = metadata->metadata_ipv4.ipv4Vars;
                         p->dpdk_v.metadata_flags |= IPV4_OFFLOAD(1);
                         break;
                     case IPV6_ID:
@@ -920,7 +917,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                         p->dp = metadata->metadata_tcp.dst_port;
                         p->payload_len = metadata->metadata_tcp.payload_len;
                         p->dpdk_v.PF_l4_len = metadata->metadata_tcp.l4_len;
-                        p->tcpvars = metadata->metadata_tcp.tcpVars;
+                        // p->tcpvars = metadata->metadata_tcp.tcpVars;
                         p->dpdk_v.metadata_flags |= TCP_OFFLOAD(1);
                         break;
                     case UDP_ID:

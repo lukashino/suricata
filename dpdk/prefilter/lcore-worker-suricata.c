@@ -874,13 +874,13 @@ static void SetMetadataToMbuf(
                 (metadata_to_suri_t *)rte_mbuf_to_priv(packets_buffer->buf[j]);
         memset(&metadata_to_suri->events, 0x00, sizeof(PacketEngineEvents));
 
-        // decode L3 and L4 layers and fill the structure with metadata
-        if ((!packets_buffer->decoded[j]) || MetadataDecodePacketL3(packets_buffer->buf[j],
-                                                     metadata_to_suri, &metadata_to_suri_help)) {
-            memset(metadata_to_suri->metadata_set, 0x00,
-                    CNT_METADATA_TO_SURI * sizeof(metadata_to_suri->metadata_set[0]));
-            continue;
-        }
+        // // decode L3 and L4 layers and fill the structure with metadata
+        // if ((!packets_buffer->decoded[j]) || MetadataDecodePacketL3(packets_buffer->buf[j],
+        //                                              metadata_to_suri, &metadata_to_suri_help)) {
+        //     memset(metadata_to_suri->metadata_set, 0x00,
+        //             CNT_METADATA_TO_SURI * sizeof(metadata_to_suri->metadata_set[0]));
+        //     continue;
+        // }
 
         for (uint16_t t = 0; t < num_offlds; t++) {
             switch (idx_offlds[t]) {

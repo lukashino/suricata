@@ -271,18 +271,16 @@ int DecodeTCP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, const uint8_t *p
 
 #ifdef BUILD_DPDK_APPS
     if (p->dpdk_v.metadata_flags & (1 << TCP_ID)) {
-        p->tcph = (TCPHdr *)pkt;
-        p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
-    } else {
+        SCLogDebug("DPDK metadata contains TCP, it could have been predecoded");
+        // p->tcph = (TCPHdr *)pkt;
+        // p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
+    }
 #endif /* BUILD_DPDK_APPS */
     if (unlikely(DecodeTCPPacket(tv, dtv, p, pkt, len) < 0)) {
         SCLogDebug("invalid TCP packet");
         PacketClearL4(p);
         return TM_ECODE_FAILED;
     }
-#ifdef BUILD_DPDK_APPS
-    }
-#endif /* BUILD_DPDK_APPS */
 
     FlowSetupPacket(p);
 

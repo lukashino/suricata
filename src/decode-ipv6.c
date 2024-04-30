@@ -568,8 +568,9 @@ int DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, const uint8_t *
 
 #ifdef BUILD_DPDK_APPS
     if (p->dpdk_v.metadata_flags & (1 << IPV6_ID)) {
-        p->ip6h = (IPV6Hdr *)pkt;
-    } else {
+        SCLogDebug("DPDK metadata contains IPv6, it could have been predecoded");
+        // p->ip6h = (IPV6Hdr *)pkt;
+    }
 #endif /* BUILD_DPDK_APPS */
     const IPV6Hdr *ip6h = DecodeIPV6Packet(tv, dtv, p, pkt, len);
     if (unlikely(ip6h == NULL)) {
@@ -577,10 +578,6 @@ int DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, const uint8_t *
         return TM_ECODE_FAILED;
     }
     p->proto = IPV6_GET_RAW_NH(ip6h);
-
-#ifdef BUILD_DPDK_APPS
-    }
-#endif /* BUILD_DPDK_APPS */
 
 
 #ifdef DEBUG

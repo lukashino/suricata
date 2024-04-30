@@ -52,7 +52,7 @@ static int DpdkIpcActionShutdown(const struct rte_mp_msg *msg, const void *peer)
 
 void DpdkIpcRegisterActions(void)
 {
-    if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
+    if (SCRunmodeGet() != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
     int ret;
@@ -65,7 +65,7 @@ void DpdkIpcRegisterActions(void)
 
 void DpdkIpcStart(void)
 {
-    if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
+    if (SCRunmodeGet() != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
     int retval;
@@ -89,7 +89,7 @@ void DpdkIpcStart(void)
 
 void DpdkIpcStop(void)
 {
-    if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
+    if (SCRunmodeGet() != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
     int retval;
@@ -111,7 +111,7 @@ void DpdkIpcStop(void)
 
 void DpdkIpcDumpStats(void)
 {
-    if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
+    if (SCRunmodeGet() != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
     int retval;
@@ -227,7 +227,7 @@ void DpdkIpcDumpStats(void)
 
 void DpdkIpcDetach(void)
 {
-    if (run_mode != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
+    if (SCRunmodeGet() != RUNMODE_DPDK || rte_eal_process_type() != RTE_PROC_SECONDARY)
         return;
 
     int retval;

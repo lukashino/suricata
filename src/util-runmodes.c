@@ -250,8 +250,9 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
 #endif
     int threads_count;
     uint16_t thread_max;
-    int recv_module_id = TmModuleGetIdByName(recv_mod_name);
-    if (recv_module_id == TMM_RECEIVEDPDK) {
+    TmModule *recv_module = TmModuleGetByName(recv_mod_name);
+    bool is_dpdk_module = recv_module != NULL && strcmp(recv_module->name, "ReceiveDPDK") == 0;
+    if (is_dpdk_module) {
 #ifdef HAVE_DPDK
         thread_max = rte_lcore_count() - 1;
 #endif /* HAVE_DPDK */
@@ -270,7 +271,7 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
     /* create the threads */
     for (int thread = 0; thread < threads_count; thread++) {
 #ifdef HAVE_DPDK
-        if (recv_module_id == TMM_RECEIVEDPDK) {
+        if (is_dpdk_module) {
             dpdk_last_spawned_lcore = rte_get_next_lcore(dpdk_last_spawned_lcore, 1, 0);
             // rte_get_next_lcore returns RTE_MAX_LCORE when last worker is reached
             if (dpdk_last_spawned_lcore >= RTE_MAX_LCORE) {
@@ -333,7 +334,7 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
         TmThreadSetCPU(tv, WORKER_CPU_SET);
 
 #ifdef HAVE_DPDK
-        if (recv_module_id == TMM_RECEIVEDPDK)
+        if (is_dpdk_module)
             tv->lcore_id = (uint32_t)dpdk_last_spawned_lcore;
 #endif /* HAVE_DPDK */
 

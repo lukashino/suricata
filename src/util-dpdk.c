@@ -59,7 +59,7 @@ uint8_t CountDigits(uint32_t n)
 void DPDKCleanupEAL(void)
 {
 #ifdef HAVE_DPDK
-    if (run_mode == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
+    if (SCRunmodeGet() == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
         int retval = rte_eal_cleanup();
         if (retval != 0)
             SCLogError("EAL cleanup failed: %s", strerror(-retval));
@@ -67,13 +67,12 @@ void DPDKCleanupEAL(void)
 #endif
 }
 
-#ifdef HAVE_DPDK
 void DPDKCloseDevice(LiveDevice *ldev)
 {
     (void)ldev; // avoid warnings of unused variable
 #ifdef HAVE_DPDK
     int retval;
-    if (run_mode == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
+    if (SCRunmodeGet() == RUNMODE_DPDK && rte_eal_process_type() == RTE_PROC_PRIMARY) {
         uint16_t port_id;
         retval = rte_eth_dev_get_port_by_name(ldev->dev, &port_id);
         if (retval < 0) {
