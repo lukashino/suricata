@@ -112,11 +112,19 @@
 #define RTE_MBUF_F_RX_L4_CKSUM_GOOD PKT_RX_L4_CKSUM_GOOD
 #define RTE_MBUF_F_RX_L4_CKSUM_BAD  PKT_RX_L4_CKSUM_BAD
 #endif
+typedef enum { DPDK_COPY_MODE_NONE, DPDK_COPY_MODE_TAP, DPDK_COPY_MODE_IPS } DpdkCopyModeEnum;
+
+typedef enum {
+    DPDK_ETHDEV_MODE, // run as DPDK primary process
+    DPDK_RING_MODE,   // run as DPDK secondary process
+} DpdkOperationMode;
 
 #endif /* HAVE_DPDK */
 
 #include "util-device.h"
 
+uint32_t ArrayMaxValue(const uint32_t *arr, uint16_t arr_len);
+uint8_t CountDigits(uint32_t n);
 void DPDKCleanupEAL(void);
 
 void DPDKCloseDevice(LiveDevice *ldev);

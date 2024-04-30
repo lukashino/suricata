@@ -134,6 +134,14 @@ typedef struct DPDKThreadVars_ {
     int32_t port_socket_id;
     struct rte_mempool *pkt_mempool;
     struct rte_mbuf *received_mbufs[BURST_SIZE];
+    DpdkOperationMode op_mode;
+    union {
+        struct rte_mempool *pkt_mempool;
+        struct {
+            struct rte_ring *rx_ring;
+            struct rte_ring *tx_ring;
+        } rings;
+    };
     DPDKWorkerSync *workers_sync;
 } DPDKThreadVars;
 
