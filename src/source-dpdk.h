@@ -54,8 +54,14 @@ typedef struct DPDKIfaceConfig_ {
     char iface[RTE_ETH_NAME_MAX_LEN];
     uint16_t port_id;
     int32_t socket_id;
+    DpdkOperationMode op_mode;
     /* number of threads - zero means all available */
     int threads;
+    /* Ring mode settings */
+    // Holds reference to all rx/tx rings, later assigned to workers
+    struct rte_ring **rx_rings;
+    struct rte_ring **tx_rings;
+    /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;
     const char *out_iface;
