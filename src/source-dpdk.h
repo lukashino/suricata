@@ -49,13 +49,24 @@ typedef struct DPDKWorkerSync_ {
     SC_ATOMIC_DECLARE(uint16_t, worker_checked_in);
 } DPDKWorkerSync;
 
+typedef enum {
+    DPDK_ETHDEV_MODE, // run as DPDK primary process
+    DPDK_RING_MODE,   // run as DPDK secondary process
+} DpdkOperationMode;
+
 typedef struct DPDKIfaceConfig_ {
 #ifdef HAVE_DPDK
     char iface[RTE_ETH_NAME_MAX_LEN];
     uint16_t port_id;
     int32_t socket_id;
+    DpdkOperationMode op_mode;
     /* number of threads - zero means all available */
     int threads;
+    /* Ring mode settings */
+    // Holds reference to all rx/tx rings, later assigned to workers
+    struct rte_ring **rx_rings;
+    struct rte_ring **tx_rings;
+    /* End of ring mode settings */
     /* IPS mode */
     DpdkCopyModeEnum copy_mode;
     const char *out_iface;
@@ -94,6 +105,7 @@ typedef struct DPDKPacketVars_ {
     uint16_t out_port_id;
     uint16_t out_queue_id;
     uint8_t copy_mode;
+    struct rte_ring *tx_ring; // pkt is sent to this ring (same as out_port_*)
 } DPDKPacketVars;
 
 void TmModuleReceiveDPDKRegister(void);

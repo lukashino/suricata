@@ -26,6 +26,7 @@
 typedef struct DPDKIfaceConfigAttributes_ {
     const char *threads;
     const char *irq_mode;
+    const char *operation_mode;
     const char *promisc;
     const char *multicast;
     const char *checksum_checks;
