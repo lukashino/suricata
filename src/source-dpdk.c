@@ -132,7 +132,6 @@ typedef struct DPDKThreadVars_ {
     uint16_t port_id;
     uint16_t queue_id;
     int32_t port_socket_id;
-    struct rte_mempool *pkt_mempool;
     struct rte_mbuf *received_mbufs[BURST_SIZE];
     DpdkOperationMode op_mode;
     union {
@@ -434,19 +433,30 @@ static inline int DPDKReleasePacketEthDevTx(Packet *p)
 static inline void DPDKReleasePacketTxOrFree(Packet *p)
 {
     int ret;
-    if (p->dpdk_v.tx_ring == NULL) {
+    if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
         if (DPDKReleasePacketEthDevTx(p) != 0) {
             rte_pktmbuf_free(p->dpdk_v.mbuf);
         }
-    } else if (p->dpdk_v.copy_mode != DPDK_COPY_MODE_IPS || !PacketCheckAction(p, ACTION_DROP)) {
-        // in IDS ring mode the tx ring is not set
-        BUG_ON(PKT_IS_PSEUDOPKT(p));
-        ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
-        if (ret != 0) {
-            SCLogDebug("Error (%s): Unable to enqueue packet to TX ring", rte_strerror(-ret));
+    } else {
+        if (p->dpdk_v.tx_ring != NULL) 
+            SCLogNotice("Ring name: %s", p->dpdk_v.tx_ring->name);
+        if (p->dpdk_v.tx_ring == NULL || p->dpdk_v.copy_mode == DPDK_COPY_MODE_NONE) {
             rte_pktmbuf_free(p->dpdk_v.mbuf);
+        } else if ((p->dpdk_v.copy_mode == DPDK_COPY_MODE_TAP ||
+                (p->dpdk_v.copy_mode == DPDK_COPY_MODE_IPS && !PacketCheckAction(p, ACTION_DROP)))
+#if defined(RTE_LIBRTE_I40E_PMD) || defined(RTE_LIBRTE_IXGBE_PMD) || defined(RTE_LIBRTE_ICE_PMD)
+            && !(PacketIsICMPv6(p) && PacketGetICMPv6(p)->type == 143)
+#endif
+            ) {
+                // in IDS ring mode the tx ring is not set
+                BUG_ON(PKT_IS_PSEUDOPKT(p));
+                ret = rte_ring_enqueue(p->dpdk_v.tx_ring, (void *)p->dpdk_v.mbuf);
+                if (ret != 0) {
+                    SCLogDebug("Error (%s): Unable to enqueue packet to TX ring", rte_strerror(-ret));
+                    rte_pktmbuf_free(p->dpdk_v.mbuf);
+                }
         }
-    }
+    } 
 }
 
 static void DPDKReleasePacket(Packet *p)
@@ -632,7 +642,7 @@ static void PeriodicDPDKDumpCounters(DPDKThreadVars *ptv)
 static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 {
     SCEnter();
-    uint16_t nb_rx;
+    uint16_t nb_rx = 0;
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
     ptv->slot = ((TmSlot *)slot)->slot_next;
     TmEcode ret = ReceiveDPDKLoopInit(tv, ptv);
@@ -642,15 +652,15 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
     while (true) {
         if (unlikely(suricata_ctl_flags != 0)) {
             // do not stop until you clean the ring in the secondary mode
-            if (!(ptv->op_mode == DPDK_RING_MODE) || rte_ring_empty(ptv->rings.rx_ring)) {
+            // if (!(ptv->op_mode == DPDK_RING_MODE)) { //  || rte_ring_empty(ptv->rings.rx_ring)
                 if (!(ptv->op_mode == DPDK_RING_MODE)) {
                     HandleShutdown(ptv);
                     break;
                 }
-                SCLogDebug("Stopping Suricata!");
+                SCLogNotice("Stopping Suricata!");
                 DPDKDumpCounters(ptv);
                 break;
-            }
+            // }
         }
 
         if (ptv->op_mode == DPDK_ETHDEV_MODE) {
@@ -665,7 +675,7 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             if (nb_rx == 0) {
                 LoopHandleTimeoutOnIdle(tv);
                 continue;
-            }
+            } 
         }
 
         ptv->pkts += (uint64_t)nb_rx;
@@ -675,21 +685,30 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 rte_pktmbuf_free(ptv->received_mbufs[i]);
                 continue;
             }
+
+            SCLogNotice("Dequeeud %d packets1", nb_rx);
             DPDKSegmentedMbufWarning(ptv->received_mbufs[i]);
             if (ptv->op_mode == DPDK_RING_MODE) {
-                p->dpdk_v.tx_ring = ptv->rings.tx_ring;
+                p->dpdk_v.tx_ring = NULL; // ptv->rings.tx_ring;
             }
+            SCLogNotice("Dequeeud %d packets2", nb_rx);
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
                     rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
+            SCLogNotice("Dequeeud %d packets3", nb_rx);
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
+                SCLogNotice("Dequeeud %d packets - fail", nb_rx);
                 TmqhOutputPacketpool(ptv->tv, p);
                 DPDKFreeMbufArray(ptv->received_mbufs, nb_rx - i - 1, i + 1);
                 SCReturnInt(EXIT_FAILURE);
             }
+            SCLogNotice("Dequeeud %d packets4", nb_rx);
         }
+        SCLogNotice("Dequeeud %d packets5", nb_rx);
 
         PeriodicDPDKDumpCounters(ptv);
+        SCLogNotice("Dequeeud %d packets6", nb_rx);
         StatsSyncCountersIfSignalled(tv);
+        SCLogNotice("Dequeeud %d packets7", nb_rx);
     }
 
     SCReturnInt(TM_ECODE_OK);
@@ -721,7 +740,7 @@ void ReceiveDPDKSetRings(DPDKThreadVars *ptv, DPDKIfaceConfig *iconf, uint16_t q
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void **data)
 {
     SCEnter();
-    int retval, thread_numa;
+    int retval;
     DPDKThreadVars *ptv = NULL;
     DPDKIfaceConfig *dpdk_config = (DPDKIfaceConfig *)initdata;
 
@@ -945,9 +964,6 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
 
     if (ptv->op_mode == DPDK_ETHDEV_MODE) {
-        if (ptv->workers_sync) {
-            SCFree(ptv->workers_sync);
-        }
         if (ptv->queue_id == 0) {
             struct rte_eth_dev_info dev_info;
             int retval = rte_eth_dev_info_get(ptv->port_id, &dev_info);
@@ -958,10 +974,12 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
             }
 
             DevicePreClosePMDSpecificActions(ptv, dev_info.driver_name);
-            
-            ptv->pkt_mempool = NULL; // MP is released when device is closed
+            if (ptv->workers_sync) {
+                SCFree(ptv->workers_sync);
+            }
         }
     }
+    ptv->pkt_mempool = NULL; // MP is released when device is closed
 
     SCFree(ptv);
     SCReturnInt(TM_ECODE_OK);

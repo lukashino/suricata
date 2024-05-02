@@ -49,6 +49,11 @@ typedef struct DPDKWorkerSync_ {
     SC_ATOMIC_DECLARE(uint16_t, worker_checked_in);
 } DPDKWorkerSync;
 
+typedef enum {
+    DPDK_ETHDEV_MODE, // run as DPDK primary process
+    DPDK_RING_MODE,   // run as DPDK secondary process
+} DpdkOperationMode;
+
 typedef struct DPDKIfaceConfig_ {
 #ifdef HAVE_DPDK
     char iface[RTE_ETH_NAME_MAX_LEN];

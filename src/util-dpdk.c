@@ -115,3 +115,5 @@ const char *DPDKGetPortNameByPortID(uint16_t pid)
 }
 
 #endif /* HAVE_DPDK */
+
+#endif /* UTIL_DPDK_C */

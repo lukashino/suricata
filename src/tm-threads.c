@@ -1714,7 +1714,6 @@ void TmThreadClearThreadsFamily(int family)
 
 static void TmThreadSpawnPthreadCreate(ThreadVars *tv)
 {
-    int rc;
     pthread_attr_t attr;
     if (tv->tm_func == NULL) {
         FatalError("No thread function set");
@@ -1733,7 +1732,7 @@ static void TmThreadSpawnPthreadCreate(ThreadVars *tv)
         }
     }
 
-    rc = pthread_create(&tv->t, &attr, tv->tm_func, (void *)tv);
+    int rc = pthread_create(&tv->t, &attr, tv->tm_func, (void *)tv);
     if (rc) {
         FatalError("Unable to create thread with pthread_create(): retval %d: %s", rc,
                 strerror(errno));

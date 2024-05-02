@@ -1605,7 +1605,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
 {
     SCEnter();
     uint16_t rings_cnt = iconf->threads;
-    int retval;
+    int retval = 0;
 
     if (!DeviceRingNameIsValid(iconf->iface, rings_cnt))
         SCReturnInt(-EINVAL);
@@ -1653,7 +1653,7 @@ static int32_t DeviceRingsAttach(DPDKIfaceConfig *iconf)
     SCReturnInt(retval);
 }
 
-int DeviceConfigure(DPDKIfaceConfig *iconf)
+static int DeviceConfigure(DPDKIfaceConfig *iconf)
 {
     SCEnter();
     int32_t retval = rte_eth_dev_get_port_by_name(iconf->iface, &(iconf->port_id));
@@ -1810,7 +1810,7 @@ int DeviceConfigure(DPDKIfaceConfig *iconf)
 
 static void *ParseDpdkConfigAndConfigureDevice(const char *iface)
 {
-    int retval;
+    int retval = -1;
     DPDKIfaceConfig *iconf = ConfigParse(iface);
     if (iconf == NULL) {
         FatalError("DPDK configuration could not be parsed");

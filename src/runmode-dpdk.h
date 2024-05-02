@@ -41,7 +41,6 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *copy_iface;
 } DPDKIfaceConfigAttributes;
 
-int DeviceConfigure(DPDKIfaceConfig *iconf);
 int RunModeIdsDpdkWorkers(void);
 void RunModeDpdkRegister(void);
 const char *RunModeDpdkGetDefaultMode(void);
