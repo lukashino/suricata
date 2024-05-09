@@ -31,6 +31,7 @@
 #include "util-mpm-ac.h"
 #include "util-mpm-ac-ks.h"
 #include "util-mpm-hs.h"
+#include "util-mpm-rxp.h"
 #include "util-hashlist.h"
 
 #include "detect-engine.h"
@@ -245,6 +246,7 @@ void MpmTableSetup(void)
         MpmHSRegister();
     #endif /* HAVE_HS_VALID_PLATFORM */
 #endif /* BUILD_HYPERSCAN */
+    MpmRXPRegister();
 }
 
 int MpmAddPatternCS(struct MpmCtx_ *mpm_ctx, uint8_t *pat, uint16_t patlen,

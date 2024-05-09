@@ -134,6 +134,7 @@
 #include "util-macset.h"
 #include "util-misc.h"
 #include "util-mpm-hs.h"
+#include "util-mpm-rxp.h"
 #include "util-path.h"
 #include "util-pidfile.h"
 #include "util-plugin.h"
@@ -393,6 +394,8 @@ void GlobalsDestroy(void)
     TmqhCleanup();
     TmModuleRunDeInit();
     ParseSizeDeinit();
+
+    MpmRXPGlobalCleanup();
 
 #ifdef HAVE_DPDK
     DPDKCleanupEAL();
