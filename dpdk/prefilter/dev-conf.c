@@ -412,8 +412,6 @@ int DevConfSharedConfInit(void)
             pf->ring_entries[pf->ring_entries_cnt].message_mp = mp;
             Log().notice("Found %s", name);
 
-            pf->ring_entries[pf->ring_entries_cnt].oflds_pf_support = re->oflds_pf_support;
-            pf->ring_entries[pf->ring_entries_cnt].oflds_pf_requested = re->oflds_pf_requested;
             pf->ring_entries_cnt++;
         }
     }

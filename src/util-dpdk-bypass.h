@@ -47,7 +47,6 @@ void DpdkIpcDetach(void);
 #define IPC_ACTION_SHUTDOWN              "shutdown"
 #define IPC_ACTION_BYPASS_TBL_DUMP_START "bt_dump_start"
 #define IPC_ACTION_BYPASS_TBL_DUMP_STOP  "bt_dump_stop"
-#define IPC_ACTION_OFFLOADS_SETUP        "offloads_setup"
 
 struct IPCResponseAttach {
     uint32_t app_id;

@@ -89,7 +89,6 @@ struct RingEntryAttributes {
     const char *bypass_mp_cache_entries;
     struct NicConfigAttributes nic_config;
     struct BypassMessageAttributes bypass_messages;
-    struct MetadataAttrs metadata;
 };
 
 #define PREFILTER_CONF_DEFAULT_RSS_HF RTE_ETH_RSS_IP
@@ -105,8 +104,6 @@ struct RingEntryAttributes {
 #define TASK_RING_PREFIX     "task-ring."
 #define RESULTS_RING_PREFIX  "results-ring."
 #define MSG_MEMPOOL_PREFIX   "message-mempool."
-#define PF_OFFLOADS_PREFIX   "metadata.offloads-from-pf-to-suri."
-#define SURI_OFFLOADS_PREFIX "metadata.offloads-from-suri-to-pf."
 
 const struct RingEntryAttributes pf_yaml = {
     .main_ring = {
@@ -148,18 +145,6 @@ const struct RingEntryAttributes pf_yaml = {
             .mp_entries = MESSAGES_PREFIX MSG_MEMPOOL_PREFIX "entries",
             .mp_cache_entries = MESSAGES_PREFIX MSG_MEMPOOL_PREFIX "cache-entries",
         },
-    },
-    .metadata = {
-        .oflds_from_pf_to_suri = {
-            .ipv4 = PF_OFFLOADS_PREFIX "IPV4",
-            .ipv6 = PF_OFFLOADS_PREFIX "IPV6",
-            .tcp = PF_OFFLOADS_PREFIX "TCP",
-            .udp = PF_OFFLOADS_PREFIX "UDP",
-        },
-        .oflds_from_suri_to_pf = {
-            .matchRules = SURI_OFFLOADS_PREFIX "matchRules",
-        },
-        .private_space_size = "metadata.private-space-size",
     }
 };
 
@@ -256,19 +241,6 @@ static int ConfGetDescendantValueBool(const ConfNode *base, const char *name, in
     *val = ConfValIsTrue(strval);
 
     return 1;
-}
-
-int SetOffloadsFromConf(ConfNode *node, const char *name)
-{
-    int retval, entry_bool;
-
-    retval = ConfGetDescendantValueBool(node, name, &entry_bool);
-    if (retval != 1 || entry_bool < 0) {
-        Log().error(ENOENT, "Unable to read value of %s", name);
-        return -EXIT_FAILURE;
-    }
-
-    return entry_bool;
 }
 
 int DevConfSuricataLoadRingEntryConf(ConfNode *rnode, struct ring_list_entry *re, const char *rname)
@@ -519,56 +491,6 @@ int DevConfSuricataLoadRingEntryConf(ConfNode *rnode, struct ring_list_entry *re
     } else {
         re->msgs.mempool.cache_entries = entry_int;
     }
-
-    if (!ConfNodeLookupChild(rnode, "metadata")) {
-        re->oflds_pf_support = 0;
-        re->oflds_pf_requested = 0;
-        Log().info("OFFLOADS: Prefilter was not able to locate the \"metadata\" node."
-                   " Default values have been set for the offloads: 0, 0");
-        return 0;
-    }
-
-    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.metadata.oflds_from_pf_to_suri.ipv4)) > -1) {
-        re->oflds_pf_support |= IPV4_OFFLOAD(retval);
-    } else {
-        return retval;
-    }
-
-    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.metadata.oflds_from_pf_to_suri.ipv6)) > -1) {
-        re->oflds_pf_support |= IPV6_OFFLOAD(retval);
-    } else {
-        return retval;
-    }
-
-    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.metadata.oflds_from_pf_to_suri.tcp)) > -1) {
-        re->oflds_pf_support |= TCP_OFFLOAD(retval);
-    } else {
-        return retval;
-    }
-
-    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.metadata.oflds_from_pf_to_suri.udp)) > -1) {
-        re->oflds_pf_support |= UDP_OFFLOAD(retval);
-    } else {
-        return retval;
-    }
-
-    if ((retval = SetOffloadsFromConf(rnode, pf_yaml.metadata.oflds_from_suri_to_pf.matchRules)) >
-            -1) {
-        re->oflds_pf_requested |= MATCH_RULES_OFFLOAD(retval);
-    } else {
-        return retval;
-    }
-
-    retval = ConfGetDescendantValueInt(rnode, pf_yaml.metadata.private_space_size, &entry_int);
-    if (retval != 1 || entry_int <= 0) {
-        Log().error(ENOENT, "Unable to read value of %s", pf_yaml.metadata.private_space_size);
-        return -EXIT_FAILURE;
-    } else {
-        re->private_space_size = entry_int;
-    }
-
-    Log().info("OFFLOADS: Prefilter reads from conf file offloads: %d, %d", re->oflds_pf_support,
-            re->oflds_pf_requested);
     return 0;
 }
 
@@ -591,7 +513,6 @@ static DPDKIfaceConfig ConfPrefitlerToSuricataAdapter(struct ring_list_entry *re
     suri_conf.mempool_size = re_suri->nic_conf.mempool_size;
     suri_conf.mempool_cache_size = re_suri->nic_conf.mempool_cache_size;
     suri_conf.rss_hf = PREFILTER_CONF_DEFAULT_RSS_HF;
-    suri_conf.private_space_size = re->private_space_size;
     return suri_conf;
 }
 

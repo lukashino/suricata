@@ -75,13 +75,6 @@ int DecodeUDP(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 {
     StatsIncr(tv, dtv->counter_udp);
 
-#ifdef BUILD_DPDK_APPS
-    if (p->dpdk_v.metadata_flags & (1 << UDP_ID)) {
-        SCLogDebug("DPDK metadata contains UDP, it could have been predecoded");
-        // p->udph = (UDPHdr *)pkt;
-        // p->payload = (uint8_t *)pkt + p->dpdk_v.PF_l4_len;
-    }
-#endif /* BUILD_DPDK_APPS */
     if (unlikely(DecodeUDPPacket(tv, p, pkt,len) < 0)) {
         PacketClearL4(p);
         return TM_ECODE_FAILED;
