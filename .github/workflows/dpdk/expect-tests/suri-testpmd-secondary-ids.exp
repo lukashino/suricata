@@ -1,0 +1,51 @@
+#!/usr/bin/expect
+
+# Requirements:
+# DPDK installed (tested with 21.11.x)
+# Hugepages allocated - e.g. 256 mb
+# installed `expect` package
+
+set timeout -1
+
+# Start testpmd with the provided command line arguments
+spawn sudo dpdk-testpmd -v -l 1,2,3 -n 4 --no-pci --vdev=net_ring_rxring -- --portmask=0x1 --nb-ports 1 --nb-cores 2 --rxq 2 --txq 2 --total-num-mbufs=4096 --mbcache=0 --forward-mode=txonly -i
+
+# Wait for the testpmd prompt to appear
+expect "testpmd>"
+
+# Start Suricata in a new process
+exec sudo rm -rf /tmp/suri.pid
+set suricata_pid [exec sudo ./src/suricata -c .github/workflows/dpdk/expect-tests/suricatal.2thr.secondarytest.ids.yaml -S /dev/null --dpdk -l /tmp/ -vvvv --pidfile /tmp/suri.pid &]
+send_user "Suricata started with PID: $suricata_pid\n"
+
+# Wait 5 seconds for Suricata to initialize
+sleep 5
+
+# Start sending traffic from testpmd
+send "start\r"
+expect "testpmd>"
+
+# Wait for 5 seconds to let Suricata process some packets
+sleep 5
+
+# Send the stop command to testpmd to stop sending packets
+send "stop\r"
+expect "testpmd>"
+
+# Sleep for a few seconds to ensure Suricata processes all received packets
+sleep 5
+
+# Shut down Suricata gracefully
+set suri_pid [exec cat /tmp/suri.pid]
+exec sudo kill -SIGINT $suri_pid
+sleep 5
+
+# Sleep to ensure Suricata shuts down properly
+sleep 5
+
+# Now shut down testpmd
+send "quit\r"
+
+# End the expect script
+expect eof
+
