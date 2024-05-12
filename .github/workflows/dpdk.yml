@@ -1,0 +1,289 @@
+name: DPDK CI
+
+on:
+  push:
+  pull_request:
+  # workflow_dispatch:
+  #   inputs:
+  #     LIBHTP_REPO:
+  #     LIBHTP_BRANCH:
+  #     SU_REPO:
+  #     SU_BRANCH:
+  #     SV_REPO:
+  #     SV_BRANCH:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+env:
+  DEFAULT_SV_REPO: https://github.com/OISF/suricata-verify
+  DEFAULT_SV_BRANCH: master
+
+  DEFAULT_CFLAGS: "-Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-function"
+
+  # Apt sometimes likes to ask for user input, this will prevent that.
+  DEBIAN_FRONTEND: "noninteractive"
+
+  # A recent version of stable Rust that is known to pass build, test and other
+  # verification steps in this workflow. This was added because using "stable"
+  # could cause some steps to fail.
+  RUST_VERSION_KNOWN: "1.70.0"
+
+jobs:
+
+  prepare-deps:
+    name: Prepare dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dumping github context for debugging
+        run: echo $JSON
+        env:
+          JSON: ${{ toJSON(github) }}
+      - run: sudo apt update && sudo apt -y install jq curl
+      - name: Parse repo and branch information
+        env:
+          # We fetch the actual pull request to get the latest body as
+          # github.event.pull_request.body has the body from the
+          # initial pull request.
+          PR_HREF: ${{ github.event.pull_request._links.self.href }}
+        run: |
+          if test "${PR_HREF}"; then
+              body=$(curl -s "${PR_HREF}" | jq -r .body | tr -d '\r')
+
+              echo "Parsing branch and PR info from:"
+              echo "${body}"
+
+              LIBHTP_REPO=$(echo "${body}" | awk -F = '/^LIBHTP_REPO=/ { print $2 }')
+              LIBHTP_BRANCH=$(echo "${body}" | awk -F = '/^LIBHTP_BRANCH=/ { print $2 }')
+
+              SU_REPO=$(echo "${body}" | awk -F = '/^SU_REPO=/ { print $2 }')
+              SU_BRANCH=$(echo "${body}" | awk -F = '/^SU_BRANCH=/ { print $2 }')
+
+              SV_REPO=$(echo "${body}" | awk -F = '/^SV_REPO=/ { print $2 }')
+              SV_BRANCH=$(echo "${body}" | awk -F = '/^SV_BRANCH=/ { print $2 }')
+          else
+              echo "No pull request body, will use inputs or defaults."
+              LIBHTP_REPO=${{ inputs.LIBHTP_REPO }}
+              LIBHTP_BRANCH=${{ inputs.LIBHTP_BRANCH }}
+              SU_REPO=${{ inputs.SU_REPO }}
+              SU_BRANCH=${{ inputs.SU_BRANCH }}
+              SV_REPO=${{ inputs.SV_REPO }}
+              SV_BRANCH=${{ inputs.SV_BRANCH }}
+          fi
+
+          # If the _REPO variables don't contain a full URL, add GitHub.
+          if [ "${LIBHTP_REPO}" ] && ! echo "${LIBHTP_REPO}" | grep -q '^https://'; then
+              LIBHTP_REPO="https://github.com/${LIBHTP_REPO}"
+          fi
+          if [ "${SU_REPO}" ] && ! echo "${SU_REPO}" | grep -q '^https://'; then
+              SU_REPO="https://github.com/${SU_REPO}"
+          fi
+          if [ "${SV_REPO}" ] && ! echo "${SV_REPO}" | grep -q '^https://'; then
+              SV_REPO="https://github.com/${SV_REPO}"
+          fi
+
+          echo LIBHTP_REPO=${LIBHTP_REPO} | tee -a ${GITHUB_ENV}
+          echo LIBHTP_BRANCH=${LIBHTP_BRANCH} | tee -a ${GITHUB_ENV}
+
+          echo SU_REPO=${SU_REPO} | tee -a ${GITHUB_ENV}
+          echo SU_BRANCH=${SU_BRANCH} | tee -a ${GITHUB_ENV}
+
+          echo SV_REPO=${SV_REPO:-${DEFAULT_SV_REPO}} | tee -a ${GITHUB_ENV}
+          echo SV_BRANCH=${SV_BRANCH:-${DEFAULT_SV_BRANCH}} | tee -a ${GITHUB_ENV}
+
+      - name: Annotate output
+        run: |
+          echo "::notice:: LIBHTP_REPO=${LIBHTP_REPO}"
+          echo "::notice:: LIBHTP_BRANCH=${LIBHTP_BRANCH}"
+          echo "::notice:: SU_REPO=${SU_REPO}"
+          echo "::notice:: SU_BRANCH=${SU_BRANCH}"
+          echo "::notice:: SV_REPO=${SV_REPO}"
+          echo "::notice:: SV_BRANCH=${SV_BRANCH}"
+
+      # Now checkout Suricata for the bundle script.
+      - name: Checking out Suricata
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      - run: git config --global --add safe.directory /__w/suricata/suricata
+
+      - name: Fetching libhtp
+        run: |
+          DESTDIR=./bundle ./scripts/bundle.sh libhtp
+          tar zcf libhtp.tar.gz -C bundle libhtp
+      - name: Fetching suricata-update
+        run: |
+          DESTDIR=./bundle ./scripts/bundle.sh suricata-update
+          tar zcf suricata-update.tar.gz -C bundle suricata-update
+
+      - name: Fetching suricata-verify
+        run: |
+          # Looking for a pull request number. in the SV_BRANCH
+          # value. This could be "pr/NNN", "pull/NNN" or a link to an
+          # OISF/suricata-verify pull request.
+          pr=$(echo "${SV_BRANCH}" | sed -n \
+              -e 's/^https:\/\/github.com\/OISF\/suricata-verify\/pull\/\([0-9]*\)$/\1/p' \
+              -e 's/^pull\/\([0-9]*\)$/\1/p' \
+              -e 's/^pr\/\([0-9]*\)$/\1/p')
+          if [ "${pr}" ]; then
+              SV_BRANCH="refs/pull/${pr}/head"
+              echo "Using suricata-verify pull-request ${SV_BRANCH}"
+          else
+              echo "Using suricata-verify branch ${SV_BRANCH}"
+          fi
+          git clone --depth 1 ${SV_REPO} suricata-verify
+          cd suricata-verify
+          git fetch --depth 1 origin ${SV_BRANCH}
+          git -c advice.detachedHead=false checkout FETCH_HEAD
+          cd ..
+          tar zcf suricata-verify.tar.gz suricata-verify
+      - name: Uploading prep archive
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        with:
+          name: prep
+          path: |
+            libhtp.tar.gz
+            suricata-update.tar.gz
+            suricata-verify.tar.gz
+
+  prepare-cbindgen:
+    name: Prepare cbindgen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache ~/.cargo
+        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2
+        with:
+          path: ~/.cargo
+          key: ${{ github.job }}-cargo
+      - name: Installing Rust
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rustup target add x86_64-unknown-linux-musl
+      - name: Building static cbindgen for Linux
+        run: |
+          cargo install --target x86_64-unknown-linux-musl --debug cbindgen
+          cp $HOME/.cargo/bin/cbindgen .
+      - name: Uploading prep archive
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        with:
+          name: cbindgen
+          path: .
+  
+  ubuntu-22-04-dpdk-build:
+    name: Ubuntu 22.04 (DPDK Build)
+    runs-on: ubuntu-22.04
+    container: ubuntu:22.04
+    needs: [ prepare-deps, prepare-cbindgen ]
+    strategy:
+      matrix:
+        dpdk_version: [ 21.11.6 ]
+    steps:
+
+      # Cache Rust stuff.
+      - name: Cache cargo registry
+        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry
+
+      - name: Determine number of CPUs
+        run: echo CPUS=$(nproc --all) >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          apt update
+          apt -y install \
+                libpcre2-dev \
+                build-essential \
+                autoconf \
+                automake \
+                cargo \
+                git \
+                jq \
+                libtool \
+                libpcap-dev \
+                libnet1-dev \
+                libyaml-0-2 \
+                libyaml-dev \
+                libcap-ng-dev \
+                libcap-ng0 \
+                libmagic-dev \
+                libnetfilter-queue-dev \
+                libnetfilter-queue1 \
+                libnfnetlink-dev \
+                libnfnetlink0 \
+                libhiredis-dev \
+                libjansson-dev \
+                libevent-dev \
+                libevent-pthreads-2.1-7 \
+                libpython2.7 \
+                make \
+                parallel \
+                python3-yaml \
+                rustc \
+                software-properties-common \
+                sudo \
+                zlib1g \
+                zlib1g-dev \
+                exuberant-ctags
+      - name: Install DPDK dependencies
+        run: |
+          apt update
+          apt install -y \
+          curl \
+          build-essential \
+          libnuma-dev \
+          ninja-build \
+          meson \
+          python3-pip \
+          python3-pyelftools \
+          python3-setuptools \
+          python3-wheel
+
+      - name: Install expect - test script
+        run: |
+          apt update
+          apt install -y \
+          expect
+
+      - name: Compile and install DPDK
+        run: |
+          cd $HOME
+          rm -rf dpdk_${{ matrix.dpdk_version }}
+          find /usr/ -name 'librte_*.a' -delete
+          mkdir -p dpdk_${{ matrix.dpdk_version }} && cd dpdk_${{ matrix.dpdk_version }}
+          curl -fsLS https://fast.dpdk.org/rel/dpdk-${{ matrix.dpdk_version }}.tar.xz | tar -xJ --strip-components=1
+          rm -rf build/
+          meson setup -Dtests=false --prefix=/usr/ build
+          ninja -C build
+          ninja -C build install
+          ldconfig
+          cd $HOME
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      - run: git config --global --add safe.directory /__w/suricata/suricata
+      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+        with:
+          name: prep
+          path: prep
+      - run: tar xf prep/libhtp.tar.gz
+      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+        with:
+          name: cbindgen
+          path: prep
+      - name: Setup cbindgen
+        run: |
+          mkdir -p $HOME/.cargo/bin
+          cp prep/cbindgen $HOME/.cargo/bin
+          chmod 755 $HOME/.cargo/bin/cbindgen
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - run: ./autogen.sh
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-dpdk
+      - run: make -j ${{ env.CPUS }}
+      - run: make check
+      # Allocate hugepages
+      - run: sudo dpdk-hugepages.py --setup 128M
+      # IDS config
+      - run: |
+          ./.github/workflows/dpdk/expect-tests/suri-testpmd-secondary-ids.exp
