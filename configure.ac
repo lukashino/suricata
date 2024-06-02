@@ -1440,7 +1440,7 @@
             exit 1
         fi
         CFLAGS="${CFLAGS} `pkg-config --cflags libdpdk`"
-        LIBS="${LIBS} -lnuma `pkg-config --libs libdpdk`"
+        LIBS="${LIBS} -lnuma `pkg-config --libs libdpdk` -lhwloc"
 
         if test ! -z "$(ldconfig -p | grep librte_net_bond)"; then
             AC_DEFINE([HAVE_DPDK_BOND],[1],(DPDK Bond PMD support enabled))
