@@ -859,6 +859,8 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
         TmThreadSetPrio(tv);
     if (tv->thread_setup_flags & THREAD_SET_AFFTYPE) {
         ThreadsAffinityType *taf = &thread_affinity[tv->cpu_affinity];
+        if (tv->cpu_affinity == WORKER_CPU_SET)
+            taf = FindAffinityByInterface(taf, tv->iface_name);
         if (taf->mode_flag == EXCLUSIVE_AFFINITY) {
             uint16_t cpu = AffinityGetNextCPU(tv, taf);
             SetCPUAffinity(cpu);

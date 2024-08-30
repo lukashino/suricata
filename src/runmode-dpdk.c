@@ -367,12 +367,17 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
         SCReturnInt(-EINVAL);
     }
 
-    ThreadsAffinityType *wtaf = GetAffinityTypeFromName("worker-cpu-set");
+    bool wtaf_periface = true;
+    ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", iconf->iface);
     if (wtaf == NULL) {
-        SCLogError("Specify worker-cpu-set list in the threading section");
-        SCReturnInt(-EINVAL);
+        wtaf_periface = false;
+        ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);  // mandatory
+        if (wtaf == NULL) {
+            SCLogError("Specify worker-cpu-set list in the threading section");
+            SCReturnInt(-EINVAL);
+        }        
     }
-    ThreadsAffinityType *mtaf = GetAffinityTypeFromName("management-cpu-set");
+    ThreadsAffinityType *mtaf = GetAffinityTypeForNameAndIface("management-cpu-set", NULL);
     if (mtaf == NULL) {
         SCLogError("Specify management-cpu-set list in the threading section");
         SCReturnInt(-EINVAL);
@@ -405,6 +410,11 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
     }
 
     if (strcmp(entry_str, "auto") == 0) {
+        if (wtaf_periface) {
+            iconf->threads = (uint16_t)sched_cpus;
+            SCLogConfig("%s: auto-assigned %u threads", iconf->iface, iconf->threads);
+            SCReturnInt(0);
+        }
         iconf->threads = (uint16_t)sched_cpus / LiveGetDeviceCount();
         if (iconf->threads == 0) {
             SCLogError("Not enough worker CPU cores with affinity were configured");
@@ -832,7 +842,7 @@ static int32_t ConfigValidateThreads(uint16_t iface_threads)
 {
     static uint32_t total_cpus = 0;
     total_cpus += iface_threads;
-    ThreadsAffinityType *wtaf = GetAffinityTypeFromName("worker-cpu-set");
+    ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
     if (wtaf == NULL) {
         SCLogError("Specify worker-cpu-set list in the threading section");
         return -1;

@@ -76,6 +76,109 @@ ThreadsAffinityType * GetAffinityTypeFromName(const char *name)
     return NULL;
 }
 
+static ThreadsAffinityType *AllocAndInitAffinityType(const char *name, const char *interface_name, ThreadsAffinityType *parent) {
+    ThreadsAffinityType *new_affinity = SCCalloc(1, sizeof(ThreadsAffinityType));
+    if (new_affinity == NULL) {
+        FatalError("Unable to allocate memory for new affinity type");
+    }
+
+    new_affinity->name = strdup(interface_name);
+    new_affinity->parent = parent;
+    new_affinity->mode_flag = EXCLUSIVE_AFFINITY;
+    new_affinity->prio = PRIO_MEDIUM;
+    new_affinity->lcpu = 0;
+
+    if (parent != NULL) {
+        if (parent->nb_children == parent->nb_children_capacity) {
+            parent->nb_children_capacity *= 2;
+            parent->children = SCRealloc(parent->children, parent->nb_children_capacity * sizeof(ThreadsAffinityType *));
+            if (parent->children == NULL) {
+                FatalError("Unable to reallocate memory for children affinity types");
+            }
+        }
+        parent->children[parent->nb_children++] = new_affinity;
+    }
+
+    return new_affinity;
+}
+
+ThreadsAffinityType *FindAffinityByInterface(ThreadsAffinityType *parent, const char *interface_name) {
+    for (uint32_t i = 0; i < parent->nb_children; i++) {
+        if (strcmp(parent->children[i]->name, interface_name) == 0) {
+            return parent->children[i];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * \brief find affinity by its name and interface name, if children are not allowed, then those are alloced and initialized.
+ * \retval a pointer to the affinity or NULL if not found
+ */
+ThreadsAffinityType *GetAffinityTypeForNameAndIface(const char *name, const char *interface_name) {
+    int i;
+    ThreadsAffinityType *parent_affinity = NULL;
+
+    for (i = 0; i < MAX_CPU_SET; i++) {
+        if (strcmp(thread_affinity[i].name, name) == 0) {
+            parent_affinity = &thread_affinity[i];
+            break;
+        }
+    }
+
+    if (parent_affinity == NULL) {
+        SCLogError("Affinity with name \"%s\" not found", name);
+        return NULL;
+    }
+
+    if (interface_name != NULL) {
+        ThreadsAffinityType *child_affinity = FindAffinityByInterface(parent_affinity, interface_name);
+        // found or not found, it is returned
+        return child_affinity;
+        if (child_affinity != NULL) {
+            return child_affinity;
+        }
+    }
+
+    return parent_affinity;
+}
+
+/**
+ * \brief find affinity by its name and interface name, if children are not allowed, then those are alloced and initialized.
+ * \retval a pointer to the affinity or NULL if not found
+ */
+ThreadsAffinityType *GetOrAllocAffinityTypeForIfaceOfName(const char *name, const char *interface_name) {
+    int i;
+    ThreadsAffinityType *parent_affinity = NULL;
+
+    // Step 1: Find the parent affinity by its name
+    for (i = 0; i < MAX_CPU_SET; i++) {
+        if (strcmp(thread_affinity[i].name, name) == 0) {
+            parent_affinity = &thread_affinity[i];
+            break;
+        }
+    }
+
+    if (parent_affinity == NULL) {
+        SCLogError("Affinity with name \"%s\" not found", name);
+        return NULL;
+    }
+
+    // Step 2: If interface_name is provided, search for or create the interface-specific affinity
+    if (interface_name != NULL) {
+        ThreadsAffinityType *child_affinity = FindAffinityByInterface(parent_affinity, interface_name);
+        if (child_affinity != NULL) {
+            return child_affinity;
+        }
+
+        // If not found, allocate and initialize a new child affinity
+        return AllocAndInitAffinityType(name, interface_name, parent_affinity);
+    }
+
+    // Step 3: If no interface name is provided, return the parent affinity
+    return parent_affinity;
+}
+
 #if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined sun
 static void AffinitySetupInit(void)
 {
@@ -166,7 +269,7 @@ void AffinitySetupLoadFromConfig(void)
 {
 #if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined sun
     ConfNode *root = ConfGetNode("threading.cpu-affinity");
-    ConfNode *affinity;
+    ConfNode *affinity, *interface_node, *cpu_node, *mode_node, *prio_node, *node, *nprio;
 
     if (thread_affinity_init_done == 0) {
         AffinitySetupInit();
@@ -186,90 +289,195 @@ void AffinitySetupLoadFromConfig(void)
             strcmp(affinity->val, "output-cpu-set") == 0) {
             continue;
         }
-
         const char *setname = affinity->val;
         if (strcmp(affinity->val, "detect-cpu-set") == 0)
             setname = "worker-cpu-set";
 
-        ThreadsAffinityType *taf = GetAffinityTypeFromName(setname);
-        ConfNode *node = NULL;
-        ConfNode *nprio = NULL;
+        if (strcmp(affinity->val, "worker-cpu-set") == 0) {
+            // get child node "per-iface"
+            // iterate over all interfaces in this node
 
-        if (taf == NULL) {
-            FatalError("unknown cpu-affinity type");
-        } else {
-            SCLogConfig("Found affinity definition for \"%s\"", setname);
-        }
-
-        CPU_ZERO(&taf->cpu_set);
-        node = ConfNodeLookupChild(affinity->head.tqh_first, "cpu");
-        if (node == NULL) {
-            SCLogInfo("unable to find 'cpu'");
-        } else {
-            BuildCpuset(setname, node, &taf->cpu_set);
-        }
-
-        CPU_ZERO(&taf->lowprio_cpu);
-        CPU_ZERO(&taf->medprio_cpu);
-        CPU_ZERO(&taf->hiprio_cpu);
-        nprio = ConfNodeLookupChild(affinity->head.tqh_first, "prio");
-        if (nprio != NULL) {
-            node = ConfNodeLookupChild(nprio, "low");
+            node = ConfNodeLookupChild(affinity->head.tqh_first, "per-iface");
             if (node == NULL) {
-                SCLogDebug("unable to find 'low' prio using default value");
-            } else {
-                BuildCpuset(setname, node, &taf->lowprio_cpu);
+                SCLogInfo("unable to find 'per-iface' list, going with the global assigment");
             }
 
-            node = ConfNodeLookupChild(nprio, "medium");
-            if (node == NULL) {
-                SCLogDebug("unable to find 'medium' prio using default value");
-            } else {
-                BuildCpuset(setname, node, &taf->medprio_cpu);
-            }
-
-            node = ConfNodeLookupChild(nprio, "high");
-            if (node == NULL) {
-                SCLogDebug("unable to find 'high' prio using default value");
-            } else {
-                BuildCpuset(setname, node, &taf->hiprio_cpu);
-            }
-            node = ConfNodeLookupChild(nprio, "default");
-            if (node != NULL) {
-                if (!strcmp(node->val, "low")) {
-                    taf->prio = PRIO_LOW;
-                } else if (!strcmp(node->val, "medium")) {
-                    taf->prio = PRIO_MEDIUM;
-                } else if (!strcmp(node->val, "high")) {
-                    taf->prio = PRIO_HIGH;
-                } else {
-                    FatalError("unknown cpu_affinity prio");
+            ConfNode *child;
+            TAILQ_FOREACH(child, &node->head, next) {
+                const char *interface_name;
+                uint32_t nb_threads = 0;
+                if (!strncmp(child->val, "interface", strlen(child->name))) {
+                    ConfNode *subchild;
+                    TAILQ_FOREACH(subchild, &child->head, next) {
+                        if ((!strcmp(subchild->name, "interface"))) {
+                            interface_name = subchild->val;
+                        }
+                        if ((!strcmp(subchild->name, "cpu"))) {
+                            cpu_node = subchild;
+                        }
+                        if ((!strcmp(subchild->name, "mode"))) {
+                            mode_node = subchild;
+                        }
+                        if ((!strcmp(subchild->name, "prio"))) {
+                            prio_node = subchild;
+                        }
+                        if ((!strcmp(subchild->name, "threads"))) {
+                            if (StringParseUint32(&nb_threads, 10, 0, (const char *)subchild->val) < 0) {
+                                FatalError("invalid value for threads count: '%s'", subchild->val);
+                            }
+                            if (!nb_threads) {
+                                FatalError("bad value for threads count");
+                            }
+                        }
+                    }
                 }
-                SCLogConfig("Using default prio '%s' for set '%s'",
-                        node->val, setname);
-            }
-        }
+                const char *setname = affinity->val;
+                ThreadsAffinityType *taf = GetOrAllocAffinityTypeForIfaceOfName(setname, interface_name);
+                if (taf == NULL) {
+                    FatalError("unknown cpu-affinity type");
+                } else {
+                    SCLogConfig("Found affinity definition for \"%s\" (\"%s\")", setname, interface_name);
+                }
 
-        node = ConfNodeLookupChild(affinity->head.tqh_first, "mode");
-        if (node != NULL) {
-            if (!strcmp(node->val, "exclusive")) {
-                taf->mode_flag = EXCLUSIVE_AFFINITY;
-            } else if (!strcmp(node->val, "balanced")) {
-                taf->mode_flag = BALANCED_AFFINITY;
+                CPU_ZERO(&taf->cpu_set);
+                if (cpu_node == NULL) {
+                    SCLogInfo("unable to find 'cpu' for interface %s", interface_name);
+                } else {
+                    BuildCpuset(interface_name, cpu_node, &taf->cpu_set);
+                }
+
+                CPU_ZERO(&taf->lowprio_cpu);
+                CPU_ZERO(&taf->medprio_cpu);
+                CPU_ZERO(&taf->hiprio_cpu);
+                if (prio_node != NULL) {
+                    ConfNode *node = ConfNodeLookupChild(prio_node, "low");
+                    if (node == NULL) {
+                        SCLogDebug("unable to find 'low' prio for interface %s", interface_name);
+                    } else {
+                        BuildCpuset(interface_name, node, &taf->lowprio_cpu);
+                    }
+
+                    node = ConfNodeLookupChild(prio_node, "medium");
+                    if (node == NULL) {
+                        SCLogDebug("unable to find 'medium' prio for interface %s", interface_name);
+                    } else {
+                        BuildCpuset(interface_name, node, &taf->medprio_cpu);
+                    }
+
+                    node = ConfNodeLookupChild(prio_node, "high");
+                    if (node == NULL) {
+                        SCLogDebug("unable to find 'high' prio for interface %s", interface_name);
+                    } else {
+                        BuildCpuset(interface_name, node, &taf->hiprio_cpu);
+                    }
+                    node = ConfNodeLookupChild(prio_node, "default");
+                    if (node != NULL) {
+                        if (!strcmp(node->val, "low")) {
+                            taf->prio = PRIO_LOW;
+                        } else if (!strcmp(node->val, "medium")) {
+                            taf->prio = PRIO_MEDIUM;
+                        } else if (!strcmp(node->val, "high")) {
+                            taf->prio = PRIO_HIGH;
+                        } else {
+                            FatalError("unknown cpu_affinity prio");
+                        }
+                        SCLogConfig("Using default prio '%s' for interface '%s'",
+                                    node->val, interface_name);
+                    }
+                }
+
+                if (mode_node != NULL) {
+                    if (!strcmp(mode_node->val, "exclusive")) {
+                        taf->mode_flag = EXCLUSIVE_AFFINITY;
+                    } else if (!strcmp(mode_node->val, "balanced")) {
+                        taf->mode_flag = BALANCED_AFFINITY;
+                    } else {
+                        FatalError("unknown cpu_affinity mode");
+                    }
+                }
+
+                if (nb_threads) {
+                    taf->nb_threads = nb_threads;
+                }
+            }
+        } else {
+            ThreadsAffinityType *taf = GetOrAllocAffinityTypeForIfaceOfName(setname, NULL);
+            if (taf == NULL) {
+                FatalError("unknown cpu-affinity type");
             } else {
-                FatalError("unknown cpu_affinity node");
+                SCLogConfig("Found affinity definition for \"%s\"", setname);
             }
-        }
 
-        node = ConfNodeLookupChild(affinity->head.tqh_first, "threads");
-        if (node != NULL) {
-            if (StringParseUint32(&taf->nb_threads, 10, 0, (const char *)node->val) < 0) {
-                FatalError("invalid value for threads "
-                           "count: '%s'",
-                        node->val);
+            CPU_ZERO(&taf->cpu_set);
+            node = ConfNodeLookupChild(affinity->head.tqh_first, "cpu");
+            if (node == NULL) {
+                SCLogInfo("unable to find 'cpu'");
+            } else {
+                BuildCpuset(setname, node, &taf->cpu_set);
             }
-            if (! taf->nb_threads) {
-                FatalError("bad value for threads count");
+
+            CPU_ZERO(&taf->lowprio_cpu);
+            CPU_ZERO(&taf->medprio_cpu);
+            CPU_ZERO(&taf->hiprio_cpu);
+            nprio = ConfNodeLookupChild(affinity->head.tqh_first, "prio");
+            if (nprio != NULL) {
+                node = ConfNodeLookupChild(nprio, "low");
+                if (node == NULL) {
+                    SCLogDebug("unable to find 'low' prio using default value");
+                } else {
+                    BuildCpuset(setname, node, &taf->lowprio_cpu);
+                }
+
+                node = ConfNodeLookupChild(nprio, "medium");
+                if (node == NULL) {
+                    SCLogDebug("unable to find 'medium' prio using default value");
+                } else {
+                    BuildCpuset(setname, node, &taf->medprio_cpu);
+                }
+
+                node = ConfNodeLookupChild(nprio, "high");
+                if (node == NULL) {
+                    SCLogDebug("unable to find 'high' prio using default value");
+                } else {
+                    BuildCpuset(setname, node, &taf->hiprio_cpu);
+                }
+                node = ConfNodeLookupChild(nprio, "default");
+                if (node != NULL) {
+                    if (!strcmp(node->val, "low")) {
+                        taf->prio = PRIO_LOW;
+                    } else if (!strcmp(node->val, "medium")) {
+                        taf->prio = PRIO_MEDIUM;
+                    } else if (!strcmp(node->val, "high")) {
+                        taf->prio = PRIO_HIGH;
+                    } else {
+                        FatalError("unknown cpu_affinity prio");
+                    }
+                    SCLogConfig("Using default prio '%s' for set '%s'",
+                            node->val, setname);
+                }
+            }
+
+            node = ConfNodeLookupChild(affinity->head.tqh_first, "mode");
+            if (node != NULL) {
+                if (!strcmp(node->val, "exclusive")) {
+                    taf->mode_flag = EXCLUSIVE_AFFINITY;
+                } else if (!strcmp(node->val, "balanced")) {
+                    taf->mode_flag = BALANCED_AFFINITY;
+                } else {
+                    FatalError("unknown cpu_affinity node");
+                }
+            }
+
+            node = ConfNodeLookupChild(affinity->head.tqh_first, "threads");
+            if (node != NULL) {
+                if (StringParseUint32(&taf->nb_threads, 10, 0, (const char *)node->val) < 0) {
+                    FatalError("invalid value for threads "
+                                "count: '%s'",
+                            node->val);
+                }
+                if (! taf->nb_threads) {
+                    FatalError("bad value for threads count");
+                }
             }
         }
     }
@@ -472,7 +680,11 @@ uint16_t AffinityGetNextCPU(ThreadVars *tv, ThreadsAffinityType *taf)
     //                      high: [ 3 ]
     //                      default: "medium"
 
-    if (tv->type == TVT_PPT && tv->iface_name) {
+
+    // TODO: Restrict usage only if some auto-assign cpu affinity will be on
+    if (tv->type == TVT_PPT && tv->iface_name && strcmp(tv->iface_name, taf->name)) {
+        // if tv->iface_name is different from taf->name
+        // then we use global auto assignment
         if (topology == NULL) {
             if (hwloc_topology_init(&topology) == -1) {
                 FatalError("Failed to initialize topology");
