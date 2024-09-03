@@ -97,6 +97,8 @@ jobs:
                 gcc \
                 gcc-c++ \
                 git \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 jq \
                 libtool \
@@ -264,6 +266,8 @@ jobs:
                 gcc \
                 gcc-c++ \
                 git \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 jq \
                 libtool \
@@ -319,6 +323,76 @@ jobs:
       - name: Verify clippy
         run: cargo clippy --all-features
         working-directory: rust
+
+  almalinux-9-non-bundled-libhtp:
+    name: AlmaLinux 9 Non-Bundled LibHTP
+    runs-on: ubuntu-latest
+    container: almalinux:9
+    needs: [prepare-deps, ubuntu-22-04-dist]
+    steps:
+      # Cache Rust stuff.
+      - name: Cache cargo registry
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry
+
+      - name: Determine number of CPUs
+        run: echo CPUS=$(nproc --all) >> $GITHUB_ENV
+
+      - name: Install system packages
+        run: |
+          dnf -y install dnf-plugins-core epel-release
+          dnf config-manager --set-enabled crb
+          dnf -y install \
+                autoconf \
+                automake \
+                cargo-vendor \
+                cbindgen \
+                diffutils \
+                numactl-devel \
+                dpdk-devel \
+                file-devel \
+                gcc \
+                gcc-c++ \
+                git \
+                hwloc \
+                hwloc-devel \
+                jansson-devel \
+                jq \
+                libtool \
+                libyaml-devel \
+                libnfnetlink-devel \
+                libnetfilter_queue-devel \
+                libnet-devel \
+                libcap-ng-devel \
+                libevent-devel \
+                libmaxminddb-devel \
+                libpcap-devel \
+                libtool \
+                lz4-devel \
+                make \
+                pcre2-devel \
+                pkgconfig \
+                python3-devel \
+                python3-sphinx \
+                python3-yaml \
+                rust-toolset \
+                sudo \
+                which \
+                zlib-devel
+
+      - name: Download suricata.tar.gz
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806
+        with:
+          name: dist
+
+      - run: tar xf suricata-*.tar.gz --strip-components=1
+      - run: cd libhtp && ./configure --prefix=/usr/local
+      - run: cd libhtp && make -j ${{ env.CPUS }}
+      - run: cd libhtp && make install
+
+      - run: PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure --enable-non-bundled-htp --with-libhtp-includes=/usr/local/include --with-libhtp-libraries=/usr/local/lib
 
   rpms:
     name: Build RPMs
@@ -425,6 +499,8 @@ jobs:
                 gcc \
                 gcc-c++ \
                 git \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 jq \
                 libtool \
@@ -514,6 +590,8 @@ jobs:
                 gcc \
                 gcc-c++ \
                 git \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 jq \
                 libtool \
@@ -613,6 +691,8 @@ jobs:
                 gcc-c++ \
                 git \
                 gpg \
+                hwloc \
+                hwloc-devel \
                 hiredis-devel \
                 jansson-devel \
                 jq \
@@ -707,6 +787,8 @@ jobs:
                 gcc-c++ \
                 git \
                 hiredis-devel \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 jq \
                 libasan \
@@ -805,6 +887,8 @@ jobs:
                 gcc-c++ \
                 git \
                 hiredis-devel \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 jq \
                 libasan \
@@ -892,6 +976,8 @@ jobs:
                 gcc-c++ \
                 git \
                 hiredis-devel \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 jq \
                 libasan \
@@ -992,6 +1078,8 @@ jobs:
                 gcc \
                 gcc-c++ \
                 git \
+                hwloc \
+                hwloc-devel \
                 libasan \
                 libtool \
                 libyaml-devel \
@@ -1104,6 +1192,8 @@ jobs:
                 coccinelle \
                 dpdk-dev \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libcap-ng-dev \
                 libevent-dev \
@@ -1175,6 +1265,8 @@ jobs:
                 clang-19 \
                 curl \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libtool \
                 libpcap-dev \
@@ -1312,6 +1404,8 @@ jobs:
                 llvm-15-dev \
                 clang-15 \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 inetutils-ping \
                 libc++-dev \
@@ -1416,6 +1510,8 @@ jobs:
                 llvm-15-dev \
                 clang-15 \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 inetutils-ping \
                 libc++-dev \
@@ -1554,6 +1650,8 @@ jobs:
                 cbindgen \
                 clang-18 \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libc++-dev \
                 libc++abi-dev \
@@ -1640,6 +1738,8 @@ jobs:
                 cbindgen \
                 clang-18 \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 inetutils-ping \
                 libc++-dev \
@@ -1740,6 +1840,8 @@ jobs:
                 llvm-15-dev \
                 clang-15 \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libc++-dev \
                 libc++abi-dev \
@@ -1838,6 +1940,8 @@ jobs:
                 automake \
                 cargo \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libtool \
                 libpcap-dev \
@@ -1920,6 +2024,8 @@ jobs:
           apt -y install \
                 build-essential \
                 curl \
+                hwloc \
+                libhwloc-dev \
                 libtool \
                 libpcap-dev \
                 libnet1-dev \
@@ -1989,6 +2095,8 @@ jobs:
                 automake \
                 cargo \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libtool \
                 libpcap-dev \
@@ -2072,6 +2180,8 @@ jobs:
                 automake \
                 cargo \
                 git \
+                hwloc \
+                libhwloc-dev \
                 libtool \
                 libpcap-dev \
                 libnet1-dev \
@@ -2136,6 +2246,8 @@ jobs:
                   automake \
                   cargo \
                   git \
+                  hwloc \
+                  libhwloc-dev \
                   jq \
                   libtool \
                   libpcap-dev \
@@ -2269,6 +2381,8 @@ jobs:
                 automake \
                 cargo \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libtool \
                 libpcap-dev \
@@ -2366,6 +2480,8 @@ jobs:
               curl \
               dpdk-dev \
               git \
+              hwloc \
+              libhwloc-dev \
               jq \
               make \
               libpcre3 \
@@ -2455,6 +2571,8 @@ jobs:
               cmake \
               curl \
               git \
+              hwloc \
+              libhwloc-dev \
               jq \
               make \
               libpcre3 \
@@ -2535,6 +2653,8 @@ jobs:
               curl \
               dpdk-dev \
               git \
+              hwloc \
+              libhwloc-dev \
               jq \
               make \
               libpcre3 \
@@ -2618,6 +2738,8 @@ jobs:
                 ccache \
                 curl \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libpcre2-dev \
                 libpcap-dev   \
@@ -2690,6 +2812,8 @@ jobs:
                 ccache \
                 curl \
                 git \
+                hwloc \
+                libhwloc-dev \
                 jq \
                 libpcre2-dev \
                 libpcap-dev   \
@@ -2753,6 +2877,7 @@ jobs:
           cbindgen \
           curl \
           hiredis \
+          hwloc \
           jansson \
           jq \
           libmagic \
@@ -2974,6 +3099,8 @@ jobs:
                 gcc \
                 gcc-c++ \
                 git \
+                hwloc \
+                hwloc-devel \
                 jansson-devel \
                 libtool \
                 libyaml-devel \
