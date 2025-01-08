@@ -984,7 +984,7 @@ Using the new configuration format introduced in Suricata 8.0 it is possible
 to set CPU affinity settings per interface. This can be useful
 when you have multiple interfaces and you want to dedicate specific CPU cores
 to specific interfaces. This can be useful for example when Suricata runs on
-multiple NUMA nodes and reads from interfaces on each NUMA nodes.
+multiple NUMA nodes and reads from interfaces on each NUMA node.
 
 Interface-specific affinity settings can be configured for the worker-cpu-set
 and the receive-cpu-set (only used in autofp mode).
@@ -997,7 +997,7 @@ The interface names needs to be unique and be located under the capture mode
 configuration.
 
 The interface-specific settings will override the global settings for the
-worker-cpu-set and receive-cpu-set. The CPUs does not need to be contained in
+worker-cpu-set and receive-cpu-set. The CPUs do not need to be contained in
 the parent node settings. If the interface-specific settings are not defined,
 the global settings will be used.
 
@@ -1015,13 +1015,14 @@ the global settings will be used.
               high: [ "all" ]
               default: "medium"
 
-Automatically pinning hardware-local CPU cores to worker/receive threads
+Automatic NUMA-aware CPU core pinning
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When Suricata is running on a system with multiple NUMA nodes, it is possible
-to automatically use CPUs from the same NUMA node as the interface.
-This can be useful to reduce the latency of memory access and increase
-the performance of Suricata.
+to automatically use CPUs from the same NUMA node as the network capture
+interface.
+CPU cores on the same NUMA nodes as the network capture interface have
+reduced memory access latency and increased the performance of Suricata.
 This is enabled by setting the `autopin` option to `yes` in the threading
 section. This option is available for worker-cpu-set and receive-cpu-set.
 

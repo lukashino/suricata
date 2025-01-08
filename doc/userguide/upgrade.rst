@@ -106,10 +106,12 @@ Major changes
     The old configuration format does not support this extension and will be
     removed in Suricata 9.0.
   - The `threading.cpu-affinity` configuration now supports autopinning
-    worker or receive threads to the same NUMA node as the NIC is located on.
+    worker or receive threads to the same NUMA node as the network capture
+    interface is located on.
     This can be enabled by setting `threading.autopin` to `yes`.
     See :ref:`suricata-yaml-threading` for more information.
-    This requires hwloc dependency to be installed.
+    This requires hwloc dependency to be installed and `--enable-hwloc`
+    to be passed to configure script.
 
 Removals
 ~~~~~~~~

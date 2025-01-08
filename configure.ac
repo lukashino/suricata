@@ -757,7 +757,7 @@
             echo "   or your distribution:"
             echo
             echo "   Ubuntu: apt-get install hwloc libhwloc-dev"
-            echo "   Fedora: dnf install  hwloc hwloc-devel"
+            echo "   Fedora: dnf install hwloc hwloc-devel"
             echo "   CentOS/RHEL: yum install hwloc hwloc-devel"
             echo
             exit 1

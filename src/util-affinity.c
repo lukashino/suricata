@@ -74,10 +74,13 @@ static ThreadsAffinityType *AllocAndInitAffinityType(
 {
     ThreadsAffinityType *new_affinity = SCCalloc(1, sizeof(ThreadsAffinityType));
     if (new_affinity == NULL) {
-        FatalError("Unable to allocate memory for new affinity type");
+        FatalError("Unable to allocate memory for new CPU affinity type");
     }
 
     new_affinity->name = strdup(interface_name);
+    if (new_affinity->name == NULL) {
+        FatalError("Unable to allocate memory for new CPU affinity type name");
+    }
     new_affinity->parent = parent;
     new_affinity->mode_flag = EXCLUSIVE_AFFINITY;
     new_affinity->prio = PRIO_MEDIUM;
@@ -95,7 +98,7 @@ static ThreadsAffinityType *AllocAndInitAffinityType(
             void *p = SCRealloc(
                     parent->children, parent->nb_children_capacity * sizeof(ThreadsAffinityType *));
             if (p == NULL) {
-                FatalError("Unable to reallocate memory for children affinity types");
+                FatalError("Unable to reallocate memory for children CPU affinity types");
             }
             parent->children = p;
         }
@@ -137,7 +140,7 @@ ThreadsAffinityType *GetAffinityTypeForNameAndIface(const char *name, const char
     }
 
     if (parent_affinity == NULL) {
-        SCLogError("Affinity with name \"%s\" not found", name);
+        SCLogError("CPU affinity with name \"%s\" not found", name);
         return NULL;
     }
 
@@ -175,7 +178,7 @@ ThreadsAffinityType *GetOrAllocAffinityTypeForIfaceOfName(
     }
 
     if (parent_affinity == NULL) {
-        SCLogError("Affinity with name \"%s\" not found", name);
+        SCLogError("CPU affinity with name \"%s\" not found", name);
         return NULL;
     }
 
@@ -199,7 +202,7 @@ static void AffinitySetupInit(void)
     int i, j;
     int ncpu = UtilCpuGetNumProcessorsConfigured();
 
-    SCLogDebug("Initialize affinity setup\n");
+    SCLogDebug("Initialize CPU affinity setup\n");
     /* be conservative relatively to OS: use all cpus by default */
     for (i = 0; i < MAX_CPU_SET; i++) {
         cpu_set_t *cs = &thread_affinity[i].cpu_set;
@@ -258,8 +261,9 @@ void BuildCpusetWithCallback(const char *name, ConfNode *node,
         for (i = a; i<= b; i++) {
             Callback(i, data);
         }
-        if (stop)
+        if (stop) {
             break;
+        }
     }
 }
 
@@ -296,7 +300,7 @@ static void SetupCpuSets(ThreadsAffinityType *taf, ConfNode *affinity, const cha
     if (cpu_node != NULL) {
         BuildCpuset(setname, cpu_node, &taf->cpu_set);
     } else {
-        SCLogInfo("Unable to find 'cpu' node for set %s", setname);
+        SCLogWarning("Unable to find 'cpu' node for set %s", setname);
     }
 }
 
@@ -320,8 +324,9 @@ static void BuildPriorityCpuset(ThreadsAffinityType *taf, ConfNode *prio_node, c
 static void SetupDefaultPriority(ThreadsAffinityType *taf, ConfNode *prio_node, const char *setname)
 {
     ConfNode *default_node = ConfNodeLookupChild(prio_node, "default");
-    if (default_node == NULL)
+    if (default_node == NULL) {
         return;
+    }
 
     if (strcmp(default_node->val, "low") == 0) {
         taf->prio = PRIO_LOW;
@@ -345,8 +350,9 @@ static void SetupAffinityPriority(ThreadsAffinityType *taf, ConfNode *affinity, 
     CPU_ZERO(&taf->medprio_cpu);
     CPU_ZERO(&taf->hiprio_cpu);
     ConfNode *prio_node = ConfNodeLookupChild(affinity, "prio");
-    if (prio_node == NULL)
+    if (prio_node == NULL) {
         return;
+    }
 
     BuildPriorityCpuset(taf, prio_node, "low", &taf->lowprio_cpu, setname);
     BuildPriorityCpuset(taf, prio_node, "medium", &taf->medprio_cpu, setname);
@@ -360,8 +366,9 @@ static void SetupAffinityPriority(ThreadsAffinityType *taf, ConfNode *affinity, 
 static void SetupAffinityMode(ThreadsAffinityType *taf, ConfNode *affinity)
 {
     ConfNode *mode_node = ConfNodeLookupChild(affinity, "mode");
-    if (mode_node == NULL)
+    if (mode_node == NULL) {
         return;
+    }
 
     if (strcmp(mode_node->val, "exclusive") == 0) {
         taf->mode_flag = EXCLUSIVE_AFFINITY;
@@ -378,22 +385,47 @@ static void SetupAffinityMode(ThreadsAffinityType *taf, ConfNode *affinity)
 static void SetupAffinityThreads(ThreadsAffinityType *taf, ConfNode *affinity)
 {
     ConfNode *threads_node = ConfNodeLookupChild(affinity, "threads");
-    if (threads_node == NULL)
+    if (threads_node == NULL) {
         return;
+    }
 
     if (StringParseUint32(&taf->nb_threads, 10, 0, threads_node->val) < 0 || taf->nb_threads == 0) {
         FatalError("Invalid thread count: %s", threads_node->val);
     }
 }
 
-static bool AllCPUsUsed(ThreadsAffinityType *taf)
+/**
+ * \brief Get the YAML path for the given affinity type. 
+ * The path is built using the parent name (if available) and the affinity name.
+ * Do not free the returned string.
+ * \param taf the affinity type - if NULL, the path is built for the root node
+ * \return a string containing the YAML path, or NULL if the path is too long
+ */
+char *AffinityGetYamlPath(ThreadsAffinityType *taf)
 {
-    for (int i = 0; i < MAX_NUMA_NODES; i++) {
-        if (taf->lcpu[i] < UtilCpuGetNumProcessorsOnline()) {
-            return false;
-        }
+    static char rootpath[] = "threading.cpu-affinity";
+    static char path[1024] = { 0 };
+    char subpath[256] = { 0 };
+
+    if (taf == NULL) {
+        return rootpath;
     }
-    return true;
+
+    if (taf->parent != NULL) {
+        long r = snprintf(subpath, sizeof(subpath), "%s.", taf->parent->name);
+        if (r < 0 || r >= (long)sizeof(subpath)) {
+            FatalError("Unable to build YAML path for CPU affinity %s.%s", taf->parent->name, taf->name);
+        }
+    } else {
+        subpath[0] = '\0';
+    }
+
+    long r = snprintf(path, sizeof(path), "%s.%s%s", rootpath, subpath, taf->name);
+    if (r < 0 || r >= (long)sizeof(path)) {
+        FatalError("Unable to build YAML path for CPU affinity %s", taf->name);
+    }
+
+    return path;
 }
 
 static void ResetCPUs(ThreadsAffinityType *taf)
@@ -433,8 +465,9 @@ static void SetupSingleIfaceAffinity(ThreadsAffinityType *taf, ConfNode *iface_n
             break;
         }
     }
-    if (interface_name == NULL)
+    if (interface_name == NULL) {
         return;
+    }
 
     ThreadsAffinityType *iface_taf =
             GetOrAllocAffinityTypeForIfaceOfName(taf->name, interface_name);
@@ -453,16 +486,18 @@ static void SetupSingleIfaceAffinity(ThreadsAffinityType *taf, ConfNode *iface_n
  */
 static void SetupPerIfaceAffinity(ThreadsAffinityType *taf, ConfNode *affinity)
 {
-    ConfNode *per_iface_node = ConfNodeLookupChild(affinity, "interface-specific-cpu-set");
-    if (per_iface_node == NULL)
+    char if_af[] = "interface-specific-cpu-set";
+    ConfNode *per_iface_node = ConfNodeLookupChild(affinity, if_af);
+    if (per_iface_node == NULL) {
         return;
+    }
 
     ConfNode *iface_node;
     TAILQ_FOREACH (iface_node, &per_iface_node->head, next) {
         if (strcmp(iface_node->val, "interface") == 0) {
             SetupSingleIfaceAffinity(taf, iface_node);
         } else {
-            SCLogWarning("Unknown node in interface-specific-cpu-set: %s", iface_node->name);
+            SCLogWarning("Unknown node in %s: %s", if_af, iface_node->name);
         }
     }
 }
@@ -481,9 +516,8 @@ static bool AffinityConfigIsDeprecated(void)
         return threading_affinity_deprecated;
     }
 
-    ConfNode *root = ConfGetNode("threading.cpu-affinity");
+    ConfNode *root = ConfGetNode(AffinityGetYamlPath(NULL));
     if (root == NULL) {
-        threading_affinity_deprecated = false;
         initialized = true;
         return threading_affinity_deprecated;
     }
@@ -515,18 +549,15 @@ void AffinitySetupLoadFromConfig(void)
         AffinitySetupInit();
         thread_affinity_init_done = 1;
         if (AffinityConfigIsDeprecated()) {
-            SCLogWarning("CPU affinity configuration uses a deprecated structure and will become "
-                         "obsolete in a future major release (Suricata 9.0). Please update your "
-                         "threading.cpu-affinity to the new format. "
-                         "See notes in %s/upgrade.html#upgrading-7-0-to-8-0",
-                    GetDocURL());
+            SCLogWarning("CPU affinity configuration uses a deprecated structure and will not be supported in a future major release (Suricata 9.0). Please update your %s to the new format. See notes in %s/upgrade.html#upgrading-7-0-to-8-0",
+                    AffinityGetYamlPath(NULL), GetDocURL());
         }
     }
 
-    SCLogDebug("Loading threading.cpu-affinity from config");
-    ConfNode *root = ConfGetNode("threading.cpu-affinity");
+    SCLogDebug("Loading %s from config", AffinityGetYamlPath(NULL));
+    ConfNode *root = ConfGetNode(AffinityGetYamlPath(NULL));
     if (root == NULL) {
-        SCLogInfo("Cannot find threading.cpu-affinity node in config");
+        SCLogInfo("Cannot find %s node in config", AffinityGetYamlPath(NULL));
         return;
     }
 
@@ -534,15 +565,16 @@ void AffinitySetupLoadFromConfig(void)
     TAILQ_FOREACH(affinity, &root->head, next) {
         char *v = AffinityConfigIsDeprecated() ? affinity->val : affinity->name;
         const char *setname = GetAffinitySetName(v);
-        if (setname == NULL)
+        if (setname == NULL) {
             continue;
+        }
 
         ThreadsAffinityType *taf = GetOrAllocAffinityTypeForIfaceOfName(setname, NULL);
         if (taf == NULL) {
             FatalError("Unknown CPU affinity type: %s", setname);
         }
 
-        SCLogConfig("Found affinity definition for \"%s\"", setname);
+        SCLogConfig("Found CPU affinity definition for \"%s\"", setname);
 
         ConfNode *aff_query_node =
                 AffinityConfigIsDeprecated() ? affinity->head.tqh_first : affinity;
@@ -728,7 +760,7 @@ static int InterfaceGetNumaNode(ThreadVars *tv)
         if_obj = HwLocDeviceGetByPcie(topology, tv->iface_name);
     }
 
-    if (if_obj != NULL) {
+    if (if_obj != NULL && SCLogGetLogLevel() == SC_LOG_DEBUG) {
         HwlocObjectDump(if_obj, tv->iface_name);
     }
 
@@ -768,8 +800,9 @@ static bool CPUIsFromNuma(uint16_t ncpu, uint16_t numa)
         hwloc_bitmap_free(cpuset);
     }
 
-    if (numa == numa_node->logical_index)
+    if (numa == numa_node->logical_index) {
         return true;
+    }
 
 #endif /* HAVE_HWLOC */
 
@@ -808,36 +841,67 @@ static int16_t CPUSelectFromNuma(int iface_numa, ThreadsAffinityType *taf)
     return -1;
 }
 
-static int16_t CPUSelectAlternative(ThreadsAffinityType *taf)
+// TODO: Look at the CPU assignment code and see if all the dancing around is necessary
+static int16_t CPUSelectAlternative(int iface_numa, ThreadsAffinityType *taf)
 {
     for (int nid = 0; nid < MAX_NUMA_NODES; nid++) {
+        if (iface_numa == nid) {
+            continue;
+        }
+        
         int16_t cpu = FindCPUInNumaNode(nid, taf);
         if (cpu != -1) {
+            SCLogPerf("CPU %d from NUMA %d assigned to a network interface located on NUMA %d", cpu, nid, iface_numa);
             return cpu;
         }
     }
     return -1;
 }
 
+/**
+ * \brief Select the next available CPU for the given affinity type.
+ * taf->cpu_set is a bit array where each bit represents a CPU core.
+ * The function iterates over the bit array and returns the first available CPU.
+ * If last used CPU core index is higher than the indexes of available cores,
+ * we reach the end of the array, and we reset the CPU selection.
+ * On the second reset attempt, the function bails out with a default value.
+ * The second attempt should only happen with an empty CPU set.
+ */
 static uint16_t CPUSelectDefault(ThreadsAffinityType *taf)
 {
     uint16_t cpu = taf->lcpu[0];
     int attempts = 0;
-
     while (!CPU_ISSET(cpu, &taf->cpu_set) && attempts < 2) {
         cpu = (cpu + 1) % UtilCpuGetNumProcessorsOnline();
-        if (cpu == 0)
+        if (cpu == 0) {
             attempts++;
+        }
     }
 
     taf->lcpu[0] = cpu + 1;
-
-    if (attempts == 2) {
-        SCLogError("%s does not contain available CPUs, CPU affinity configuration is invalid",
-                taf->name);
-    }
-
     return cpu;
+}
+
+static uint16_t CPUSelectFromNumaOrDefault(int iface_numa, ThreadsAffinityType *taf)
+{
+    uint16_t attempts = 0;
+    int16_t cpu = -1;
+    while (attempts < 2) {
+        cpu = CPUSelectFromNuma(iface_numa, taf);
+        if (cpu == -1) {
+            cpu = CPUSelectAlternative(iface_numa, taf);
+            if (cpu == -1) {
+                // All CPUs from all NUMAs are used at this point
+                ResetCPUs(taf);
+                attempts++;
+            }
+        }
+
+        if (cpu >= 0) {
+            return (uint16_t)cpu;
+        }
+    }
+    return CPUSelectDefault(taf);
 }
 
 static uint16_t GetNextAvailableCPU(int iface_numa, ThreadsAffinityType *taf)
@@ -845,18 +909,8 @@ static uint16_t GetNextAvailableCPU(int iface_numa, ThreadsAffinityType *taf)
     if (iface_numa < 0) {
         return CPUSelectDefault(taf);
     }
-    int16_t cpu = CPUSelectFromNuma(iface_numa, taf);
-    if (cpu == -1) {
-        cpu = CPUSelectAlternative(taf);
-        if (cpu == -1) {
-            ResetCPUs(taf);
-        }
-    }
 
-    if (cpu >= 0)
-        return (uint16_t)cpu;
-
-    return CPUSelectDefault(taf);
+    return CPUSelectFromNumaOrDefault(iface_numa, taf);
 }
 
 static bool AutopinEnabled(void)
@@ -885,19 +939,13 @@ uint16_t AffinityGetNextCPU(ThreadVars *tv, ThreadsAffinityType *taf)
         static bool printed = false;
         if (!printed) {
             printed = true;
-            SCLogWarning("threading.autopin option is enabled but hwloc support is not available. "
-                         "Please recompile Suricata with hwloc support to enable this feature.");
+            SCLogWarning("threading.autopin option is enabled but hwloc support is not compiled in. Make sure to pass --enable-nfqueue to configure when building Suricata.");
         }
 #endif /* HAVE_HWLOC */
     }
 
     SCMutexLock(&taf->taf_mutex);
     ncpu = GetNextAvailableCPU(iface_numa, taf);
-
-    if (AllCPUsUsed(taf)) {
-        ResetCPUs(taf);
-    }
-
     SCLogDebug("Setting affinity on CPU %d", ncpu);
     SCMutexUnlock(&taf->taf_mutex);
 #endif /* OS_WIN32 and __OpenBSD__ */
@@ -914,8 +962,9 @@ uint16_t UtilAffinityGetAffinedCPUNum(ThreadsAffinityType *taf)
 #if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined sun
     SCMutexLock(&taf->taf_mutex);
     for (int i = UtilCpuGetNumProcessorsOnline(); i >= 0; i--)
-        if (CPU_ISSET(i, &taf->cpu_set))
+        if (CPU_ISSET(i, &taf->cpu_set)) {
             ncpu++;
+        }
     SCMutexUnlock(&taf->taf_mutex);
 #endif
     return ncpu;
@@ -941,8 +990,9 @@ uint16_t UtilAffinityCpusOverlap(ThreadsAffinityType *taf1, ThreadsAffinityType 
     SCMutexUnlock(&taf1->taf_mutex);
 
     for (int i = UtilCpuGetNumProcessorsOnline(); i >= 0; i--)
-        if (CPU_ISSET(i, &tmpcset))
+        if (CPU_ISSET(i, &tmpcset)) {
             return 1;
+        }
     return 0;
 }
 

@@ -885,16 +885,16 @@ static bool ConfigThreadsInterfaceIsValid(uint16_t iface_threads, ThreadsAffinit
     return true;
 }
 
-static int32_t ConfigValidateThreads(uint16_t iface_threads, const char *iface)
+static bool ConfigIsThreadingValid(uint16_t iface_threads, const char *iface)
 {
     ThreadsAffinityType *itaf = GetAffinityTypeForNameAndIface("worker-cpu-set", iface);
     ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
     if (itaf && !ConfigThreadsInterfaceIsValid(iface_threads, itaf)) {
-        return -1;
+        return false;
     } else if (itaf == NULL && !ConfigThreadsGenericIsValid(iface_threads, wtaf)) {
-        return -1;
+        return false;
     }
-    return 0;
+    return true;
 }
 
 static DPDKIfaceConfig *ConfigParse(const char *iface)
@@ -907,7 +907,7 @@ static DPDKIfaceConfig *ConfigParse(const char *iface)
 
     ConfigInit(&iconf);
     retval = ConfigLoad(iconf, iface);
-    if (retval < 0 || ConfigValidateThreads(iconf->threads, iface) != 0) {
+    if (retval < 0 || !ConfigIsThreadingValid(iconf->threads, iface)) {
         iconf->DerefFunc(iconf);
         SCReturnPtr(NULL, "void *");
     }

@@ -87,6 +87,10 @@ typedef struct ThreadsAffinityType_ {
     uint32_t nb_children;
     uint32_t nb_children_capacity;
     struct ThreadsAffinityType_ *parent;
+    // a flag to avoid multiple warnings when no CPU is set
+    bool nocpu_warned; 
+    // a flag to indicate that CPU cores are local to the NUMA node of interface
+    bool numalocal_only; 
 } ThreadsAffinityType;
 
 /** store thread affinity mode for all type of threads */
@@ -94,6 +98,7 @@ typedef struct ThreadsAffinityType_ {
 extern ThreadsAffinityType thread_affinity[MAX_CPU_SET];
 #endif
 
+char *AffinityGetYamlPath(ThreadsAffinityType *taf);
 void AffinitySetupLoadFromConfig(void);
 ThreadsAffinityType *GetOrAllocAffinityTypeForIfaceOfName(
         const char *name, const char *interface_name);
