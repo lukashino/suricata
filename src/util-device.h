@@ -19,8 +19,8 @@
 #define SURICATA_UTIL_DEVICE_H
 
 #include "queue.h"
-#include "util-storage.h"
 #include "util-dpdk-common.h"
+#include "util-storage.h"
 
 #define OFFLOAD_FLAG_SG     (1<<0)
 #define OFFLOAD_FLAG_TSO    (1<<1)

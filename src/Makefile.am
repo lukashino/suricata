@@ -478,12 +478,12 @@ noinst_HEADERS = \
 	util-debug.h \
 	util-detect.h \
 	util-device.h \
-	util-dpdk.h \
 	util-dpdk-bonding.h \
 	util-dpdk-common.h \
 	util-dpdk-i40e.h \
 	util-dpdk-ice.h \
 	util-dpdk-ixgbe.h \
+	util-dpdk.h \
 	util-ebpf.h \
 	util-enum.h \
 	util-error.h \
@@ -1033,12 +1033,12 @@ libsuricata_c_a_SOURCES = \
 	util-debug-filters.c \
 	util-detect.c \
 	util-device.c \
-	util-dpdk.c \
 	util-dpdk-bonding.c \
 	util-dpdk-common.c \
 	util-dpdk-i40e.c \
 	util-dpdk-ice.c \
 	util-dpdk-ixgbe.c \
+	util-dpdk.c \
 	util-ebpf.c \
 	util-enum.c \
 	util-error.c \
