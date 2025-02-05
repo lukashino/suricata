@@ -220,3 +220,11 @@ other cards.
 Setting the value to 0 causes Suricata to skip the link check.
 If the interface's link remains down after the timeout period, Suricata warns
 the user but continues with the engine initialization.
+
+Encapsulation stripping
+-----------------------
+.. _dpdk-encapsulation-stripping:
+
+Suricata supports stripping the hardware-offloaded encapsulation stripping on
+the supported NICs. Currently, VLAN encapsulation stripping is supported.
+VLAN encapsulation stripping can be enabled with `vlan-strip-offload`.
