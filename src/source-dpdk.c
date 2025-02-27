@@ -527,6 +527,14 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
     if (ret != TM_ECODE_OK) {
         SCReturnInt(ret);
     }
+
+    bool stop_on_eof = false;
+    // just max 8 characters to match only substring without the EOL because livedev is netpcap0\0
+    if (strncmp(ptv->livedev->dev, "net_pcap", 8) == 0) {
+        SCLogNotice("%s: DPDK PCAP mode, stopping when no more packets are present", ptv->livedev->dev);
+        stop_on_eof = true;
+    }
+
     while (true) {
         if (unlikely(suricata_ctl_flags != 0)) {
             HandleShutdown(ptv);
@@ -535,6 +543,11 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
         uint16_t nb_rx =
                 rte_eth_rx_burst(ptv->port_id, ptv->queue_id, ptv->received_mbufs, BURST_SIZE);
+
+        if (stop_on_eof && nb_rx == 0) {
+            EngineStop();
+            continue;
+        }
         if (RXPacketCountHeuristic(tv, ptv, nb_rx)) {
             continue;
         }
