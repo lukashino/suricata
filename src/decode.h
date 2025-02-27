@@ -1313,6 +1313,7 @@ void DecodeUnregisterCounters(void);
 
 /** We had no alert on flow before this packet */
 #define PKT_FIRST_ALERTS BIT_U32(29)
+/** Hijacking this flag as it is not used. */
 #define PKT_FIRST_TAG    BIT_U32(30)
 
 #define PKT_PSEUDO_LOG_FLUSH BIT_U32(31) /**< Detect/log flush for protocol upgrade */

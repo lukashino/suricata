@@ -181,6 +181,19 @@ void Prefilter(DetectEngineThreadCtx *det_ctx, const SigGroupHead *sgh, Packet *
         (p->payload_len || (p->flags & PKT_DETECT_HAS_STREAMDATA)) &&
         !(p->flags & PKT_NOPAYLOAD_INSPECTION))
     {
+        if (p->dpdk_v.mbuf != NULL) {
+            uint32_t *mac = NULL;
+            mac = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint32_t *);
+            if (mac[0] != UINT32_MAX && mac[0] != 0) {
+                // hijacking PKT_FIRST_TAG flag to indicate we have some sids
+                p->flags |= PKT_FIRST_TAG;
+                // maybe the filling operation will need to happen in HS context
+                // but you wont know if it happened in payload or in stream
+                // for (int i = 0; mac[i] != 0; i++) {
+                //     // det_ctx->pmq
+                // }
+            }
+        }
         PACKET_PROFILING_DETECT_START(p, PROF_DETECT_PF_PAYLOAD);
         PrefilterEngine *engine = sgh->payload_engines;
         while (1) {
