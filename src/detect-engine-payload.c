@@ -98,9 +98,26 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
             det_ctx->payload_mpm_cnt++;
             det_ctx->payload_mpm_size += p->payload_len;
 #endif
+            // init
+            det_ctx->mtc.pids_count = 0;
             (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
+
+            if (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH) {
+                p->matched_sids[0] = UINT32_MAX;
+                p->matched_sids_cnt = 1;
+            } else {
+                for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
+                    if (det_ctx->mtc.pids[i] > 0x7FFFFFFF) {
+                        FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
+                                det_ctx->mtc.pids[i]);
+                    }
+                    p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
+                    p->matched_sids[p->matched_sids_cnt] &= 0x7FFFFFFF;
+                    p->matched_sids_cnt++;
+                }
+            }
             PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
         }
     }
@@ -122,9 +139,26 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
     if (p->payload_len < mpm_ctx->minlen)
         SCReturn;
 
+    // init
+    det_ctx->mtc.pids_count = 0;
     (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
             &det_ctx->mtc, &det_ctx->pmq,
             p->payload, p->payload_len);
+
+    if (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH) {
+        p->matched_sids[0] = UINT32_MAX;
+        p->matched_sids_cnt = 1;
+    } else {
+        for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
+            if (det_ctx->mtc.pids[i] > 0x7FFFFFFF) {
+                FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
+                        det_ctx->mtc.pids[i]);
+            }
+            p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
+            p->matched_sids[p->matched_sids_cnt] |= 0x80000000;
+            p->matched_sids_cnt++;
+        }
+    }
 
     PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
 }

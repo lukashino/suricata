@@ -311,6 +311,21 @@ static inline void DPDKDumpCounters(DPDKThreadVars *ptv)
 static void DPDKReleasePacket(Packet *p)
 {
     int retval;
+
+    uint32_t *mac;
+    mac = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint32_t *);
+    for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+        mac[i] = 0;
+    }
+    if (p->matched_sids_cnt > 0) {
+        for (uint32_t i = 0; i < p->matched_sids_cnt; i++) {
+            mac[i] = p->matched_sids[i];
+        }
+    } else {
+        mac[0] = 0;
+    }
+
+
     /* Need to be in copy mode and need to detect early release
        where Ethernet header could not be set (and pseudo packet)
        When enabling promiscuous mode on Intel cards, 2 ICMPv6 packets are generated.
@@ -420,6 +435,8 @@ static inline Packet *PacketInitFromMbuf(DPDKThreadVars *ptv, struct rte_mbuf *m
     if (unlikely(p == NULL)) {
         return NULL;
     }
+    p->matched_sids_cnt = 0;
+    p->matched_sids[0] = 0;
     PKT_SET_SRC(p, PKT_SRC_WIRE);
     p->datalink = LINKTYPE_ETHERNET;
     if (ptv->checksum_mode == CHECKSUM_VALIDATION_DISABLE) {

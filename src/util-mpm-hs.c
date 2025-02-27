@@ -882,6 +882,8 @@ typedef struct SCHSCallbackCtx_ {
     SCHSCtx *ctx;
     void *pmq;
     uint32_t match_count;
+    uint32_t pids[MATCHED_SIDS_ARR_LEN_THRESH];
+    uint32_t pids_count;
 } SCHSCallbackCtx;
 
 /* Hyperscan MPM match event handler */
@@ -893,6 +895,15 @@ static int SCHSMatchEvent(unsigned int id, unsigned long long from,
     PrefilterRuleStore *pmq = cctx->pmq;
     const PatternDatabase *pd = cctx->ctx->pattern_db;
     const SCHSPattern *pat = pd->parray[id];
+    if (cctx->pids_count + 1 > MATCHED_SIDS_ARR_LEN_THRESH) {
+        cctx->pids[0] = UINT32_MAX;
+        cctx->pids_count = 1;
+    }
+    if (cctx->pids[0] != UINT32_MAX) {
+        // TODO: check for duplicate pattern ids
+        cctx->pids[cctx->pids_count++] = id;
+    }
+    
 
     SCLogDebug("Hyperscan Match %" PRIu32 ": id=%" PRIu32 " @ %" PRIuMAX
                " (pat id=%" PRIu32 ")",
@@ -928,7 +939,7 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         return 0;
     }
 
-    SCHSCallbackCtx cctx = {.ctx = ctx, .pmq = pmq, .match_count = 0};
+    SCHSCallbackCtx cctx = {.ctx = ctx, .pmq = pmq, .match_count = 0, .pids_count = 0};
 
     /* scratch should have been cloned from g_scratch_proto at thread init. */
     hs_scratch_t *scratch = hs_thread_ctx->scratch;
@@ -947,6 +958,8 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         ret = cctx.match_count;
     }
 
+    memcpy(mpm_thread_ctx->pids, cctx.pids, cctx.pids_count * sizeof(uint32_t));
+    mpm_thread_ctx->pids_count = cctx.pids_count;
     return ret;
 }
 

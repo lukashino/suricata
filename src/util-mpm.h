@@ -25,6 +25,7 @@
 #define SURICATA_UTIL_MPM_H
 
 #include "app-layer-protos.h"
+#include "decode.h"
 #include "util-prefilter.h"
 
 #define MPM_INIT_HASH_SIZE 65536
@@ -48,6 +49,10 @@ typedef struct MpmThreadCtx_ {
 
     uint32_t memory_cnt;
     uint32_t memory_size;
+
+    /* matched pattern IDS of the MPM matcher Hyperscan e.g.*/
+    uint32_t pids[MATCHED_SIDS_ARR_LEN_THRESH];
+    uint32_t pids_count;
 
 } MpmThreadCtx;
 
