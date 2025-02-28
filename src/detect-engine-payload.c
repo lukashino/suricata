@@ -107,9 +107,8 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                 if (patids_ptr[0] != UINT32_MAX) {
                     for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
                         // to determine if the PID is valid for this prefilter or PktStream
-                        if (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) {
-                            uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_PAYLOAD_FN;
-                            patids[patids_cnt++] = adjusted_pid;
+                        if ((patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
+                            patids[patids_cnt++] = patids_ptr[i];
                         }
                     }
 
