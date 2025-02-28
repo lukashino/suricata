@@ -98,6 +98,31 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
             det_ctx->payload_mpm_cnt++;
             det_ctx->payload_mpm_size += p->payload_len;
 #endif
+
+            if (p->dpdk_v.mbuf != NULL) {
+                uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
+                uint32_t patids_cnt = 0;
+                uint32_t *patids_ptr;
+                patids_ptr = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint32_t *);
+                if (patids_ptr[0] != UINT32_MAX) {
+                    for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+                        // to determine if the PID is valid for this prefilter or PktStream
+                        if (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) {
+                            uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_PAYLOAD_FN;
+                            patids[patids_cnt++] = adjusted_pid;
+                        }
+                    }
+
+                    if (patids_cnt > 0) {
+                        (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+                            &det_ctx->mtc, &det_ctx->pmq,
+                            (uint8_t *)patids, UINT32_MAX - patids_cnt);
+                    }
+                    return;
+                }
+            }
+
+
             (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
@@ -122,6 +147,47 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
     if (p->payload_len < mpm_ctx->minlen)
         SCReturn;
 
+    if (p->dpdk_v.mbuf != NULL) {
+        uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
+        uint32_t patids_cnt = 0;
+        uint32_t *patids_ptr;
+        patids_ptr = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint32_t *);
+        if (patids_ptr[0] != UINT32_MAX) {
+            for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+                // to determine if the PID is valid for this prefilter or PktStream
+                if (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) {
+                    uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_PAYLOAD_FN;
+                    patids[patids_cnt++] = adjusted_pid;
+                }
+            }
+
+            if (patids_cnt > 0) {
+                (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+                    &det_ctx->mtc, &det_ctx->pmq,
+                    (uint8_t *)patids, UINT32_MAX - patids_cnt);
+            }
+            return;
+        }
+    }
+
+    // the same as this in the PktStream function except different handling of the top bit
+    // here will be an if statement to check if
+    //   the first patid was uint max - then you do full search
+    //   the patid cnt is zero - then you skip
+    //   otherwise pass the patids to the search function in the payload and payload len will be uint32_max minus the patids_cnt
+
+    // reading and calcing the delta of an operation
+    // uint64_t t2 = rte_rdtsc_precise();
+    // const uint64_t ticks_per_us = rte_get_tsc_hz() / 1000000;
+    // if (ticks_per_us != 0) {
+    //   if (lv->hsc->stats == NULL)
+    //     rte_panic("lv->hsc->stats is NULL");
+    //   lv->hsc->stats->total_scans_cycles += (t2 - t1);
+    //   lv->hsc->stats->total_scans_us += (t2 - t1) / ticks_per_us;
+    //   lv->hsc->stats->total_scans++;
+    // } else {
+    //   rte_panic("why zero");
+    // }
     (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
             &det_ctx->mtc, &det_ctx->pmq,
             p->payload, p->payload_len);

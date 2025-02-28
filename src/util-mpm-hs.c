@@ -926,6 +926,19 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
 
     if (unlikely(buflen == 0)) {
         return 0;
+    } else if (buflen >= (UINT32_MAX - MATCHED_SIDS_ARR_LEN_THRESH)) {
+        // we have extracted pattern ids from the packet's MAC address
+        const uint32_t *pids = (const uint32_t *)buf;
+        uint32_t pids_cnt = UINT32_MAX - buflen;
+        for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+            const SCHSPattern *pat = pd->parray[pids[i]];
+            SCLogInfo("Hyperscan Pre-Match %" PRIu32 ": id=%" PRIu32 " @ %" PRIuMAX
+                    " (pat id=%" PRIu32 ")",
+                    i, (uint32_t)pids[i], pat->id);
+
+            PrefilterAddSids(pmq, pat->sids, pat->sids_size);
+        }
+        return 0;
     }
 
     SCHSCallbackCtx cctx = {.ctx = ctx, .pmq = pmq, .match_count = 0};

@@ -456,6 +456,11 @@ struct PacketL4 {
     } vars;
 };
 
+// the limit should be actually 3 because SigIntId is uint32_t and ETH header has 14 bytes out of which 12 are for MAC addresses
+#define MATCHED_SIDS_ARR_LEN_THRESH 3
+/* the pattern ID is valid in PrefilterPktPayload function */
+#define PREFILTER_PKT_PAYLOAD_FN BIT_U32(31)
+
 /* sizes of the members:
  * src: 17 bytes
  * dst: 17 bytes
