@@ -50,6 +50,8 @@
 #include "util-profiling.h"
 #include "util-mpm-ac.h"
 
+bool FPGA_OFFLOADED_PM = false;
+
 struct StreamMpmData {
     DetectEngineThreadCtx *det_ctx;
     const MpmCtx *mpm_ctx;
@@ -99,7 +101,7 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
             det_ctx->payload_mpm_size += p->payload_len;
 #endif
 
-            if (p->dpdk_v.mbuf != NULL) {
+            if (FPGA_OFFLOADED_PM && p->dpdk_v.mbuf != NULL) {
                 uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
                 uint32_t patids_cnt = 0;
                 uint32_t *patids_ptr;
@@ -146,7 +148,7 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
     if (p->payload_len < mpm_ctx->minlen)
         SCReturn;
 
-    if (p->dpdk_v.mbuf != NULL) {
+    if (FPGA_OFFLOADED_PM && p->dpdk_v.mbuf != NULL) {
         uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
         uint32_t patids_cnt = 0;
         uint32_t *patids_ptr;
@@ -197,6 +199,13 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
 int PrefilterPktPayloadRegister(DetectEngineCtx *de_ctx,
         SigGroupHead *sgh, MpmCtx *mpm_ctx)
 {
+    int fpga_offload_enabled;
+    if (ConfGetBool("dpdk.fpga-offloaded", &fpga_offload_enabled) == 0) {
+        FatalError("Could not find dpdk.fpga-offloaded in config file. Specify if you want to enable it.");
+    }
+
+    FPGA_OFFLOADED_PM = (bool)fpga_offload_enabled;
+
     return PrefilterAppendPayloadEngine(de_ctx, sgh,
             PrefilterPktPayload, mpm_ctx, NULL, "payload");
 }
