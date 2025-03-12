@@ -533,11 +533,51 @@ static void PeriodicDPDKDumpCounters(DPDKThreadVars *ptv)
 }
 
 /**
+ * \brief Copies data from a segmented mbuf to a single data buffer.
+ */
+static int
+ReceiveDPDKMerger(struct rte_mbuf *mbuf, const uint8_t *data, uint32_t data_mlen)
+{
+    uint16_t copied = 0;
+    uint8_t *dst = (uint8_t *)data;  // cast destination to a byte pointer
+
+    if (data_mlen < rte_pktmbuf_pkt_len(mbuf)) {
+        /* The provided data buffer is smaller than the total pkt length. */
+        return -1;
+    }
+
+    /* Traverse the mbuf chain and copy each segment. */
+    while (mbuf != NULL && copied < data_mlen) {
+        /* Get the length of the current segment. */
+        uint16_t seg_len = rte_pktmbuf_data_len(mbuf);
+
+        /* Copy the segment data to the destination buffer. */
+        memcpy(dst + copied, rte_pktmbuf_mtod(mbuf, uint8_t *), seg_len);
+
+        /* Update the number of bytes copied so far. */
+        copied += seg_len;
+
+        /* Move to the next segment. */
+        mbuf = mbuf->next;
+    }
+
+    /* Check if we have copied the required amount of data. */
+    if (copied > data_mlen) {
+        /* Data in mbuf chain was shorter than expected. */
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
  *  \brief Main DPDK reading Loop function
  */
 static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 {
     SCEnter();
+    const uint8_t pkt_temp_data[1048576];
+    uint32_t pkt_temp_data_len = 1048576;
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
     ptv->slot = ((TmSlot *)slot)->slot_next;
     TmEcode ret = ReceiveDPDKLoopInit(tv, ptv);
@@ -577,8 +617,17 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 continue;
             }
             DPDKSegmentedMbufWarning(ptv->received_mbufs[i]);
-            PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
-                    rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
+            if (!rte_pktmbuf_is_contiguous(ptv->received_mbufs[i])) {
+                if (ReceiveDPDKMerger(ptv->received_mbufs[i], pkt_temp_data, pkt_temp_data_len) != 0) {
+                    SCLogError("Failed to merge segmented mbufs");
+                    rte_pktmbuf_free(ptv->received_mbufs[i]);
+                    continue;
+                }
+                PacketSetData(p, pkt_temp_data, rte_pktmbuf_pkt_len(ptv->received_mbufs[i]));
+            } else {
+                PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
+                        rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
+            }
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
                 TmqhOutputPacketpool(ptv->tv, p);
                 DPDKFreeMbufArray(ptv->received_mbufs, nb_rx - i - 1, i + 1);
