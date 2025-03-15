@@ -60,6 +60,7 @@ static int StreamMpmFunc(
 {
     struct StreamMpmData *smd = cb_data;
     if (data_len >= smd->mpm_ctx->minlen) {
+        uint32_t pre_matches = smd->det_ctx->pmq.rule_id_array_cnt;
 #ifdef DEBUG
         smd->det_ctx->stream_mpm_cnt++;
         smd->det_ctx->stream_mpm_size += data_len;
@@ -67,6 +68,7 @@ static int StreamMpmFunc(
         (void)mpm_table[smd->mpm_ctx->mpm_type].Search(
                 smd->mpm_ctx, &smd->det_ctx->mtc, &smd->det_ctx->pmq, data, data_len);
         PREFILTER_PROFILING_ADD_BYTES(smd->det_ctx, data_len);
+        SCLogNotice("StreamMpmFunc: matched %u bufferlength %u", smd->det_ctx->pmq.rule_id_array_cnt - pre_matches, data_len);
     }
     return 0;
 }
@@ -94,6 +96,7 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
          * chunks */
     } else if ((p->flags & (PKT_NOPAYLOAD_INSPECTION | PKT_STREAM_ADD)) == 0) {
         if (p->payload_len >= mpm_ctx->minlen) {
+            uint32_t pre_matches = det_ctx->pmq.rule_id_array_cnt;
 #ifdef DEBUG
             det_ctx->payload_mpm_cnt++;
             det_ctx->payload_mpm_size += p->payload_len;
@@ -101,6 +104,7 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
             (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
+            SCLogNotice("PrefilterPktStream: matched %u bufferlength %u", det_ctx->pmq.rule_id_array_cnt - pre_matches, p->payload_len);
             PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
         }
     }
@@ -122,9 +126,11 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
     if (p->payload_len < mpm_ctx->minlen)
         SCReturn;
 
+    uint32_t pre_matches = det_ctx->pmq.rule_id_array_cnt;
     (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
             &det_ctx->mtc, &det_ctx->pmq,
             p->payload, p->payload_len);
+    SCLogNotice("PrefilterPktPayload: matched %u bufferlength %u", det_ctx->pmq.rule_id_array_cnt - pre_matches, p->payload_len);
 
     PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
 }
