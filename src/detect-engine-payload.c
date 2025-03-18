@@ -104,10 +104,11 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
 
-            if (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH) {
+            if (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH || det_ctx->mtc.pids[0] == UINT32_MAX) {
+                // det_ctx->mtc.pids[0] != UINT32_MAX is a special case in which I need to reset the packet's pids to UINT32_MAX
                 p->matched_sids[0] = UINT32_MAX;
                 p->matched_sids_cnt = 1;
-            } else if (det_ctx->mtc.pids[0] != UINT32_MAX) {
+            } else {
                 for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
                     if (det_ctx->mtc.pids[i] > 0x7FFFFFFF) {
                         FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
@@ -145,10 +146,11 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
             &det_ctx->mtc, &det_ctx->pmq,
             p->payload, p->payload_len);
 
-    if (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH) {
+    if (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH || det_ctx->mtc.pids[0] == UINT32_MAX) {
+        // det_ctx->mtc.pids[0] != UINT32_MAX is a special case in which I need to reset the packet's pids to UINT32_MAX
         p->matched_sids[0] = UINT32_MAX;
         p->matched_sids_cnt = 1;
-    } else if (det_ctx->mtc.pids[0] != UINT32_MAX) {
+    } else {
         for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
             if (det_ctx->mtc.pids[i] > 0x7FFFFFFF) {
                 FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
