@@ -52,6 +52,8 @@
 #include "suricata.h"
 #include "util-affinity.h"
 
+#include <rte_pci.h>
+
 #ifdef HAVE_DPDK
 
 // Calculates the closest multiple of y from x
@@ -824,6 +826,111 @@ static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface,
     SCReturnInt(0);
 }
 
+static bool PortIsConnectX4(struct rte_eth_dev_info *dev_info, uint16_t port_id)
+{
+    /* Obtain the underlying device pointer using the DPDK API */
+    // const struct rte_device *device = rte_eth_dev_get_device(port_id);
+    // if (device == NULL)
+    //     return false;
+
+    // /* Convert the generic device pointer to a PCI device pointer */
+    // struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(device);
+    // if (pci_dev == NULL)
+    //     return false;
+
+    // struct rte_pci_device *pci_dev;
+
+    struct rte_pci_addr pci_addr;
+    char port_name[2048];
+    rte_eth_dev_get_name_by_port(port_id, port_name);
+    SCLogNotice("Port name: %s", port_name);
+
+    int r = rte_pci_addr_parse(port_name, &pci_addr);
+    if (r < 0) {
+        SCLogError("Failed to parse PCI address for port %u", port_id);
+        return false;
+    }
+
+    // get vendor ID
+    
+
+
+
+    /* Read the vendor ID from the PCI configuration space */
+    // uint16_t vendor = 0;
+    // if (rte_pci_read_config(NULL, &vendor, sizeof(vendor), RTE_PCI_VENDOR_ID)
+    //             != sizeof(vendor))
+    //     return false;
+
+    // /* Check that the vendor is Mellanox (0x15b3) */
+    // if (vendor != 0x15b3)
+    //     return false;
+
+    // /* Verify that the driver in use is "mlx5" */
+    // if (strcmp(dev_info->driver_name, "mlx5") != 0)
+    //     return false;
+
+    // /* Read the device ID from the PCI configuration space */
+    // uint16_t device_id = 0;
+    // if (rte_pci_read_config(NULL, &device_id, sizeof(device_id), RTE_PCI_DEVICE_ID)
+    //             != sizeof(device_id))
+    //     return false;
+
+    // /* List of known ConnectX-4 device IDs extracted from pci.ids:
+    //  *
+    //  *   0x0209 - MT27700 Family [ConnectX-4 Flash Recovery]
+    //  *   0x020b - MT27710 Family [ConnectX-4 Lx Flash Recovery]
+    //  *   0x0262 - MT27710 [ConnectX-4 Lx Programmable] EN
+    //  *   0x0263 - MT27710 [ConnectX-4 Lx Programmable Virtual Function] EN
+    //  *   0x0003 - ConnectX-4 Stand-up single-port 40GbE MCX413A-BCAT
+    //  *   0x0005 - ConnectX-4 Stand-up single-port 40GbE MCX415A-BCAT
+    //  *   0x0006 - MCX416A-BCAT, ConnectX-4 EN, 40/56GbE 2P, PCIe3.0 x16
+    //  *   0x0007 - ConnectX-4 EN network interface card, 40/56GbE dual-port QSFP28, PCIe3.0 x16
+    //  *   0x0008 - ConnectX-4 Stand-up dual-port 100GbE MCX416A-CCAT
+    //  *   0x0033 - ConnectX-4 VPI IB EDR/100 GbE Single Port QSFP28 Adapter
+    //  *   0x0034 - ConnectX-4 VPI IB EDR/100 GbE Dual Port QSFP28 Adapter
+    //  *   0x0050 - ConnectX-4 100 GbE Dual Port QSFP28 Adapter
+    //  *   0x0001 - ConnectX-4 Lx EN network interface card, 25GbE single-port SFP28
+    //  *   0x0004 - ConnectX-4 Lx Stand-up dual-port 10GbE MCX4121A-XCAT
+    //  *   0x0020 - MCX4411A-ACQN, ConnectX-4 Lx EN OCP, 1x25Gb
+    //  *   0x0021 - MCX4421A-ACQN ConnectX-4 Lx EN OCP, 2x25G
+    //  *   0x0025 - ConnectX-4 Lx 25 GbE Dual Port SFP28 rNDC
+    //  *   0x1016 - MT27710 Family [ConnectX-4 Lx Virtual Function]
+    //  *   0xcaf1 - ConnectX-4 CAPI Function
+    //  */
+    // static const uint16_t connectx4_ids[] = {
+    //     0x0209, 0x020b, 0x0262, 0x0263,
+    //     0x0003, 0x0005, 0x0006, 0x0007, 0x0008,
+    //     0x0033, 0x0034, 0x0050,
+    //     0x0001, 0x0004, 0x0020, 0x0021, 0x0025,
+    //     0x1016, 0xcaf1
+    // };
+
+    // for (size_t i = 0; i < sizeof(connectx4_ids) / sizeof(connectx4_ids[0]); i++) {
+    //     if (device_id == connectx4_ids[i])
+    //         return true;
+    // }
+    return false;
+}
+
+static int ConfigLoadDevInfoInit(struct rte_eth_dev_info *dev_info, uint16_t port_id)
+{
+    SCEnter();
+    memset(dev_info, 0, sizeof(*dev_info));
+    int retval = rte_eth_dev_info_get(port_id, dev_info);
+    if (retval < 0) {
+        SCLogError("getting device info failed: %s", rte_strerror(-retval));
+        SCReturnInt(retval);
+    }
+
+    if (PortIsConnectX4(dev_info, port_id)) {
+        dev_info->tx_desc_lim.nb_max = 16384;
+    }
+
+
+    SCReturnInt(0);
+}
+
 static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
 {
     SCEnter();
@@ -838,11 +945,8 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
 
     ConfigSetIface(iconf, iface);
     struct rte_eth_dev_info dev_info = { 0 };
-    retval = rte_eth_dev_info_get(iconf->port_id, &dev_info);
-    if (retval < 0) {
-        SCLogError("%s: getting device info failed: %s", iconf->iface, rte_strerror(-retval));
-        SCReturnInt(retval);
-    }
+    ConfigLoadDevInfoInit(&dev_info, iconf->port_id);
+    
 
     retval = ConfSetRootAndDefaultNodes("dpdk.interfaces", iconf->iface, &if_root, &if_default);
     if (retval < 0) {
