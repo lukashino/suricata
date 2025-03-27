@@ -931,6 +931,10 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         const uint32_t *pids = (const uint32_t *)buf;
         uint32_t pids_cnt = UINT32_MAX - buflen;
         for (uint32_t i = 0; i < pids_cnt; i++) {
+            if (pids[i] >= mpm_ctx->pattern_cnt) {
+                // SCLogError("Invalid pattern id %" PRIu32 " in packet", pids[i]);
+                continue;
+            }
             const SCHSPattern *pat = pd->parray[pids[i]];
             SCLogDebug("Hyperscan Pre-Match %" PRIu32 ": id=%" PRIu32 " (pat id=%" PRIu32 ")",
                     i, (uint32_t)pids[i], pat->id);
