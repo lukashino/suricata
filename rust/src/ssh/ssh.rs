@@ -24,7 +24,7 @@ use crate::frames::Frame;
 use nom7::Err;
 use suricata_sys::sys::AppProto;
 use std::ffi::CString;
-use std::sync::atomic::{AtomicBool, Ordering, AtomicU8};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -38,14 +38,14 @@ pub enum SshEncryptionHandling {
 static mut ALPROTO_SSH: AppProto = ALPROTO_UNKNOWN;
 static HASSH_ENABLED: AtomicBool = AtomicBool::new(false);
 
-static mut ENCRYPTION_BYPASS_ENABLED: AtomicU8 = AtomicU8::new(SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_TRACK_ONLY as u8);
+static mut ENCRYPTION_BYPASS_ENABLED: u8 = SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_TRACK_ONLY as u8;
 
 fn hassh_is_enabled() -> bool {
     HASSH_ENABLED.load(Ordering::Relaxed)
 }
 
 fn encryption_bypass_mode() -> SshEncryptionHandling {
-    let mode_val = unsafe { ENCRYPTION_BYPASS_ENABLED.load(Ordering::Relaxed) };
+    let mode_val = unsafe { ENCRYPTION_BYPASS_ENABLED };
     match mode_val {
         0 => SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_TRACK_ONLY,
         1 => SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_BYPASS,
@@ -588,7 +588,7 @@ pub extern "C" fn SCSshHasshIsEnabled() -> bool {
 #[no_mangle]
 pub extern "C" fn SCSshEnableBypass(mode: SshEncryptionHandling) {
     unsafe {
-        ENCRYPTION_BYPASS_ENABLED.store(mode as u8, Ordering::Relaxed);
+        ENCRYPTION_BYPASS_ENABLED = mode as u8;
     }
 }
 
