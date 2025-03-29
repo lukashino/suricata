@@ -38,20 +38,14 @@ pub enum SshEncryptionHandling {
 static mut ALPROTO_SSH: AppProto = ALPROTO_UNKNOWN;
 static HASSH_ENABLED: AtomicBool = AtomicBool::new(false);
 
-static mut ENCRYPTION_BYPASS_ENABLED: u8 = SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_TRACK_ONLY as u8;
+static mut ENCRYPTION_BYPASS_ENABLED: SshEncryptionHandling = SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_TRACK_ONLY;
 
 fn hassh_is_enabled() -> bool {
     HASSH_ENABLED.load(Ordering::Relaxed)
 }
 
 fn encryption_bypass_mode() -> SshEncryptionHandling {
-    let mode_val = unsafe { ENCRYPTION_BYPASS_ENABLED };
-    match mode_val {
-        0 => SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_TRACK_ONLY,
-        1 => SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_BYPASS,
-        2 => SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_FULL,
-        _ => SshEncryptionHandling::SSH_HANDLE_ENCRYPTION_TRACK_ONLY,
-    }
+    unsafe { ENCRYPTION_BYPASS_ENABLED }
 }
 
 #[derive(AppLayerFrameType)]
@@ -588,7 +582,7 @@ pub extern "C" fn SCSshHasshIsEnabled() -> bool {
 #[no_mangle]
 pub extern "C" fn SCSshEnableBypass(mode: SshEncryptionHandling) {
     unsafe {
-        ENCRYPTION_BYPASS_ENABLED = mode as u8;
+        ENCRYPTION_BYPASS_ENABLED = mode;
     }
 }
 
