@@ -86,7 +86,8 @@ static int DetectBypassSetup(DetectEngineCtx *de_ctx, Signature *s, const char *
 static int DetectBypassMatch(DetectEngineThreadCtx *det_ctx, Packet *p,
         const Signature *s, const SigMatchCtx *ctx)
 {
-    PacketBypassCallback(p);
+    if (StreamTcpBypassEnabled()) 
+        PacketBypassCallback(p);
 
     return 1;
 }
