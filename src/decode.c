@@ -506,6 +506,8 @@ void PacketBypassCallback(Packet *p)
     if (PKT_IS_PSEUDOPKT(p))
         return;
 
+    p->dpdk_v.is_bypassed = true;
+
 #ifdef CAPTURE_OFFLOAD
     /* Don't try to bypass if flow is already out or
      * if we have failed to do it once */

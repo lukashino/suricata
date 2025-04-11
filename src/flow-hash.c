@@ -969,6 +969,9 @@ Flow *FlowGetFlowFromHash(ThreadVars *tv, FlowLookupStruct *fls, Packet *p, Flow
                 }
                 FlowReference(dest, f);
                 FBLOCK_UNLOCK(fb);
+                if (p && f->flow_state >= FLOW_STATE_LOCAL_BYPASSED) {
+                    p->dpdk_v.is_bypassed = true;
+                }
                 return f; /* return w/o releasing flow lock */
             } else {
                 FLOWLOCK_UNLOCK(f);

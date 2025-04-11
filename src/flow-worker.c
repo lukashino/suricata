@@ -600,6 +600,9 @@ static TmEcode FlowWorker(ThreadVars *tv, Packet *p, void *data)
 
     /* handle TCP and app layer */
     if (p->flow) {
+        if (p->flow->flow_state >= FLOW_STATE_LOCAL_BYPASSED) {
+            p->dpdk_v.is_bypassed = true;
+        }
         SCLogDebug("packet %" PRIu64
                    ": direction %s FLOW_TS_APP_UPDATE_NEXT %s FLOW_TC_APP_UPDATE_NEXT %s",
                 p->pcap_cnt, PKT_IS_TOSERVER(p) ? "toserver" : "toclient",
