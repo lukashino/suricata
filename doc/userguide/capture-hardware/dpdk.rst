@@ -212,7 +212,7 @@ Individual properties can still be set manually if needed.
 
 .. note:: Mellanox ConnectX-4 NICs does not support auto-configuration of
   ``tx-descriptors`` in the TAP/IPS modes. Instead it can be set to
-  a fixed value (e.g. 16384).
+  a fixed value (e.g. 4096).
 
 .. _dpdk-link-state-change-timeout:
 
