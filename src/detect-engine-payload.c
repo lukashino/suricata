@@ -110,6 +110,7 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                     for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
                         // to determine if the PID is valid for this prefilter or PktStream
                         if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
+                            // the top bit (PREFILTER_PKT_PAYLOAD_FN) is not set to indicate that this is a stream pattern
                             patids[patids_cnt++] = patids_ptr[i];
                         }
                     }
