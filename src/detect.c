@@ -235,6 +235,7 @@ const SigGroupHead *SigMatchSignaturesGetSgh(const DetectEngineCtx *de_ctx,
     }
 
     /* select the flow_gh */
+    // if it is a to_client then dir is 0, then source port is taken as we want to get the server port
     const int dir = (p->flowflags & FLOW_PKT_TOCLIENT) == 0;
 
     int proto = PacketGetIPProto(p);

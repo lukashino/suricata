@@ -110,12 +110,12 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                 p->matched_sids_cnt = 1;
             } else {
                 for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
-                    if (det_ctx->mtc.pids[i] > 0x7FFFFFFF) {
+                    if (det_ctx->mtc.pids[i] > PREFILTER_FLAGS_SPACE) {
                         FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
                                 det_ctx->mtc.pids[i]);
                     }
                     p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
-                    p->matched_sids[p->matched_sids_cnt] &= 0x7FFFFFFF;
+                    p->matched_sids[p->matched_sids_cnt] &= ~PREFILTER_PKT_PAYLOAD_FN;
                     p->matched_sids_cnt++;
                 }
             }
@@ -152,12 +152,12 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
         p->matched_sids_cnt = 1;
     } else {
         for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
-            if (det_ctx->mtc.pids[i] > 0x7FFFFFFF) {
+            if (det_ctx->mtc.pids[i] > PREFILTER_FLAGS_SPACE) {
                 FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
                         det_ctx->mtc.pids[i]);
             }
             p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
-            p->matched_sids[p->matched_sids_cnt] |= 0x80000000;
+            p->matched_sids[p->matched_sids_cnt] |= PREFILTER_PKT_PAYLOAD_FN;
             p->matched_sids_cnt++;
         }
     }
