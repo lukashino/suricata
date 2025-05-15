@@ -459,9 +459,13 @@ struct PacketL4 {
 // the limit should be actually 3 because SigIntId is uint32_t and ETH header has 14 bytes out of which 12 are for MAC addresses
 #define MATCHED_SIDS_ARR_LEN_THRESH 3 // this is an absolute (technical) limit for ETH header
 /* the pattern ID is valid in PrefilterPktPayload function */
-#define PREFILTER_PKT_PAYLOAD_FN BIT_U32(31)
+#define PREFILTER_PKT_PAYLOAD_FN BIT_U32(31) // when set, it is for payload MPM
+
+// when set, it is the results of toserver MPM, otherwise toclient MPM
+#define PREFILTER_PKT_TOSERVER_DIR BIT_U32(30)
+
 // to check the actual value is not overlapping with potential flags
-#define PREFILTER_FLAGS_SPACE ~PREFILTER_PKT_PAYLOAD_FN
+#define PREFILTER_FLAGS_SPACE ~(PREFILTER_PKT_PAYLOAD_FN | PREFILTER_PKT_TOSERVER_DIR)
 
 /* sizes of the members:
  * src: 17 bytes

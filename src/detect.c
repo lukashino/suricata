@@ -137,6 +137,57 @@ static void DetectRun(ThreadVars *th_v,
     /* run the prefilters for packets */
     DetectRunPrefilterPkt(th_v, de_ctx, det_ctx, p, &scratch);
 
+    if (de_ctx->flags & DE_REVERSE_SGH_MATCHING) {
+        Packet p_rev = *p;
+        if (p_rev.flowflags & FLOW_PKT_TOSERVER) {
+            p_rev.flowflags &= ~FLOW_PKT_TOSERVER;
+            p_rev.flowflags |= FLOW_PKT_TOCLIENT;
+        } else if (p_rev.flowflags & FLOW_PKT_TOCLIENT) {
+            p_rev.flowflags &= ~FLOW_PKT_TOCLIENT;
+            p_rev.flowflags |= FLOW_PKT_TOSERVER;
+        }
+    
+        DetectRunScratchpad scratch_reverse = scratch;
+        DetectRunGetRuleGroup(de_ctx, &p_rev, pflow, &scratch_reverse);
+        /* if we didn't get a sig group head, we
+         * have nothing to do.... */
+        if (scratch_reverse.sgh == NULL) {
+            SCLogDebug("no sgh for this packet, nothing to match against");
+            goto end;
+        }
+    
+        // extracted from Prefilter function
+        if (scratch_reverse.sgh->payload_engines &&
+            // we can now use the orignal packet,
+            // we needed reversed packet only to get SGH
+            (p->payload_len || (p->flags & PKT_DETECT_HAS_STREAMDATA)) &&
+            !(p->flags & PKT_NOPAYLOAD_INSPECTION))
+        {
+            if (p->flags & PKT_PROFILE) {
+                FatalError("Pkt has PKT_PROFILE set, but we are using it as a hack to notion reveresed packet");
+            }
+            p->flags |= PKT_PROFILE; // auxiliary flag to handle this reversed SGH search in prefilter engines
+    
+            PrefilterRuleStore pmq_bkp = det_ctx->pmq;
+            PmqSetup(&det_ctx->pmq);
+            
+            // running prefilters
+            PrefilterEngine *engine = scratch_reverse.sgh->payload_engines;
+            while (1) {
+                engine->cb.Prefilter(det_ctx, p, engine->pectx);
+                if (engine->is_last)
+                    break;
+                engine++;
+            }
+    
+            // restore the original packet
+            PmqFree(&det_ctx->pmq);
+            det_ctx->pmq = pmq_bkp;
+    
+            p->flags &= ~PKT_PROFILE; // remove the auxiliary flag
+        }
+    }
+
     PACKET_PROFILING_DETECT_START(p, PROF_DETECT_RULES);
     /* inspect the rules against the packet */
     DetectRulePacketRules(th_v, de_ctx, det_ctx, p, pflow, &scratch);
