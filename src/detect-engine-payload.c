@@ -51,6 +51,19 @@
 #include "util-mpm-ac.h"
 
 bool FPGA_OFFLOADED_PM = false;
+bool FPGA_OFFLOADED_PM_PKTSTREAM_MPM = false;
+// determines on how much pattern IDs we can transfer from FPGA to Suricata
+// some special handlng is involved - if:
+// - equal to MATCHED_SIDS_ARR_LEN_THRESH then it goes over pattern IDs as usual
+// - non-zero and less than MATCHED_SIDS_ARR_LEN_THRESH then it accesses item 
+//     with FPGA_OFFLOADED_PM_MAX_SIZE index and if non-NULL it considers it as
+//     an overflow and executes full matching (because it would not fit)
+// - equal to zero then it just goes over patterns and determines if a match 
+//     happened in the given context (stream or payload) and if so it
+//     executes full matching (simulates just a bit flag)
+uint8_t FPGA_OFFLOADED_PM_MAX_SIZE = MATCHED_SIDS_ARR_LEN_THRESH;
+
+bool SGH_REVERSE_MATCHING_ENABLED = false;
 
 struct StreamMpmData {
     DetectEngineThreadCtx *det_ctx;
@@ -101,17 +114,34 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
             det_ctx->payload_mpm_size += p->payload_len;
 #endif
 
-            if (FPGA_OFFLOADED_PM && p->dpdk_v.mbuf != NULL) {
+            if (FPGA_OFFLOADED_PM && FPGA_OFFLOADED_PM_PKTSTREAM_MPM && p->dpdk_v.mbuf != NULL) {
                 uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
                 uint32_t patids_cnt = 0;
                 uint32_t *patids_ptr;
                 patids_ptr = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint32_t *);
-                if (patids_ptr[0] != UINT32_MAX) {
+                if (patids_ptr[0] == 0) {
+                    // no match in the FPGA offloaded patterns, skipping
+                    return;
+                }
+                if (patids_ptr[0] != UINT32_MAX && 
+                    (
+                        (FPGA_OFFLOADED_PM_MAX_SIZE == MATCHED_SIDS_ARR_LEN_THRESH) ||
+                        (FPGA_OFFLOADED_PM_MAX_SIZE > 0 && 
+                        FPGA_OFFLOADED_PM_MAX_SIZE < MATCHED_SIDS_ARR_LEN_THRESH && 
+                        patids_ptr[FPGA_OFFLOADED_PM_MAX_SIZE] == 0)
+                    )) {
                     for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
                         // to determine if the PID is valid for this prefilter or PktStream
                         if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
                             // the top bit (PREFILTER_PKT_PAYLOAD_FN) is not set to indicate that this is a stream pattern
-                            patids[patids_cnt++] = patids_ptr[i];
+                            
+                            bool pat_toserver = (patids_ptr[i] & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
+                            bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+                            if (!SGH_REVERSE_MATCHING_ENABLED || pat_toserver == pkt_toserver) {
+                                // only consider patterns from same direction as the packet
+                                uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_TOSERVER_DIR;
+                                patids[patids_cnt++] = adjusted_pid;
+                            }
                         }
                     }
 
@@ -121,6 +151,19 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                             (uint8_t *)patids, UINT32_MAX - patids_cnt);
                     }
                     return;
+                } else if (patids_ptr[0] != UINT32_MAX && FPGA_OFFLOADED_PM_MAX_SIZE == 0) {
+                    bool no_match = true;
+                    for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+                        if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
+                            no_match = false;
+                            break;
+                        }
+                    }
+                    if (no_match) {
+                        // no match in the FPGA offloaded patterns
+                        // so we can skip the search
+                        return;
+                    }
                 }
             }
 
@@ -154,12 +197,28 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
         uint32_t patids_cnt = 0;
         uint32_t *patids_ptr;
         patids_ptr = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint32_t *);
-        if (patids_ptr[0] != UINT32_MAX) {
+        if (patids_ptr[0] == 0) {
+            // no match in the FPGA offloaded patterns, skipping
+            return;
+        }
+        if (patids_ptr[0] != UINT32_MAX && 
+            (
+                (FPGA_OFFLOADED_PM_MAX_SIZE == MATCHED_SIDS_ARR_LEN_THRESH) ||
+                (FPGA_OFFLOADED_PM_MAX_SIZE > 0 && 
+                FPGA_OFFLOADED_PM_MAX_SIZE < MATCHED_SIDS_ARR_LEN_THRESH && 
+                patids_ptr[FPGA_OFFLOADED_PM_MAX_SIZE] == 0)
+            )) {
             for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
                 // to determine if the PID is valid for this prefilter or PktStream
                 if (patids_ptr[i] && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN)) {
                     uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_PAYLOAD_FN;
-                    patids[patids_cnt++] = adjusted_pid;
+                    bool pat_toserver = (adjusted_pid & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
+                    bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+                    if (!SGH_REVERSE_MATCHING_ENABLED || pat_toserver == pkt_toserver) {
+                        // only consider patterns from same direction as the packet or it is not enabled
+                        adjusted_pid &= ~PREFILTER_PKT_TOSERVER_DIR; // reset the bit
+                        patids[patids_cnt++] = adjusted_pid;
+                    }
                 }
             }
 
@@ -169,6 +228,19 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
                     (uint8_t *)patids, UINT32_MAX - patids_cnt);
             }
             return;
+        } else if (patids_ptr[0] != UINT32_MAX && FPGA_OFFLOADED_PM_MAX_SIZE == 0) {
+            bool no_match = true;
+            for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+                if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN)) {
+                    no_match = false;
+                    break;
+                }
+            }
+            if (no_match) {
+                // no match in the FPGA offloaded patterns
+                // so we can skip the search
+                return;
+            }
         }
     }
 
@@ -206,6 +278,24 @@ int PrefilterPktPayloadRegister(DetectEngineCtx *de_ctx,
     }
 
     FPGA_OFFLOADED_PM = (bool)fpga_offload_enabled;
+
+    intmax_t fpga_offload_max_patid_capacity = MATCHED_SIDS_ARR_LEN_THRESH;
+    if (FPGA_OFFLOADED_PM && ConfGetInt("dpdk.fpga-offload-patid-capacity", &fpga_offload_max_patid_capacity) == 0) {
+        FatalError("Could not find dpdk.fpga-offload-patid-capacity in config file. Specify if you want to enable it.");
+    }
+    FPGA_OFFLOADED_PM_MAX_SIZE = (uint8_t)fpga_offload_max_patid_capacity;
+
+    int fpga_offload_pktstream_mpm = false;
+    if (FPGA_OFFLOADED_PM && ConfGetBool("dpdk.fpga-offload-pktstream-mpm", &fpga_offload_pktstream_mpm) == 0) {
+        FatalError("Could not find dpdk.fpga-offload-pktstream-mpm in config file. Specify if you want to enable it.");
+    }
+    FPGA_OFFLOADED_PM_PKTSTREAM_MPM = (bool)fpga_offload_pktstream_mpm;
+
+    int detect_sgh_reverse_matching;
+    if (FPGA_OFFLOADED_PM && ConfGetBool("detect.sgh-reverse-matching", &detect_sgh_reverse_matching) == 0) {
+        FatalError("Could not find detect.sgh-reverse-matching in config file. Specify if you want to enable it.");
+    }
+    SGH_REVERSE_MATCHING_ENABLED = (bool)detect_sgh_reverse_matching;
 
     return PrefilterAppendPayloadEngine(de_ctx, sgh,
             PrefilterPktPayload, mpm_ctx, NULL, "payload");

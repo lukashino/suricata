@@ -772,6 +772,10 @@ af-xdp:
     #napi-defer-hard-irq: 2
 
 dpdk:
+  fpga-offloaded: no # if in-packet metadata should be considered
+  fpga-offload-patid-capacity: 0 # how many pattern IDs to consider from the in-packet metadata
+  fpga-offload-pktstream-mpm: yes
+
   eal-params:
     proc-type: primary
 
@@ -1728,6 +1732,7 @@ decoder:
 # If the argument specified is 0, the engine uses an internally defined
 # default limit.  When a value is not specified, there are no limits on the recursion.
 detect:
+  sgh-reverse-matching: yes
   profile: medium
   custom-values:
     toclient-groups: 3

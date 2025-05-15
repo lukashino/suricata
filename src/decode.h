@@ -460,6 +460,10 @@ struct PacketL4 {
 #define MATCHED_SIDS_ARR_LEN_THRESH 3
 /* the pattern ID is valid in PrefilterPktPayload function */
 #define PREFILTER_PKT_PAYLOAD_FN BIT_U32(31)
+// when set, it is the results of toserver MPM, otherwise toclient MPM
+#define PREFILTER_PKT_TOSERVER_DIR BIT_U32(30)
+// to check the actual value is not overlapping with potential flags
+#define PREFILTER_FLAGS_SPACE ~(PREFILTER_PKT_PAYLOAD_FN | PREFILTER_PKT_TOSERVER_DIR)
 
 /* sizes of the members:
  * src: 17 bytes
