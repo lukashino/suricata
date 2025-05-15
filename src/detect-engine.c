@@ -2571,6 +2571,15 @@ static DetectEngineCtx *DetectEngineCtxInitReal(
     }
     de_ctx->failure_fatal = (failure_fatal == 1);
 
+    int sgh_rev_matching = 0;
+    if (ConfGetBool("detect.sgh-reverse-matching", (int *)&sgh_rev_matching) != 1) {
+        SCLogDebug("ConfGetBool could not load the value.");
+    }
+    if (sgh_rev_matching == 1) {
+        SCLogNotice("SGH reverse matching enabled - both direction of toserver and toclient inspected");
+        de_ctx->flags |= DE_REVERSE_SGH_MATCHING;
+    }
+
     de_ctx->mpm_matcher = PatternMatchDefaultMatcher();
     de_ctx->spm_matcher = SinglePatternMatchDefaultMatcher();
     SCLogConfig("pattern matchers: MPM: %s, SPM: %s",
@@ -3321,6 +3330,18 @@ error:
 static TmEcode ThreadCtxDoInit (DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx)
 {
     PatternMatchThreadPrepare(&det_ctx->mtc, de_ctx->mpm_matcher);
+
+    int stream_mpm_res = 0;
+    if (ConfGetBool("detect.save-mpm-stream-results", (int *)&stream_mpm_res) != 1) {
+        SCLogDebug("ConfGetBool could not load the value.");
+    }
+    if (stream_mpm_res == 1) {
+        SCLogNotice("Saving Stream and Payload MPM results.");
+        det_ctx->mtc.save_stream_mpm_results = true;
+    } else {
+        SCLogNotice("Saving Payload MPM results only.");
+        det_ctx->mtc.save_stream_mpm_results = false;
+    }
 
     PmqSetup(&det_ctx->pmq);
 

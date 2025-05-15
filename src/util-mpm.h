@@ -53,6 +53,7 @@ typedef struct MpmThreadCtx_ {
     /* matched pattern IDS of the MPM matcher Hyperscan e.g.*/
     uint32_t pids[MATCHED_SIDS_ARR_LEN_THRESH];
     uint32_t pids_count;
+    bool save_stream_mpm_results;
 
 } MpmThreadCtx;
 
