@@ -499,11 +499,21 @@ void SCLogErr(int x, const char *file, const char *func, const int line, const c
 
 #endif /* DEBUG */
 
+#ifdef UNITTESTS
+#define FatalError(...)                                                                            \
+    do {                                                                                           \
+        SCLogError(__VA_ARGS__);                                                                   \
+        if (unittests_fatal) {                                                                     \
+            exit(EXIT_FAILURE);                                                                    \
+        }                                                                                          \
+    } while (0)
+#else
 #define FatalError(...)                                                                            \
     do {                                                                                           \
         SCLogError(__VA_ARGS__);                                                                   \
         exit(EXIT_FAILURE);                                                                        \
     } while (0)
+#endif /* UNITTESTS */
 
 /** \brief Fatal error IF we're starting up, and configured to consider
  *         errors to be fatal errors */
