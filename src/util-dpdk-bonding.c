@@ -67,6 +67,9 @@ uint16_t BondingMemberDevicesGet(
 #else
     FatalError(
             "%s: bond port not supported in DPDK installation", DPDKGetPortNameByPortID(bond_pid));
+#ifdef UNITTESTS
+    return 0;
+#endif /* UNITTESTS */
 #endif
 }
 

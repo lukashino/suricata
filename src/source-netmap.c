@@ -70,6 +70,9 @@ static TmEcode NoNetmapSupportExit(ThreadVars *tv, const void *initdata, void **
     FatalError("Error creating thread %s: Netmap is not enabled. "
                "Make sure to pass --enable-netmap to configure when building.",
             tv->name);
+#ifdef UNITTESTS
+    return TM_ECODE_FAILED;
+#endif /* UNITTESTS */
 }
 
 void TmModuleReceiveNetmapRegister (void)

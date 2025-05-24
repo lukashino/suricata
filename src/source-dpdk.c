@@ -82,6 +82,9 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
                "support for DPDK enabled, on Linux host please recompile "
                "with --enable-dpdk",
             tv->name);
+#ifdef UNITTESTS
+    return TM_ECODE_FAILED;
+#endif /* UNITTESTS */
 }
 
 #else /* We have DPDK support */

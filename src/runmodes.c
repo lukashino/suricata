@@ -166,6 +166,9 @@ static const char *RunModeTranslateModeToName(int runmode)
 
         default:
             FatalError("Unknown runtime mode. Aborting");
+#ifdef UNITTESTS
+            return NULL;
+#endif
     }
 }
 

@@ -93,6 +93,9 @@ static TmEcode NoNFQSupportExit(ThreadVars *tv, const void *initdata, void **dat
                "have support for nfqueue enabled please recompile with "
                "--enable-nfqueue",
             tv->name);
+#ifdef UNITTESTS
+    return TM_ECODE_FAILED;
+#endif /* UNITTESTS */
 }
 
 #else /* we do have NFQ support */
