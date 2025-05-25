@@ -1089,6 +1089,28 @@ static void ResetAffinityForTest(void)
 }
 
 /**
+ * \brief Return the total number of CPUs in a given affinity
+ *        by scanning the entire cpu_set_t bit array.
+ * \param taf  pointer to your affinity struct
+ * \retval     the number of affined CPUs (0..__CPU_SETSIZE)
+ */
+static uint16_t UtilUnittestsAffinityGetAffinedCPUCount(ThreadsAffinityType *taf)
+{
+    uint16_t ncpu = 0;
+#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined sun
+    /* number of mask‐words in cpu_set_t */
+    SCMutexLock(&taf->taf_mutex);
+    for (size_t bit_i = 0; bit_i < __CPU_SETSIZE; bit_i++) {
+        if (CPU_ISSET(bit_i, &taf->cpu_set)) {
+            ncpu++;
+        }
+    }
+    SCMutexUnlock(&taf->taf_mutex);
+#endif
+    return ncpu;
+}
+
+/**
  * \brief Test basic CPU affinity parsing in new format
  */
 static int ThreadingAffinityTest01(void)
@@ -1118,14 +1140,14 @@ static int ThreadingAffinityTest01(void)
     ThreadsAffinityType *mgmt_taf = &thread_affinity[MANAGEMENT_CPU_SET];
 
     FAIL_IF_NOT(CPU_ISSET(0, &mgmt_taf->cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(mgmt_taf) == 1);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(mgmt_taf) == 1);
 
     // Check worker CPU set
     ThreadsAffinityType *worker_taf = &thread_affinity[WORKER_CPU_SET];
     FAIL_IF_NOT(CPU_ISSET(1, &worker_taf->cpu_set));
     FAIL_IF_NOT(CPU_ISSET(2, &worker_taf->cpu_set));
     FAIL_IF_NOT(CPU_ISSET(3, &worker_taf->cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(worker_taf) > 0);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(worker_taf) > 0);
 
     SCConfRestoreContextBackup();
     PASS;
@@ -1161,7 +1183,7 @@ static int ThreadingAffinityTest02(void)
     ThreadsAffinityType *worker_taf = &thread_affinity[WORKER_CPU_SET];
     FAIL_IF_NOT(CPU_ISSET(1, &worker_taf->cpu_set));
     FAIL_IF_NOT(CPU_ISSET(2, &worker_taf->cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(worker_taf) == 2);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(worker_taf) == 2);
 
     SCConfRestoreContextBackup();
     PASS;
@@ -1193,7 +1215,7 @@ static int ThreadingAffinityTest03(void)
     FAIL_IF_NOT(CPU_ISSET(1, &worker_taf->cpu_set));
     FAIL_IF_NOT(CPU_ISSET(2, &worker_taf->cpu_set));
     FAIL_IF_NOT(CPU_ISSET(3, &worker_taf->cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(worker_taf) == 4);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(worker_taf) == 4);
 
     SCConfRestoreContextBackup();
     PASS;
@@ -1227,7 +1249,7 @@ static int ThreadingAffinityTest04(void)
     FAIL_IF(CPU_ISSET(0, &worker_taf->cpu_set));
     FAIL_IF(CPU_ISSET(2, &worker_taf->cpu_set));
     FAIL_IF(CPU_ISSET(4, &worker_taf->cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(worker_taf) == 3);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(worker_taf) == 3);
 
     SCConfRestoreContextBackup();
     PASS;
@@ -1256,7 +1278,7 @@ static int ThreadingAffinityTest05(void)
 
     ThreadsAffinityType *worker_taf = &thread_affinity[WORKER_CPU_SET];
     // "all" should set all available CPUs (at least one should be set)
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(worker_taf) > 0);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(worker_taf) > 0);
 
     SCConfRestoreContextBackup();
     PASS;
@@ -1392,7 +1414,7 @@ static int ThreadingAffinityTest09(void)
     FAIL_IF_NOT(strcmp(iface_taf->name, "eth0") == 0);
     FAIL_IF_NOT(CPU_ISSET(2, &iface_taf->cpu_set));
     FAIL_IF_NOT(CPU_ISSET(3, &iface_taf->cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(iface_taf) == 2);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(iface_taf) == 2);
     FAIL_IF_NOT(iface_taf->mode_flag == EXCLUSIVE_AFFINITY);
 
     SCConfRestoreContextBackup();
@@ -1434,12 +1456,12 @@ static int ThreadingAffinityTest10(void)
         ThreadsAffinityType *iface_taf = receive_taf->children[i];
         if (strcmp(iface_taf->name, "eth0") == 0) {
             if (CPU_ISSET(1, &iface_taf->cpu_set) && CPU_ISSET(2, &iface_taf->cpu_set) &&
-                    UtilAffinityGetAffinedCPUNum(iface_taf) == 2) {
+                    UtilUnittestsAffinityGetAffinedCPUCount(iface_taf) == 2) {
                 eth0_found = true;
             }
         } else if (strcmp(iface_taf->name, "eth1") == 0) {
             if (CPU_ISSET(3, &iface_taf->cpu_set) && CPU_ISSET(4, &iface_taf->cpu_set) &&
-                    UtilAffinityGetAffinedCPUNum(iface_taf) == 2) {
+                    UtilUnittestsAffinityGetAffinedCPUCount(iface_taf) == 2) {
                 eth1_found = true;
             }
         }
@@ -1521,14 +1543,14 @@ static int ThreadingAffinityTest12(void)
 
     // Check all CPU sets
     FAIL_IF_NOT(CPU_ISSET(0, &thread_affinity[MANAGEMENT_CPU_SET].cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(&thread_affinity[MANAGEMENT_CPU_SET]) == 1);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(&thread_affinity[MANAGEMENT_CPU_SET]) == 1);
     FAIL_IF_NOT(CPU_ISSET(1, &thread_affinity[RECEIVE_CPU_SET].cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(&thread_affinity[RECEIVE_CPU_SET]) == 1);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(&thread_affinity[RECEIVE_CPU_SET]) == 1);
     FAIL_IF_NOT(CPU_ISSET(2, &thread_affinity[WORKER_CPU_SET].cpu_set));
     FAIL_IF_NOT(CPU_ISSET(3, &thread_affinity[WORKER_CPU_SET].cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(&thread_affinity[WORKER_CPU_SET]) == 2);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(&thread_affinity[WORKER_CPU_SET]) == 2);
     FAIL_IF_NOT(CPU_ISSET(4, &thread_affinity[VERDICT_CPU_SET].cpu_set));
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(&thread_affinity[VERDICT_CPU_SET]) == 1);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(&thread_affinity[VERDICT_CPU_SET]) == 1);
 
     SCConfRestoreContextBackup();
     PASS;
@@ -1558,7 +1580,7 @@ static int ThreadingAffinityTest13(void)
 
     // Check that no CPUs were set due to invalid specification
     ThreadsAffinityType *worker_taf = &thread_affinity[WORKER_CPU_SET];
-    FAIL_IF_NOT(UtilAffinityGetAffinedCPUNum(worker_taf) == 0);
+    FAIL_IF_NOT(UtilUnittestsAffinityGetAffinedCPUCount(worker_taf) == 0);
 
     SCConfRestoreContextBackup();
     PASS;
