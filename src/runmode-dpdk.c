@@ -564,7 +564,7 @@ static int ConfigSetRSSHashFunctions(DPDKIfaceConfig *iconf, const char *entry_s
 static int ConfigSetMtu(DPDKIfaceConfig *iconf, intmax_t entry_int)
 {
     SCEnter();
-    if (entry_int < RTE_ETHER_MIN_MTU || entry_int > RTE_ETHER_MAX_JUMBO_FRAME_LEN) {
+    if (entry_int < RTE_ETHER_MIN_MTU || entry_int > 64000) {
         SCLogError("%s: MTU size can only be between %" PRIu32 " and %" PRIu32, iconf->iface,
                 RTE_ETHER_MIN_MTU, RTE_ETHER_MAX_JUMBO_FRAME_LEN);
         SCReturnInt(-ERANGE);
