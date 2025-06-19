@@ -35,6 +35,7 @@
 #include "runmode-dpdk.h"
 #include "decode.h"
 #include "source-dpdk.h"
+#include "util-affinity.h"
 #include "util-runmodes.h"
 #include "util-byte.h"
 #include "util-cpu.h"
@@ -503,7 +504,7 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
         SCReturnInt(-EINVAL);
     }
 
-    if (iconf->threads <= 0) {
+    if (iconf->threads == 0) {
         SCLogError("%s: positive number of threads required", iconf->iface);
         SCReturnInt(-ERANGE);
     }
@@ -2037,6 +2038,7 @@ static void DPDKRunmodeSetThreadsInit(const char *input, size_t input_len)
     // prep stage - config
     SCConfCreateContextBackup();
     SCConfInit();
+    ResetAffinityForTest();
     int ret = SCConfYamlLoadString(input, input_len);
     if (ret != 0) {
         FatalError("Unable to load configuration");
@@ -2237,7 +2239,7 @@ threading:\n\
 
     DPDKIfaceConfig iconf = { 0 };
     int r = ConfigSetThreads(&iconf, "-2");
-    FAIL_IF(r != -ERANGE);
+    FAIL_IF(r != -EINVAL);
 
     memset(&iconf, 0, sizeof(iconf));
     r = ConfigSetThreads(&iconf, "0");
