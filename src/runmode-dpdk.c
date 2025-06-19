@@ -388,7 +388,7 @@ static int32_t remaining_auto_cpus = -1;
 static void AutoRemainingThreadsInit(bool force_reinit)
 {
     if (remaining_auto_cpus == -1 || force_reinit) {
-        ThreadsAffinityType *wtaf = GetAffinityTypeFromName("worker-cpu-set");
+        ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
         if (wtaf == NULL)
             FatalError("Worker-cpu-set not listed in the threading section");
 
@@ -2009,12 +2009,12 @@ int RunModeIdsDpdkWorkers(void)
  */
 static int UnitTestsUtilAffinityVerifyCPURequirement(void)
 {
-    ThreadsAffinityType *wtaf = GetAffinityTypeFromName("worker-cpu-set");
+    ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
     if (wtaf == NULL) {
         SCLogError("Specify worker-cpu-set list in the threading section");
         SCReturnInt(-EINVAL);
     }
-    ThreadsAffinityType *mtaf = GetAffinityTypeFromName("management-cpu-set");
+    ThreadsAffinityType *mtaf = GetAffinityTypeForNameAndIface("management-cpu-set", NULL);
     if (mtaf == NULL) {
         SCLogError("Specify management-cpu-set list in the threading section");
         SCReturnInt(-EINVAL);
@@ -2035,9 +2035,9 @@ static int UnitTestsUtilAffinityVerifyCPURequirement(void)
 static void DPDKRunmodeSetThreadsInit(const char *input, size_t input_len)
 {
     // prep stage - config
-    ConfCreateContextBackup();
-    ConfInit();
-    int ret = ConfYamlLoadString(input, input_len);
+    SCConfCreateContextBackup();
+    SCConfInit();
+    int ret = SCConfYamlLoadString(input, input_len);
     if (ret != 0) {
         FatalError("Unable to load configuration");
     }
@@ -2063,8 +2063,8 @@ static void DPDKRunmodeSetThreadsInit(const char *input, size_t input_len)
 static void DPDKRunmodeSetThreadsDeinit(void)
 {
     LiveDeviceListClean();
-    ConfDeInit();
-    ConfRestoreContextBackup();
+    SCConfDeInit();
+    SCConfRestoreContextBackup();
 }
 
 static int DPDKRunmodeSetThreads01(void)
