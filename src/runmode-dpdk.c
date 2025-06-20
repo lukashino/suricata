@@ -2289,7 +2289,7 @@ threading:\n\
 
 static int DPDKRunmodeSetMempoolCacheSize01(void)
 {
-    DPDKIfaceConfig iconf;
+    DPDKIfaceConfig iconf = { 0 };
     const char *entry_str;
 
     entry_str = NULL;
@@ -2313,7 +2313,7 @@ static int DPDKRunmodeSetMempoolCacheSize01(void)
 
 static int DPDKRunmodeSetMempoolCacheSize02(void)
 {
-    DPDKIfaceConfig iconf;
+    DPDKIfaceConfig iconf = { 0 };
     char entry_str[32];
 
     snprintf(entry_str, sizeof(entry_str), "auto");
@@ -2329,7 +2329,7 @@ static int DPDKRunmodeSetMempoolCacheSize02(void)
 
 static int DPDKRunmodeSetMempoolCacheSize03(void)
 {
-    DPDKIfaceConfig iconf;
+    DPDKIfaceConfig iconf = { 0 };
     char entry_str[32];
 
     snprintf(entry_str, sizeof(entry_str), "%d", 1);
@@ -2343,7 +2343,7 @@ static int DPDKRunmodeSetMempoolCacheSize03(void)
 
 static int DPDKRunmodeSetMempoolCacheSize04(void)
 {
-    DPDKIfaceConfig iconf;
+    DPDKIfaceConfig iconf = { 0 };
     char entry_str[32];
 
     snprintf(entry_str, sizeof(entry_str), "%d", RTE_MEMPOOL_CACHE_MAX_SIZE + 1);
