@@ -35,7 +35,8 @@ struct HsIteratorData {
     const char *cache_path;
 };
 
-int HSLoadCache(hs_database_t **hs_db, uint64_t hs_db_hash, const char *dirpath);
+int HSLoadCache(
+        hs_database_t **hs_db, uint64_t hs_db_hash, const char *dirpath, uint32_t pattern_cnt);
 uint64_t HSHashDb(const PatternDatabase *pd);
 void HSSaveCacheIterator(void *data, void *aux);
 #endif /* BUILD_HYPERSCAN */

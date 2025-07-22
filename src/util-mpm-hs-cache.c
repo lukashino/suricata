@@ -36,20 +36,25 @@
 
 #include <hs.h>
 
-static const char *HSCacheConstructFPath(const char *folder_path, uint64_t hs_db_hash)
+static const char *HSCacheConstructFPath(
+        const char *folder_path, uint64_t hs_db_hash, uint32_t pattern_cnt)
 {
     static char hash_file_path[PATH_MAX];
 
     char hash_file_path_suffix[] = "_v1.hs";
     char filename[PATH_MAX];
-    uint64_t r = snprintf(
-            filename, sizeof(filename), "%020" PRIu64 "%s", hs_db_hash, hash_file_path_suffix);
-    if (r != (uint64_t)(20 + strlen(hash_file_path_suffix)))
+
+    int64_t r = snprintf(filename, sizeof(filename), "%020" PRIu64 "_p%u%s", hs_db_hash,
+            pattern_cnt, hash_file_path_suffix);
+
+    if (r < 0 || (size_t)r >= sizeof(filename)) {
         return NULL;
+    }
 
     r = PathMerge(hash_file_path, sizeof(hash_file_path), folder_path, filename);
-    if (r)
+    if (r) {
         return NULL;
+    }
 
     return hash_file_path;
 }
@@ -160,9 +165,10 @@ freeup:
     return matches;
 }
 
-int HSLoadCache(hs_database_t **hs_db, uint64_t hs_db_hash, const char *dirpath)
+int HSLoadCache(
+        hs_database_t **hs_db, uint64_t hs_db_hash, const char *dirpath, uint32_t pattern_cnt)
 {
-    const char *hash_file_static = HSCacheConstructFPath(dirpath, hs_db_hash);
+    const char *hash_file_static = HSCacheConstructFPath(dirpath, hs_db_hash, pattern_cnt);
     if (hash_file_static == NULL)
         return -1;
 
@@ -207,7 +213,8 @@ freeup:
     return ret;
 }
 
-static int HSSaveCache(hs_database_t *hs_db, uint64_t hs_db_hash, const char *dstpath)
+static int HSSaveCache(
+        hs_database_t *hs_db, uint64_t hs_db_hash, const char *dstpath, uint32_t pattern_cnt)
 {
     static bool notified = false;
     char *db_stream = NULL;
@@ -220,7 +227,7 @@ static int HSSaveCache(hs_database_t *hs_db, uint64_t hs_db_hash, const char *ds
         goto cleanup;
     }
 
-    const char *hash_file_static = HSCacheConstructFPath(dstpath, hs_db_hash);
+    const char *hash_file_static = HSCacheConstructFPath(dstpath, hs_db_hash, pattern_cnt);
     SCLogDebug("Caching the compiled HS at %s", hash_file_static);
     if (SCPathExists(hash_file_static)) {
         // potentially signs that it might not work as expected as we got into
@@ -290,7 +297,7 @@ void HSSaveCacheIterator(void *data, void *aux)
         return;
     }
 
-    if (HSSaveCache(pd->hs_db, HSHashDb(pd), iter_data->cache_path) == 0) {
+    if (HSSaveCache(pd->hs_db, HSHashDb(pd), iter_data->cache_path, pd->pattern_cnt) == 0) {
         pd->cached = true; // for rule reloads
         iter_data->pd_stats->hs_dbs_cache_saved_cnt++;
     }
