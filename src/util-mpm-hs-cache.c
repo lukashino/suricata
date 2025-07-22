@@ -119,6 +119,47 @@ static void SCHSCachePatternHash(const SCHSPattern *p, uint32_t *h1, uint32_t *h
     hashlittle2_safe(p->sids, p->sids_size * sizeof(SigIntId), h1, h2);
 }
 
+static bool HSCacheVersionMatches(char *hs_stream, size_t hs_stream_size)
+{
+    bool matches = false;
+    char *info = NULL;
+    hs_error_t err = hs_serialized_database_info(hs_stream, hs_stream_size, &info);
+    if (err != HS_SUCCESS || !info) {
+        SCLogDebug("Failed to get Hyperscan database info: %s", HSErrorToStr(err));
+        goto freeup;
+    }
+
+    char system_version[32] = { 0 };
+    // format: "5.3.0 2020-09-15"
+    if (sscanf(hs_version(), "%31s", system_version) != 1) {
+        SCLogDebug("Failed to parse system HS version: %s", hs_version());
+        goto freeup;
+    }
+
+    // format: "Version: 5.3.0 Features: AVX2 Mode: BLOCK"
+    char cached_ver[32] = { 0 };
+    if (sscanf(info, "Version: %31s", cached_ver) != 1) {
+        SCLogDebug("Failed to parse cached HS database version: %s", info);
+        goto freeup;
+    }
+
+    if (strcmp(system_version, cached_ver) != 0) {
+        SCLogDebug("HS version mismatch: system=%s, cached=%s. "
+                   "Cache will be ignored to prevent compatibility issues.",
+                system_version, cached_ver);
+        goto freeup;
+    }
+
+    matches = true;
+
+freeup:
+    if (info) {
+        SCFree(info);
+    }
+
+    return matches;
+}
+
 int HSLoadCache(hs_database_t **hs_db, uint64_t hs_db_hash, const char *dirpath)
 {
     const char *hash_file_static = HSCacheConstructFPath(dirpath, hs_db_hash);
@@ -145,6 +186,11 @@ int HSLoadCache(hs_database_t **hs_db, uint64_t hs_db_hash, const char *dirpath)
         if (error != HS_SUCCESS) {
             SCLogWarning("Failed to deserialize Hyperscan database of %s: %s", hash_file_static,
                     HSErrorToStr(error));
+            ret = -1;
+            goto freeup;
+        }
+
+        if (!HSCacheVersionMatches(buffer, buffer_size)) {
             ret = -1;
             goto freeup;
         }
