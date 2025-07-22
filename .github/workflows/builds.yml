@@ -1478,7 +1478,10 @@ jobs:
                 curl \
                 time \
                 wget \
-                dpdk-dev
+                dpdk-dev \
+                dnsutils \
+                libhyperscan-dev
+
       # specific version to match up to the llvm version in ubuntu below
       - name: Install Rust
         run: curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain 1.75.0 -y
@@ -1509,42 +1512,46 @@ jobs:
           CC: "clang-15"
           CXX: "clang++-15"
           RUSTFLAGS: "-C instrument-coverage"
-      # IDS config
+      # # IDS config
+      # - run: |
+      #     ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ids.yaml"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/dpdk-ids.profraw"
+      # # IPS config
+      # - run: |
+      #     ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/dpdk-ips.profraw"
+      # # AF_PACKET tests
+      # - run: |
+      #     ./.github/workflows/live/afp-ids.sh "2" "autofp"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/afp2-ids-autofp.profraw"
+      # - run: |
+      #     ./.github/workflows/live/afp-ids.sh "2" "workers"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/afp2-ids-workers.profraw"
+      # - run: |
+      #     ./.github/workflows/live/afp-ids.sh "3" "autofp"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/afp3-ids-autofp.profraw"
+      # - run: |
+      #     ./.github/workflows/live/afp-ids.sh "3" "workers"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/afp3-ids-workers.profraw"
+      # # PCAP
+      # - run: |
+      #     ./.github/workflows/live/pcap.sh "autofp"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/pcap-autofp.profraw"
+      # - run: |
+      #     ./.github/workflows/live/pcap.sh "single"
+      #   env:
+      #     LLVM_PROFILE_FILE: "/tmp/pcap-single.profraw"
       - run: |
-          ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ids.yaml"
+          ./.github/workflows/live/hyperscan-caching.sh
         env:
-          LLVM_PROFILE_FILE: "/tmp/dpdk-ids.profraw"
-      # IPS config
-      - run: |
-          ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
-        env:
-          LLVM_PROFILE_FILE: "/tmp/dpdk-ips.profraw"
-      # AF_PACKET tests
-      - run: |
-          ./.github/workflows/live/afp-ids.sh "2" "autofp"
-        env:
-          LLVM_PROFILE_FILE: "/tmp/afp2-ids-autofp.profraw"
-      - run: |
-          ./.github/workflows/live/afp-ids.sh "2" "workers"
-        env:
-          LLVM_PROFILE_FILE: "/tmp/afp2-ids-workers.profraw"
-      - run: |
-          ./.github/workflows/live/afp-ids.sh "3" "autofp"
-        env:
-          LLVM_PROFILE_FILE: "/tmp/afp3-ids-autofp.profraw"
-      - run: |
-          ./.github/workflows/live/afp-ids.sh "3" "workers"
-        env:
-          LLVM_PROFILE_FILE: "/tmp/afp3-ids-workers.profraw"
-      # PCAP
-      - run: |
-          ./.github/workflows/live/pcap.sh "autofp"
-        env:
-          LLVM_PROFILE_FILE: "/tmp/pcap-autofp.profraw"
-      - run: |
-          ./.github/workflows/live/pcap.sh "single"
-        env:
-          LLVM_PROFILE_FILE: "/tmp/pcap-single.profraw"
+          LLVM_PROFILE_FILE: "/tmp/hyperscan-caching.profraw"
       - run: llvm-profdata-15 merge -o default.profdata $(find /tmp/ -name '*.profraw')
       - run: llvm-cov-15 show ./src/suricata -instr-profile=default.profdata --show-instantiations --ignore-filename-regex="^/root/.*" > coverage.txt
       - name: Upload coverage to Codecov

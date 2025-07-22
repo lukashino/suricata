@@ -1,0 +1,2 @@
+alert dns any any -> any any (msg:"DNS query for suricata.io"; dns.query; content:"suricata.io"; sid:1;)
+alert tcp any any -> any any (msg:"Payload content match on suricata.io"; content:"suricata.io"; sid:2;)
