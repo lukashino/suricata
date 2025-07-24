@@ -1559,6 +1559,11 @@ vlan:
 livedev:
   use-for-tracking: true
 
+# Active only in offline pcap-file capture mode, separates flows from different
+# capture traces.
+pcap-filename:
+  use-for-tracking: true
+
 # Specific timeouts for flows. Here you can specify the timeouts that the
 # active flows will wait to transit from the current state to another, on each
 # protocol. The value of "new" determines the seconds to wait after a handshake or
