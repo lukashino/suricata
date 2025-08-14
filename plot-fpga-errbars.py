@@ -75,17 +75,21 @@ for idx, box_patch in enumerate(box['boxes']):
     box['medians'][idx].set(color='black', linewidth=1.5)
     box['means'][idx].set(markerfacecolor='white', markeredgecolor='red', marker='D')
 
-# Overlay mean±std as errorbars
+# Add error bars for standard deviation
 for idx, series in enumerate(data):
     if len(series) > 0:
         m, s = series.mean(), series.std()
         ax.errorbar(positions[idx], m, yerr=s, fmt='none', ecolor='red', capsize=4)
 
-# Y-axis: finer ticks and soft grid
-ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
-ax.yaxis.set_minor_locator(ticker.MultipleLocator(50))
-ax.grid(which='major', linestyle='--', alpha=0.5)
-ax.grid(which='minor', linestyle=':', alpha=0.3)
+# Simple Y-axis with 10 evenly spaced ticks
+y_min, y_max = ax.get_ylim()
+# Create 10 evenly spaced ticks from min to max
+y_ticks = [y_min + i * (y_max - y_min) / 9 for i in range(10)]
+ax.set_yticks(y_ticks)
+ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+
+# Simple grid
+ax.grid(True, alpha=0.3)
 
 # X-axis labels
 ax.set_xticks(tick_pos)
