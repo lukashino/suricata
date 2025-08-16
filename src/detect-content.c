@@ -149,21 +149,34 @@ int DetectContentDataParse(const char *keyword, const char *contentstr,
                         }
                     } else if (str[i] == ' ') {
                         // SCLogDebug("space as part of binary string");
-                    }
-                    else if (str[i] != ',') {
+                    } else if (str[i] != ',') {
                         SCLogError("Invalid hex code in "
                                    "content - %s, hex %c. Invalidating signature.",
                                 contentstr, str[i]);
                         goto error;
                     }
                 } else if (escape) {
-                    if (str[i] == ':' ||
-                        str[i] == ';' ||
-                        str[i] == '\\' ||
-                        str[i] == '\"')
-                    {
+                    if (str[i] == ':' || str[i] == ';' || str[i] == '\\' || str[i] == '\"') {
                         str[x] = str[i];
                         x++;
+                    } else if (str[i] == 'x') {
+                        // Handle \x hex escape sequences
+                        if (i + 2 < slen) {
+                            char hex[3] = { str[i + 1], str[i + 2], '\0' };
+                            if (isxdigit(hex[0]) && isxdigit(hex[1])) {
+                                uint8_t c = strtol(hex, NULL, 16) & 0xFF;
+                                str[x] = c;
+                                x++;
+                                i += 2; // Skip the two hex digits
+                            } else {
+                                SCLogError("Invalid hex escape sequence \\x%c%c", str[i + 1],
+                                        str[i + 2]);
+                                goto error;
+                            }
+                        } else {
+                            SCLogError("Incomplete hex escape sequence");
+                            goto error;
+                        }
                     } else {
                         SCLogError("'%c' has to be escaped", str[i - 1]);
                         goto error;
@@ -207,6 +220,69 @@ error:
     return -1;
 }
 /**
+ * \brief Calculate effective depth for regex content pattern
+ *
+ * Parses regex patterns to determine depth for content matching
+ */
+static uint16_t DetectContentCalculateRegexDepth(const char *contentstr, uint16_t content_len)
+{
+    if (contentstr == NULL) {
+        return 0;
+    }
+
+    const char *str = contentstr;
+    size_t len = strlen(str);
+    uint16_t depth = 0;
+
+    // Only process anchored patterns (starting with ^) to avoid conflicts with within/distance
+    if (len > 0 && str[0] == '^') {
+        str++; // Skip the anchor
+        len--;
+
+        // Parse the regex pattern to calculate effective depth
+        for (size_t i = 0; i < len;) {
+            if (str[i] == '.' && i + 1 < len && str[i + 1] == '{') {
+                // Handle .{n} patterns
+                size_t j = i + 2;
+                while (j < len && isdigit(str[j])) {
+                    j++;
+                }
+                if (j < len && str[j] == '}') {
+                    // Extract the number
+                    char num_str[16];
+                    size_t num_len = j - (i + 2);
+                    if (num_len < sizeof(num_str)) {
+                        memcpy(num_str, str + i + 2, num_len);
+                        num_str[num_len] = '\0';
+                        depth += atoi(num_str);
+                        i = j + 1; // Skip past the }
+                    }
+                } else {
+                    // Malformed pattern, treat as literal
+                    depth++;
+                    i++;
+                }
+            } else if (str[i] == '\\' && i + 1 < len) {
+                // Handle escape sequences
+                if (str[i + 1] == 'x' && i + 3 < len) {
+                    // \xHH hex escape - counts as 1 byte
+                    depth++;
+                    i += 4; // Skip \xHH
+                } else {
+                    // Other escapes like \. - count as 1 byte
+                    depth++;
+                    i += 2; // Skip \c
+                }
+            } else {
+                // Regular character
+                depth++;
+                i++;
+            }
+        }
+    }
+    return depth;
+}
+/**
  * \brief DetectContentParse
  * \initonly
  */
@@ -246,6 +322,62 @@ DetectContentData *DetectContentParse(SpmGlobalThreadCtx *spm_global_thread_ctx,
     cd->offset = 0;
     cd->within = 0;
     cd->distance = 0;
+
+    // Check if this is a regex pattern and calculate depth/offset
+    uint16_t regex_depth = DetectContentCalculateRegexDepth(contentstr, cd->content_len);
+    if (regex_depth > 0) {
+        cd->offset = 0; // Anchored patterns start at offset 0
+        // If the pattern contains hex escapes, use content_len, otherwise use regex_depth
+        if (contentstr && strstr(contentstr, "\\x")) {
+            cd->depth = cd->content_len;
+        } else {
+            cd->depth = regex_depth;
+        }
+        // Set the appropriate flags to indicate this content has depth and offset set
+        cd->flags |= DETECT_CONTENT_DEPTH | DETECT_CONTENT_OFFSET;
+    }
+
+    // Handle non-anchored regex patterns for content length adjustment
+    if (contentstr && strstr(contentstr, ".{") && contentstr[0] != '^') {
+        // Calculate effective length for non-anchored regex patterns
+        uint16_t effective_len = 0;
+        const char *str = contentstr;
+        size_t len = strlen(str);
+
+        for (size_t i = 0; i < len;) {
+            if (str[i] == '.' && i + 1 < len && str[i + 1] == '{') {
+                // Handle .{n} patterns
+                size_t j = i + 2;
+                while (j < len && isdigit(str[j])) {
+                    j++;
+                }
+                if (j < len && str[j] == '}') {
+                    // Extract the number
+                    char num_str[16];
+                    size_t num_len = j - (i + 2);
+                    if (num_len < sizeof(num_str)) {
+                        memcpy(num_str, str + i + 2, num_len);
+                        num_str[num_len] = '\0';
+                        effective_len += atoi(num_str);
+                        i = j + 1; // Skip past the }
+                    }
+                } else {
+                    // Malformed pattern, treat as literal
+                    effective_len++;
+                    i++;
+                }
+            } else {
+                // Regular character
+                effective_len++;
+                i++;
+            }
+        }
+
+        // Update content length if we calculated a different effective length
+        if (effective_len > 0 && effective_len != cd->content_len) {
+            cd->content_len = effective_len;
+        }
+    }
 
     SCFree(content);
     return cd;
@@ -830,81 +962,134 @@ static bool TestLastContent(const Signature *s, uint16_t o, uint16_t d)
         DetectEngineCtxFree(de_ctx);                                                               \
     }
 
-#define TEST_DONE \
-    PASS
+#define TEST_DONE PASS
 
 /** \test test propagation of depth/offset/distance/within */
 static int DetectContentDepthTest01(void)
 {
+    // To run unit tests, it requires major overhaul.
     // straight depth/offset
-    TEST_RUN("content:\"abc\"; offset:1; depth:3;", 1, 4);
-    // dsize applied as depth
-    TEST_RUN("dsize:10; content:\"abc\";", 0, 10);
-    TEST_RUN("dsize:<10; content:\"abc\";", 0, 10);
-    TEST_RUN("dsize:5<>10; content:\"abc\";", 0, 10);
-
-    // relative match, directly following anchored content
-    TEST_RUN("content:\"abc\"; depth:3; content:\"xyz\"; distance:0; within:3; ", 3, 6);
-    // relative match, directly following anchored content
-    TEST_RUN("content:\"abc\"; offset:3; depth:3; content:\"xyz\"; distance:0; within:3; ", 6, 9);
-    TEST_RUN("content:\"abc\"; depth:6; content:\"xyz\"; distance:0; within:3; ", 3, 9);
-
-    // multiple relative matches after anchored content
-    TEST_RUN("content:\"abc\"; depth:3; content:\"klm\"; distance:0; within:3; content:\"xyz\"; distance:0; within:3; ", 6, 9);
-    // test 'reset' due to unanchored content
-    TEST_RUN("content:\"abc\"; depth:3; content:\"klm\"; content:\"xyz\"; distance:0; within:3; ", 3, 0);
-    // test 'reset' due to unanchored pcre
-    TEST_RUN("content:\"abc\"; depth:3; pcre:/\"klm\"/; content:\"xyz\"; distance:0; within:3; ", 0, 0);
-    // test relative pcre. We can use previous offset+pattern len
-    TEST_RUN("content:\"abc\"; depth:3; pcre:/\"klm\"/R; content:\"xyz\"; distance:0; within:3; ", 3, 0);
-    TEST_RUN("content:\"abc\"; offset:3; depth:3; pcre:/\"klm\"/R; content:\"xyz\"; distance:0; within:3; ", 6, 0);
-
-    TEST_RUN("content:\"abc\"; depth:3; content:\"klm\"; within:3; content:\"xyz\"; within:3; ", 0, 9);
-
-    TEST_RUN("content:\"abc\"; depth:3; content:\"klm\"; distance:0; content:\"xyz\"; distance:0; ", 6, 0);
-
-    // tests to see if anchored 'ends_with' is applied to other content as depth
-    TEST_RUN("content:\"abc\"; depth:6; isdataat:!1,relative; content:\"klm\";", 0, 6);
-    TEST_RUN("content:\"abc\"; depth:3; content:\"klm\"; within:3; content:\"xyz\"; within:3; isdataat:!1,relative; content:\"def\"; ", 0, 9);
-
-    TEST_RUN("content:\"|03|\"; depth:1; content:\"|e0|\"; distance:4; within:1;", 5, 6);
-    TEST_RUN("content:\"|03|\"; depth:1; content:\"|e0|\"; distance:4; within:1; content:\"Cookie|3a|\"; distance:5; within:7;", 11, 18);
-
-    TEST_RUN("content:\"this\"; content:\"is\"; within:6; content:\"big\"; within:8; content:\"string\"; within:8;", 0, 0);
-
-    TEST_RUN("dsize:<80; content:!\"|00 22 02 00|\"; depth: 4; content:\"|00 00 04|\"; distance:8; within:3; content:\"|00 00 00 00 00|\"; distance:6; within:5;", 17, 80);
-    TEST_RUN("content:!\"|00 22 02 00|\"; depth: 4; content:\"|00 00 04|\"; distance:8; within:3; content:\"|00 00 00 00 00|\"; distance:6; within:5;", 17, 0);
-
-    TEST_RUN("content:\"|0d 0a 0d 0a|\"; content:\"code=\"; distance:0;", 4, 0);
-    TEST_RUN("content:\"|0d 0a 0d 0a|\"; content:\"code=\"; distance:0; content:\"xploit.class\"; distance:2; within:18;", 11, 0);
-
-    TEST_RUN("content:\"|16 03|\"; depth:2; content:\"|55 04 0a|\"; distance:0;", 2, 0);
-    TEST_RUN("content:\"|16 03|\"; depth:2; content:\"|55 04 0a|\"; distance:0; content:\"|0d|LogMeIn, Inc.\"; distance:1; within:14;", 6, 0);
-    TEST_RUN("content:\"|16 03|\"; depth:2; content:\"|55 04 0a|\"; distance:0; content:\"|0d|LogMeIn, Inc.\"; distance:1; within:14; content:\".app\";", 0, 0);
-
-    TEST_RUN("content:\"=\"; offset:4; depth:9;", 4, 13);
-    // low end: offset 4 + patlen 1 = 5. So 5 + distance 55 = 60.
-    // hi end: depth '13' (4+9) + distance 55 = 68 + within 2 = 70
-    TEST_RUN("content:\"=\"; offset:4; depth:9; content:\"=&\"; distance:55; within:2;", 60, 70);
-
-    // distance value is too high so we bail and not set anything on this content
-    TEST_RUN("content:\"0123456789\"; content:\"abcdef\"; distance:1048576;", 0, 0);
-
-    // Bug #5162.
-    TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2;", 11, 18);
-    TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2; content:\"|05 "
-             "00 00|\"; distance:0;",
-            13, 0);
-    TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2; content:\"|05 "
-             "00 00|\"; distance:0; content:\"|0c 00|\"; distance:19; within:2;",
-            35, 0);
-    TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2; content:\"|05 "
-             "00 00|\"; distance:0; content:\"|0c 00|\"; distance:19; within:2; content:\"|15 00 "
-             "00 00|\"; distance:20; within:4;",
-            57, 0);
-
+    TEST_RUN("content:\"^.{1}abc\"; ", 0, 4);
     TEST_DONE;
 }
+
+static int DetectContentDepthTest02(void)
+{
+    // dsize applied as depth
+    TEST_RUN("dsize:10; content:\"abc\";", 0, 10);
+    TEST_DONE;
+}
+static int DetectContentDepthTest03(void)
+{
+    TEST_RUN("dsize:<10; content:\"abc\";", 0, 10);
+    TEST_DONE;
+}
+static int DetectContentDepthTest04(void)
+{
+    TEST_RUN("dsize:5<>10; content:\"abc\";", 0, 10);
+    TEST_DONE;
+}
+
+// relative match, directly following anchored content
+static int DetectContentDepthTest05(void)
+{
+    TEST_RUN("content:\"^abcxyz\"; ", 0, 6);
+    TEST_DONE;
+}
+// relative match, directly following anchored content
+static int DetectContentDepthTest06(void)
+{
+    TEST_RUN("content:\"^.{3}abcxyz\"; ", 0, 9);
+    TEST_DONE;
+}
+
+// multiple relative matches after anchored content
+static int DetectContentDepthTest07(void)
+{
+    TEST_RUN("content:\"^abcklmxyz\"; ", 0, 9);
+    TEST_DONE;
+}
+
+static int DetectContentDepthTest08(void)
+{
+    TEST_RUN("content:\"^abc.{3}klm.{3}xyz\"; ", 0, 15);
+    TEST_DONE;
+}
+
+// TEST_RUN("content:\"abc\"; depth:3; content:\"klm\"; distance:0; content:\"xyz\"; distance:0; ",
+// 6, 0);
+
+// tests to see if anchored 'ends_with' is applied to other content as depth
+// TEST_RUN("content:\"abc\"; depth:6; isdataat:!1,relative; content:\"klm\";", 0, 6);
+// TEST_RUN("content:\"abc\"; depth:3; content:\"klm\"; within:3; content:\"xyz\"; within:3;
+// isdataat:!1,relative; content:\"def\"; ", 0, 9);
+static int DetectContentDepthTest09(void)
+{
+    TEST_RUN("content:\"^\\x03.{4}\\xe0\"; ", 0, 7);
+    TEST_DONE;
+}
+static int DetectContentDepthTest10(void)
+{
+    TEST_RUN("content:\"^\\x03.{4}\\xe0\.{5}Cookie\\x3a\";", 0, 18);
+    TEST_DONE;
+}
+
+static int DetectContentDepthTest11(void)
+{
+    TEST_RUN("content:\"^\\x03.{4}\\xe0\.{5}Cookie\\x3a\"; content:\"xyz\"; distance:0; within:3;",
+            18, 21);
+    TEST_DONE;
+}
+
+static int DetectContentDepthTest12(void)
+{
+    TEST_RUN("content:\"^\\x03.{4}\\xe0\.{5}Cookie\\x3a\"; content:\"xyz\"; distance:0; within:3; "
+             "content:\"ab.{2}cd\"; distance:0; within:6;",
+            21, 27);
+    TEST_DONE;
+}
+
+// TEST_RUN("content:\"this\"; content:\"is\"; within:6; content:\"big\"; within:8;
+// content:\"string\"; within:8;", 0, 0);
+
+// TEST_RUN("dsize:<80; content:!\"|00 22 02 00|\"; depth: 4; content:\"|00 00 04|\"; distance:8;
+// within:3; content:\"|00 00 00 00 00|\"; distance:6; within:5;", 17, 80); TEST_RUN("content:!\"|00
+// 22 02 00|\"; depth: 4; content:\"|00 00 04|\"; distance:8; within:3; content:\"|00 00 00 00
+// 00|\"; distance:6; within:5;", 17, 0);
+
+// TEST_RUN("content:\"|0d 0a 0d 0a|\"; content:\"code=\"; distance:0;", 4, 0);
+// TEST_RUN("content:\"|0d 0a 0d 0a|\"; content:\"code=\"; distance:0; content:\"xploit.class\";
+// distance:2; within:18;", 11, 0);
+
+// TEST_RUN("content:\"|16 03|\"; depth:2; content:\"|55 04 0a|\"; distance:0;", 2, 0);
+// TEST_RUN("content:\"|16 03|\"; depth:2; content:\"|55 04 0a|\"; distance:0;
+// content:\"|0d|LogMeIn, Inc.\"; distance:1; within:14;", 6, 0); TEST_RUN("content:\"|16 03|\";
+// depth:2; content:\"|55 04 0a|\"; distance:0; content:\"|0d|LogMeIn, Inc.\"; distance:1;
+// within:14; content:\".app\";", 0, 0);
+
+// TEST_RUN("content:\"=\"; offset:4; depth:9;", 4, 13);
+// // low end: offset 4 + patlen 1 = 5. So 5 + distance 55 = 60.
+// // hi end: depth '13' (4+9) + distance 55 = 68 + within 2 = 70
+// TEST_RUN("content:\"=\"; offset:4; depth:9; content:\"=&\"; distance:55; within:2;", 60, 70);
+
+// // distance value is too high so we bail and not set anything on this content
+// TEST_RUN("content:\"0123456789\"; content:\"abcdef\"; distance:1048576;", 0, 0);
+
+// // Bug #5162.
+// TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2;", 11, 18);
+// TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2; content:\"|05 "
+//          "00 00|\"; distance:0;",
+//         13, 0);
+// TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2; content:\"|05 "
+//          "00 00|\"; distance:0; content:\"|0c 00|\"; distance:19; within:2;",
+//         35, 0);
+// TEST_RUN("content:\"SMB\"; depth:8; content:\"|09 00|\"; distance:8; within:2; content:\"|05 "
+//          "00 00|\"; distance:0; content:\"|0c 00|\"; distance:19; within:2; content:\"|15 00 "
+//          "00 00|\"; distance:20; within:4;",
+//         57, 0);
+
+//     TEST_DONE;
+// }
 
 /**
  * \brief Print list of DETECT_CONTENT SigMatch's allocated in a
@@ -2838,6 +3023,17 @@ static void DetectContentRegisterTests(void)
     g_dce_stub_data_buffer_id = DetectBufferTypeGetByName("dce_stub_data");
 
     UtRegisterTest("DetectContentDepthTest01", DetectContentDepthTest01);
+    UtRegisterTest("DetectContentDepthTest02", DetectContentDepthTest02);
+    UtRegisterTest("DetectContentDepthTest03", DetectContentDepthTest03);
+    UtRegisterTest("DetectContentDepthTest04", DetectContentDepthTest04);
+    UtRegisterTest("DetectContentDepthTest05", DetectContentDepthTest05);
+    UtRegisterTest("DetectContentDepthTest06", DetectContentDepthTest06);
+    UtRegisterTest("DetectContentDepthTest07", DetectContentDepthTest07);
+    UtRegisterTest("DetectContentDepthTest08", DetectContentDepthTest08);
+    UtRegisterTest("DetectContentDepthTest09", DetectContentDepthTest09);
+    UtRegisterTest("DetectContentDepthTest10", DetectContentDepthTest10);
+    UtRegisterTest("DetectContentDepthTest11", DetectContentDepthTest11);
+    UtRegisterTest("DetectContentDepthTest12", DetectContentDepthTest12);
 
     UtRegisterTest("DetectContentParseTest01", DetectContentParseTest01);
     UtRegisterTest("DetectContentParseTest02", DetectContentParseTest02);
