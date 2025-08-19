@@ -29,37 +29,37 @@
 static int IMAPRegisterPatternsForProtocolDetection(void)
 {
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_IMAP, "* OK ", 5, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_IMAP, "\\* OK ", 5, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
 
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_IMAP, "* NO ", 5, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_IMAP, "\\* NO ", 5, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
 
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_IMAP, "* BAD ", 6, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_IMAP, "\\* BAD ", 6, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
 
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_IMAP, "* LIST ", 7, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_IMAP, "\\* LIST ", 7, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
 
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_IMAP, "* ESEARCH ", 10, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_IMAP, "\\* ESEARCH ", 10, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
 
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_IMAP, "* STATUS ", 9, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_IMAP, "\\* STATUS ", 9, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
 
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_IMAP, "* FLAGS ", 8, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_IMAP, "\\* FLAGS ", 8, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
 

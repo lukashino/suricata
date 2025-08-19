@@ -939,7 +939,7 @@ static AppProto FTPServerProbingParser(
 static int FTPRegisterPatternsForProtocolDetection(void)
 {
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_FTP, "220 (", 5, 0, STREAM_TOCLIENT) < 0) {
+                IPPROTO_TCP, ALPROTO_FTP, "220 \\(", 5, 0, STREAM_TOCLIENT) < 0) {
         return -1;
     }
     if (SCAppLayerProtoDetectPMRegisterPatternCI(

@@ -188,7 +188,7 @@ static void DetectTlsJa3SHashSetupCallback(const DetectEngineCtx *de_ctx,
 
             bool changed = false;
             uint32_t u;
-            for (u = 0; u < cd->content_len; u++) {
+            for (u = 0; u < cd->content_len_raw; u++) {
                 if (isupper(cd->content[u])) {
                     cd->content[u] = u8_tolower(cd->content[u]);
                     changed = true;
@@ -199,7 +199,7 @@ static void DetectTlsJa3SHashSetupCallback(const DetectEngineCtx *de_ctx,
             if (changed) {
                 SpmDestroyCtx(cd->spm_ctx);
                 cd->spm_ctx =
-                        SpmInitCtx(cd->content, cd->content_len, 1, de_ctx->spm_global_thread_ctx);
+                        SpmInitCtx(cd->content, cd->content_len_raw, 1, de_ctx->spm_global_thread_ctx);
             }
         }
     }

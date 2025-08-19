@@ -707,7 +707,7 @@ static SCJsonBuilder *RulesGroupPrintSghStats(const DetectEngineCtx *de_ctx,
             int mpm_list = s->init_data->mpm_sm_list;
             BUG_ON(mpm_list < 0);
             const DetectContentData *cd = (const DetectContentData *)s->init_data->mpm_sm->ctx;
-            uint32_t size = cd->content_len < 256 ? cd->content_len : 255;
+            uint32_t size = cd->content_len_raw < 256 ? cd->content_len_raw : 255;
 
             mpm_sizes[mpm_list][size]++;
             alproto_mpm_bufs[s->alproto][mpm_list]++;

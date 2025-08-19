@@ -183,7 +183,7 @@ static bool DetectTlsSerialValidateCallback(
                 return true;
 
             uint32_t u;
-            for (u = 0; u < cd->content_len; u++)
+            for (u = 0; u < cd->content_len_raw; u++)
                 if (cd->content[u] == ':')
                     return true;
 
@@ -213,7 +213,7 @@ static void DetectTlsSerialSetupCallback(const DetectEngineCtx *de_ctx,
 
             bool changed = false;
             uint32_t u;
-            for (u = 0; u < cd->content_len; u++) {
+            for (u = 0; u < cd->content_len_raw; u++) {
                 if (islower(cd->content[u])) {
                     cd->content[u] = u8_toupper(cd->content[u]);
                     changed = true;
@@ -224,7 +224,7 @@ static void DetectTlsSerialSetupCallback(const DetectEngineCtx *de_ctx,
             if (changed) {
                 SpmDestroyCtx(cd->spm_ctx);
                 cd->spm_ctx =
-                        SpmInitCtx(cd->content, cd->content_len, 1, de_ctx->spm_global_thread_ctx);
+                        SpmInitCtx(cd->content, cd->content_len_raw, 1, de_ctx->spm_global_thread_ctx);
             }
         }
     }

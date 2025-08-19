@@ -1055,7 +1055,7 @@ static int DetectByteJumpTestPacket02 (void)
 
     char sig[] = "alert tcp any any -> any any (msg:\"byte_jump with byte_jump"
                  " + relative\"; byte_jump:1,13; byte_jump:4,0,relative; "
-                 "content:\"|48 00 00|\"; within:3; sid:144; rev:1;)";
+                 "content:\"\\x48\\x00\\x00\"; within:3; sid:144; rev:1;)";
 
     FAIL_IF_NOT(UTHPacketMatchSig(p, sig));
 

@@ -93,6 +93,7 @@
 typedef struct DetectContentData_ {
     uint8_t *content;
     uint16_t content_len;
+    uint16_t content_len_raw;
     uint16_t replace_len;
     /* for chopped fast pattern, the length */
     uint16_t fp_chop_len;
@@ -133,5 +134,6 @@ void DetectContentPatternPrettyPrint(const DetectContentData *cd, char *str, siz
 void SigParseRequiredContentSize(
         const Signature *s, const uint64_t max, const SigMatch *sm, int *len, int *offset);
 int DetectContentConvertToNocase(DetectEngineCtx *de_ctx, DetectContentData *cd);
+uint16_t CalculateRegexMaxLength(const char *str, size_t len);
 
 #endif /* SURICATA_DETECT_CONTENT_H */

@@ -42,7 +42,7 @@ static int HTTP2RegisterPatternsForProtocolDetection(void)
      * The complete pattern is "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
      */
     if (SCAppLayerProtoDetectPMRegisterPatternCI(
-                IPPROTO_TCP, ALPROTO_HTTP2, "PRI * HTTP/2.0\r\n", 16, 0, STREAM_TOSERVER) < 0) {
+                IPPROTO_TCP, ALPROTO_HTTP2, "PRI \\* HTTP/2\\.0\r\n", 16, 0, STREAM_TOSERVER) < 0) {
         return -1;
     }
     return 0;

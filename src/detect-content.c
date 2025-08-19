@@ -71,6 +71,285 @@ void DetectContentRegister(void)
             (SIGMATCH_QUOTES_MANDATORY | SIGMATCH_HANDLE_NEGATION | SIGMATCH_SUPPORT_FIREWALL);
 }
 
+typedef struct {
+    int min;
+    int max;
+    bool unbounded;
+} RegexQuantifier;
+
+typedef struct {
+    const char *start;
+    size_t length;
+    RegexQuantifier quantifier;
+} RegexFragment;
+
+/**
+ * \brief Parse a repetition quantifier from regex pattern
+ *
+ * \param str Input string starting at the '{' character
+ * \param len Remaining length of the string
+ * \param consumed Output: number of characters consumed
+ * \return RegexQuantifier structure with parsed values
+ */
+static RegexQuantifier ParseRegexQuantifier(const char *str, size_t len, size_t *consumed)
+{
+    RegexQuantifier quant = { 0, 0, false };
+    *consumed = 0;
+
+    if (len < 3 || str[0] != '{') {
+        return quant;
+    }
+
+    size_t i = 1;
+    char num_buf[16];
+    size_t num_len = 0;
+
+    // Parse first number
+    while (i < len && isdigit(str[i]) && num_len < sizeof(num_buf) - 1) {
+        num_buf[num_len++] = str[i++];
+    }
+
+    if (num_len == 0) {
+        return quant;
+    }
+
+    num_buf[num_len] = '\0';
+    quant.min = atoi(num_buf);
+    quant.max = quant.min;
+
+    if (i < len && str[i] == ',') {
+        i++; // Skip comma
+        num_len = 0;
+
+        // Parse second number (if present)
+        while (i < len && isdigit(str[i]) && num_len < sizeof(num_buf) - 1) {
+            num_buf[num_len++] = str[i++];
+        }
+
+        if (num_len == 0) {
+            // Pattern like .{4,} - unbounded
+            quant.unbounded = true;
+        } else {
+            num_buf[num_len] = '\0';
+            quant.max = atoi(num_buf);
+        }
+    }
+
+    if (i < len && str[i] == '}') {
+        *consumed = i + 1;
+    }
+
+    return quant;
+}
+
+/**
+ * \brief Slice regex string by repetition modifiers
+ *
+ * \param str Input regex string
+ * \param len Length of input string
+ * \param fragments Output array of fragments
+ * \param max_fragments Maximum number of fragments to store
+ * \return Number of fragments parsed
+ */
+static size_t SliceRegexByQuantifiers(
+        const char *str, size_t len, RegexFragment *fragments, size_t max_fragments)
+{
+    size_t fragment_count = 0;
+    size_t i = 0;
+
+    while (i < len && fragment_count < max_fragments) {
+        RegexFragment *frag = &fragments[fragment_count];
+        frag->start = str + i;
+        frag->length = 0;
+        frag->quantifier.min = 1;
+        frag->quantifier.max = 1;
+        frag->quantifier.unbounded = false;
+
+        if (i + 1 < len && str[i] == '.' && str[i + 1] == '{') {
+            // Found quantified dot pattern
+            frag->length = 1; // Just the dot
+            size_t consumed;
+            frag->quantifier = ParseRegexQuantifier(str + i + 1, len - i - 1, &consumed);
+            i += 1 + consumed; // Skip dot and quantifier
+        } else {
+            // Regular character or escape sequence
+            if (str[i] == '\\' && i + 1 < len) {
+                if (i + 3 < len && str[i + 1] == 'x') {
+                    frag->length = 4; // \xHH
+                    i += 4;
+                } else if (i + 1 < len) {
+                    frag->length = 2; // \\.
+                    i += 2;
+                } else {
+                    FatalError("Invalid escape sequence in regex");
+                }
+            } else {
+                frag->length = 1;
+                i++;
+            }
+        }
+
+        fragment_count++;
+    }
+
+    return fragment_count;
+}
+
+/**
+ * \brief Evaluate length of regex pattern without repetition modifiers
+ *
+ * \param str Input string
+ * \param len Length of string
+ * \return Length in bytes
+ */
+static size_t EvaluateRegexPatternLength(const char *str, size_t len)
+{
+    size_t length = 0;
+
+    for (size_t i = 0; i < len;) {
+        if (str[i] == '\\' && i + 1 < len) {
+            if (i + 3 < len && str[i + 1] == 'x') {
+                // \xHH hex escape - counts as 1 byte
+                length++;
+                i += 4;
+            } else if (i + 1 < len) {
+                // Other escapes like \\. - count as 1 byte
+                length++;
+                i += 2;
+            } else {
+                length++;
+                i++;
+            }
+        } else {
+            switch (str[i]) {
+                // Control characters
+                case '^':
+                case '$':
+                break;
+                
+                default:
+                // Regular characters
+                length++;
+                break;
+            }
+            i++;
+        }
+    }
+
+    return length;
+}
+
+/**
+ * \brief Calculate maximum length of regex string
+ *
+ * \param str Input regex string
+ * \param len Length of string
+ * \return Maximum possible length, 0 if unbounded
+ */
+uint16_t CalculateRegexMaxLength(const char *str, size_t len)
+{
+    RegexFragment fragments[64];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 64);
+    uint16_t total_length = 0;
+
+    for (size_t i = 0; i < fragment_count; i++) {
+        RegexFragment *frag = &fragments[i];
+
+        if (frag->quantifier.unbounded) {
+            return 0; // Unbounded pattern
+        }
+
+        size_t base_length = EvaluateRegexPatternLength(frag->start, frag->length);
+        total_length += base_length * frag->quantifier.max;
+    }
+
+    return total_length;
+}
+
+/**
+ * \brief Calculate minimum length of regex string
+ *
+ * \param str Input regex string
+ * \param len Length of string
+ * \return Minimum possible length
+ */
+static uint16_t CalculateRegexMinLength(const char *str, size_t len)
+{
+    RegexFragment fragments[64];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 64);
+    uint16_t total_length = 0;
+
+    for (size_t i = 0; i < fragment_count; i++) {
+        RegexFragment *frag = &fragments[i];
+        size_t base_length = EvaluateRegexPatternLength(frag->start, frag->length);
+        total_length += base_length * frag->quantifier.min;
+    }
+
+    return total_length;
+}
+
+/**
+ * \brief Calculate depth from anchored regex patterns
+ *
+ * \param str Anchored regex string (without the '^')
+ * \param len Length of string
+ * \return Calculated depth, 0 if unbounded
+ */
+static uint16_t CalculateRegexDepthFromAnchored(const char *str, size_t len)
+{
+    return CalculateRegexMaxLength(str, len);
+}
+
+/**
+ * \brief Calculate offset from regex patterns
+ *
+ * \param str Anchored regex string (without the '^')
+ * \param len Length of string
+ * \return Calculated offset
+ */
+static uint16_t CalculateRegexOffset(const char *str, size_t len)
+{
+    RegexFragment fragments[64];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 64);
+
+    if (fragment_count == 0) {
+        return 0;
+    }
+
+    // Offset is the minimum length of leading quantified patterns before literal content
+    RegexFragment *first_frag = &fragments[0];
+    if (first_frag->start[0] == '.' && first_frag->quantifier.min > 0) {
+        return first_frag->quantifier.min;
+    }
+
+    return 0;
+}
+
+/**
+ * \brief Calculate effective depth for regex content pattern
+ *
+ * Parses regex patterns to determine depth for content matching
+ */
+static uint16_t DetectContentCalculateRegexDepth(const char *contentstr, uint16_t content_len)
+{
+    if (contentstr == NULL) {
+        return 0;
+    }
+
+    const char *str = contentstr;
+    size_t len = strlen(str);
+
+    // Only process anchored patterns (starting with ^) to avoid conflicts with within/distance
+    if (len > 0 && str[0] == '^') {
+        str++; // Skip the anchor
+        len--;
+
+        return CalculateRegexDepthFromAnchored(str, len);
+    }
+
+    return 0;
+}
+
 /**
  *  \brief Parse a content string, ie "abc|DE|fgh"
  *
@@ -82,6 +361,29 @@ void DetectContentRegister(void)
  *  \retval -1 error
  *  \retval 0 ok
  */
+/**
+ * \brief Enhanced regex pattern parsing with escape handling
+ *
+ * \param contentstr The content string to parse
+ * \param result Pointer to store the parsed content
+ * \param result_len Pointer to store the length of parsed content
+ * \param is_regex Pointer to indicate if this is a regex pattern
+ *
+ * \retval 0 on success
+ * \retval -1 on error
+ */
+static int DetectContentParseRegexPattern(
+        const char *contentstr, uint8_t **result, uint16_t *result_len)
+{
+    if (contentstr == NULL || result == NULL || result_len == NULL) {
+        return -1;
+    }
+
+    *result_len = CalculateRegexMaxLength(contentstr, strlen(contentstr));
+    *result = (uint8_t *)strdup(contentstr);
+    return 0;
+}
+
 int DetectContentDataParse(
         const char *keyword, const char *contentstr, uint8_t **pstr, uint16_t *plen)
 {
@@ -92,6 +394,18 @@ int DetectContentDataParse(
     if (slen == 0) {
         return -1;
     }
+
+    // First try to parse as regex pattern
+    uint8_t *regex_result = NULL;
+    uint16_t regex_len = 0;
+
+    if (DetectContentParseRegexPattern(contentstr, &regex_result, &regex_len) == 0) {
+        *plen = regex_len;
+        *pstr = regex_result;
+        return 0;
+    }
+
+    // Fall back to original parsing logic for non-regex content
     uint8_t buffer[slen + 1];
     strlcpy((char *)&buffer, contentstr, slen + 1);
     str = (char *)buffer;
@@ -215,69 +529,7 @@ int DetectContentDataParse(
 error:
     return -1;
 }
-/**
- * \brief Calculate effective depth for regex content pattern
- *
- * Parses regex patterns to determine depth for content matching
- */
-static uint16_t DetectContentCalculateRegexDepth(const char *contentstr, uint16_t content_len)
-{
-    if (contentstr == NULL) {
-        return 0;
-    }
 
-    const char *str = contentstr;
-    size_t len = strlen(str);
-    uint16_t depth = 0;
-
-    // Only process anchored patterns (starting with ^) to avoid conflicts with within/distance
-    if (len > 0 && str[0] == '^') {
-        str++; // Skip the anchor
-        len--;
-
-        // Parse the regex pattern to calculate effective depth
-        for (size_t i = 0; i < len;) {
-            if (str[i] == '.' && i + 1 < len && str[i + 1] == '{') {
-                // Handle .{n} patterns
-                size_t j = i + 2;
-                while (j < len && isdigit(str[j])) {
-                    j++;
-                }
-                if (j < len && str[j] == '}') {
-                    // Extract the number
-                    char num_str[16];
-                    size_t num_len = j - (i + 2);
-                    if (num_len < sizeof(num_str)) {
-                        memcpy(num_str, str + i + 2, num_len);
-                        num_str[num_len] = '\0';
-                        depth += atoi(num_str);
-                        i = j + 1; // Skip past the }
-                    }
-                } else {
-                    // Malformed pattern, treat as literal
-                    depth++;
-                    i++;
-                }
-            } else if (str[i] == '\\' && i + 1 < len) {
-                // Handle escape sequences
-                if (str[i + 1] == 'x' && i + 3 < len) {
-                    // \xHH hex escape - counts as 1 byte
-                    depth++;
-                    i += 4; // Skip \xHH
-                } else {
-                    // Other escapes like \. - count as 1 byte
-                    depth++;
-                    i += 2; // Skip \c
-                }
-            } else {
-                // Regular character
-                depth++;
-                i++;
-            }
-        }
-    }
-    return depth;
-}
 /**
  * \brief DetectContentParse
  * \initonly
@@ -288,6 +540,7 @@ DetectContentData *DetectContentParse(
     DetectContentData *cd = NULL;
     uint8_t *content = NULL;
     uint16_t len = 0;
+    uint16_t len_raw = strlen(contentstr);
     int ret;
 
     ret = DetectContentDataParse("content", contentstr, &content, &len);
@@ -302,11 +555,12 @@ DetectContentData *DetectContentParse(
     }
 
     cd->content = (uint8_t *)cd + sizeof(DetectContentData);
-    memcpy(cd->content, content, len);
+    memcpy(cd->content, content, len_raw);
     cd->content_len = len;
+    cd->content_len_raw = len_raw;
 
     /* Prepare SPM search context. */
-    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len, 0, spm_global_thread_ctx);
+    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len_raw, 0, spm_global_thread_ctx);
     if (cd->spm_ctx == NULL) {
         SCFree(content);
         SCFree(cd);
@@ -318,61 +572,9 @@ DetectContentData *DetectContentParse(
     cd->within = 0;
     cd->distance = 0;
 
-    // Check if this is a regex pattern and calculate depth/offset
-    uint16_t regex_depth = DetectContentCalculateRegexDepth(contentstr, cd->content_len);
-    if (regex_depth > 0) {
-        cd->offset = 0; // Anchored patterns start at offset 0
-        // If the pattern contains hex escapes, use content_len, otherwise use regex_depth
-        if (contentstr && strstr(contentstr, "\\x")) {
-            cd->depth = cd->content_len;
-        } else {
-            cd->depth = regex_depth;
-        }
-        // Set the appropriate flags to indicate this content has depth and offset set
-        cd->flags |= DETECT_CONTENT_DEPTH | DETECT_CONTENT_OFFSET;
-    }
-
-    // Handle non-anchored regex patterns for content length adjustment
-    if (contentstr && strstr(contentstr, ".{") && contentstr[0] != '^') {
-        // Calculate effective length for non-anchored regex patterns
-        uint16_t effective_len = 0;
-        const char *str = contentstr;
-        size_t len = strlen(str);
-
-        for (size_t i = 0; i < len;) {
-            if (str[i] == '.' && i + 1 < len && str[i + 1] == '{') {
-                // Handle .{n} patterns
-                size_t j = i + 2;
-                while (j < len && isdigit(str[j])) {
-                    j++;
-                }
-                if (j < len && str[j] == '}') {
-                    // Extract the number
-                    char num_str[16];
-                    size_t num_len = j - (i + 2);
-                    if (num_len < sizeof(num_str)) {
-                        memcpy(num_str, str + i + 2, num_len);
-                        num_str[num_len] = '\0';
-                        effective_len += atoi(num_str);
-                        i = j + 1; // Skip past the }
-                    }
-                } else {
-                    // Malformed pattern, treat as literal
-                    effective_len++;
-                    i++;
-                }
-            } else {
-                // Regular character
-                effective_len++;
-                i++;
-            }
-        }
-
-        // Update content length if we calculated a different effective length
-        if (effective_len > 0 && effective_len != cd->content_len) {
-            cd->content_len = effective_len;
-        }
-    }
+    // For now, we do not specify depth and offset for regexes
+    // We could do it, but you need to do it right, you need to calculate depth and offset based on the regex structure
+    // Let's leave it for Hyperscan for now.
 
     SCFree(content);
     return cd;
@@ -475,7 +677,7 @@ int DetectContentSetup(DetectEngineCtx *de_ctx, Signature *s, const char *conten
         /* Check transform compatibility */
         const char *tstr;
         if (!DetectEngineBufferTypeValidateTransform(
-                    de_ctx, sm_list, cd->content, cd->content_len, &tstr)) {
+                    de_ctx, sm_list, cd->content, cd->content_len_raw, &tstr)) {
             SCLogError("content string \"%s\" incompatible with %s transform", contentstr, tstr);
             goto error;
         }
@@ -873,7 +1075,7 @@ static inline bool NeedsAsHex(uint8_t c)
 void DetectContentPatternPrettyPrint(const DetectContentData *cd, char *str, size_t str_len)
 {
     bool hex = false;
-    for (uint16_t i = 0; i < cd->content_len; i++) {
+    for (uint16_t i = 0; i < cd->content_len_raw; i++) {
         if (NeedsAsHex(cd->content[i])) {
             char hex_str[4];
             snprintf(hex_str, sizeof(hex_str), "%s%02X", !hex ? "|" : " ", cd->content[i]);
@@ -900,14 +1102,14 @@ int DetectContentConvertToNocase(DetectEngineCtx *de_ctx, DetectContentData *cd)
 
     /* for consistency in later use (e.g. by MPM construction and hashing),
      * coerce the content string to lower-case. */
-    for (uint8_t *c = cd->content; c < cd->content + cd->content_len; c++) {
+    for (uint8_t *c = cd->content; c < cd->content + cd->content_len_raw; c++) {
         *c = u8_tolower(*c);
     }
 
     cd->flags |= DETECT_CONTENT_NOCASE;
     /* Recreate the context with nocase chars */
     SpmDestroyCtx(cd->spm_ctx);
-    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len, 1, de_ctx->spm_global_thread_ctx);
+    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len_raw, 1, de_ctx->spm_global_thread_ctx);
     if (cd->spm_ctx == NULL) {
         return -1;
     }
@@ -958,7 +1160,6 @@ static bool TestLastContent(const Signature *s, uint16_t o, uint16_t d)
     }
 
 #define TEST_DONE PASS
-
 /** \test test propagation of depth/offset/distance/within */
 static int DetectContentDepthTest01(void)
 {
@@ -2965,6 +3166,127 @@ static int DetectBadBinContent(void)
     PASS;
 }
 
+/** \test Test basic regex pattern without quantifiers */
+static int RegexPatterns01(void)
+{
+    uint16_t result = CalculateRegexMaxLength("abc", 3);
+    FAIL_IF(result != 3);
+
+    result = CalculateRegexMinLength("abc", 3);
+    FAIL_IF(result != 3);
+    PASS;
+}
+
+/** \test Test simple quantifier .{X} */
+static int RegexPatterns02(void)
+{
+    uint16_t result = CalculateRegexMaxLength(".{3}abc", 7);
+    FAIL_IF(result != 6);
+
+    result = CalculateRegexMinLength(".{3}abc", 7);
+    FAIL_IF(result != 6);
+    PASS;
+}
+
+/** \test Test range quantifier .{X,Y} */
+static int RegexPatterns03(void)
+{
+    uint16_t result = CalculateRegexMaxLength(".{1,3}abc", 9);
+    FAIL_IF(result != 6);
+
+    result = CalculateRegexMinLength(".{1,3}abc", 9);
+    FAIL_IF(result != 4);
+    PASS;
+}
+
+/** \test Test unbounded quantifier .{X,} */
+static int RegexPatterns04(void)
+{
+    uint16_t result = CalculateRegexMaxLength(".{4,}abc", 8);
+    FAIL_IF(result != 0);
+    PASS;
+}
+
+/** \test Test zero quantifier .{0,X} */
+static int RegexPatterns05(void)
+{
+    uint16_t result = CalculateRegexMaxLength(".{0,1}abc", 9);
+    FAIL_IF(result != 4);
+
+    result = CalculateRegexMinLength(".{0,1}abc", 9);
+    FAIL_IF(result != 3);
+    PASS;
+}
+
+/** \test Test complex mixed pattern reg.{1,2}ex.{1,2} */
+static int RegexPatterns06(void)
+{
+    uint16_t result = CalculateRegexMaxLength("reg.{1,2}ex.{1,2}", 17);
+    FAIL_IF(result != 9);
+
+    result = CalculateRegexMinLength("reg.{1,2}ex.{1,2}", 17);
+    FAIL_IF(result != 7);
+    PASS;
+}
+
+/** \test Test escaped characters */
+static int RegexPatterns07(void)
+{
+    uint16_t result = CalculateRegexMaxLength("^\\xAB\\.t.{1}st", 15);
+    FAIL_IF(result != 6);
+
+    result = CalculateRegexMinLength("^\\xAB\\.t.{1}st", 15);
+    FAIL_IF(result != 6);
+    PASS;
+}
+
+/** \test Test anchored pattern depth calculation */
+static int RegexPatterns08(void)
+{
+    uint16_t result = DetectContentCalculateRegexDepth("^.{0,4}foo.{2,16}", 0);
+    FAIL_IF(result != 23);
+    PASS;
+}
+
+/** \test Test non-anchored pattern returns 0 */
+static int RegexPatterns09(void)
+{
+    uint16_t result = DetectContentCalculateRegexDepth("abc.{2,4}", 0);
+    FAIL_IF(result != 0);
+    PASS;
+}
+
+/** \test Test offset calculation */
+static int RegexPatterns10(void)
+{
+    uint16_t result = CalculateRegexOffset(".{2,4}image", 11);
+    FAIL_IF(result != 2);
+    PASS;
+}
+
+/** \test Test unbounded pattern in middle returns 0 */
+static int RegexPatterns11(void)
+{
+    uint16_t result = CalculateRegexMaxLength(".{4,}foo.{5,}bar", 16);
+    FAIL_IF(result != 0);
+    PASS;
+}
+
+/** \test Test .{0} equivalent to empty */
+static int RegexPatterns12(void)
+{
+    uint16_t result = DetectContentCalculateRegexDepth("^.{0}str", 0);
+    FAIL_IF(result != 3);
+    PASS;
+}
+
+static int RegexPatterns13(void)
+{
+    uint16_t result = CalculateRegexMaxLength("^/im.{1}ges/", 16);
+    FAIL_IF(result != 8);
+    PASS;
+}
+
 /**
  * \brief this function registers unit tests for DetectContent
  */
@@ -3073,6 +3395,20 @@ static void DetectContentRegisterTests(void)
 
     UtRegisterTest("SigTest76TestBug134", SigTest76TestBug134);
     UtRegisterTest("SigTest77TestBug139", SigTest77TestBug139);
+    
+    UtRegisterTest("RegexPatterns01", RegexPatterns01);
+    UtRegisterTest("RegexPatterns02", RegexPatterns02);
+    UtRegisterTest("RegexPatterns03", RegexPatterns03);
+    UtRegisterTest("RegexPatterns04", RegexPatterns04);
+    UtRegisterTest("RegexPatterns05", RegexPatterns05);
+    UtRegisterTest("RegexPatterns06", RegexPatterns06);
+    UtRegisterTest("RegexPatterns07", RegexPatterns07);
+    UtRegisterTest("RegexPatterns08", RegexPatterns08);
+    UtRegisterTest("RegexPatterns09", RegexPatterns09);
+    UtRegisterTest("RegexPatterns10", RegexPatterns10);
+    UtRegisterTest("RegexPatterns11", RegexPatterns11);
+    UtRegisterTest("RegexPatterns12", RegexPatterns12);
+    UtRegisterTest("RegexPatterns13", RegexPatterns13);
 
     UtRegisterTest("DetectLongContentTest1", DetectLongContentTest1);
     UtRegisterTest("DetectLongContentTest2", DetectLongContentTest2);

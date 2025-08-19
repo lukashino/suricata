@@ -139,12 +139,17 @@ static bool DetectHttpProtocolValidateCallback(
             if (sm->type != DETECT_CONTENT)
                 continue;
             const DetectContentData *cd = (DetectContentData *)sm->ctx;
-            for (size_t i = 0; i < cd->content_len; ++i) {
+            for (size_t i = 0; i < cd->content_len_raw; ++i) {
                 if (cd->content[i] == ' ') {
                     *sigerror = "Invalid http.protocol string containing a space";
                     SCLogWarning("rule %u: %s", s->id, *sigerror);
                     return false;
                 }
+            }
+            if (strstr((const char *)cd->content, "\\x20") != NULL) {
+                *sigerror = "Invalid http.protocol string containing a space";
+                SCLogWarning("rule %u: %s", s->id, *sigerror);
+                return false;
             }
         }
     }

@@ -1183,13 +1183,13 @@ unsafe extern "C" fn probe_tcp(_f: *const Flow, direction: u8, input: *const u8,
 fn register_pattern_probe() -> i8 {
     unsafe {
         if SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_DCERPC,
-                                                     b"|05 00|\0".as_ptr() as *const std::os::raw::c_char, 2, 0,
+                                                     b"\\x05\\x00\0".as_ptr() as *const std::os::raw::c_char, 2, 0,
                                                      Direction::ToServer.into(), Some(probe_tcp), 0, 0) < 0 {
             SCLogDebug!("TOSERVER => SCAppLayerProtoDetectPMRegisterPatternCSwPP FAILED");
             return -1;
         }
         if SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_DCERPC,
-                                                     b"|05 00|\0".as_ptr() as *const std::os::raw::c_char, 2, 0,
+                                                     b"\\x05\\x00\0".as_ptr() as *const std::os::raw::c_char, 2, 0,
                                                      Direction::ToClient.into(), Some(probe_tcp), 0, 0) < 0 {
             SCLogDebug!("TOCLIENT => SCAppLayerProtoDetectPMRegisterPatternCSwPP FAILED");
             return -1;

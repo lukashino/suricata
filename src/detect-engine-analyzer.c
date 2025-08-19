@@ -254,13 +254,13 @@ void EngineAnalysisFP(const DetectEngineCtx *de_ctx, const Signature *s, const c
                 fp_cd->fp_chop_len);
     }
 
-    uint16_t patlen = fp_cd->content_len;
-    uint8_t *pat = SCMalloc(fp_cd->content_len + 1);
+    uint16_t patlen = fp_cd->content_len_raw;
+    uint8_t *pat = SCMalloc(fp_cd->content_len_raw + 1);
     if (unlikely(pat == NULL)) {
         FatalError("Error allocating memory");
     }
-    memcpy(pat, fp_cd->content, fp_cd->content_len);
-    pat[fp_cd->content_len] = '\0';
+    memcpy(pat, fp_cd->content, fp_cd->content_len_raw);
+    pat[fp_cd->content_len_raw] = '\0';
     fprintf(fp, "        Original content: ");
     PrintRawUriFp(fp, pat, patlen);
     fprintf(fp, "\n");
@@ -558,16 +558,16 @@ static void EngineAnalysisRulesPrintFP(const DetectEngineCtx *de_ctx, const Sign
         return;
     }
 
-    uint16_t patlen = fp_cd->content_len;
-    uint8_t *pat = SCMalloc(fp_cd->content_len + 1);
+    uint16_t patlen = fp_cd->content_len_raw;
+    uint8_t *pat = SCMalloc(fp_cd->content_len_raw + 1);
     if (unlikely(pat == NULL)) {
         FatalError("Error allocating memory");
     }
 
     EngineAnalysisCtx *ea_ctx = de_ctx->ea;
 
-    memcpy(pat, fp_cd->content, fp_cd->content_len);
-    pat[fp_cd->content_len] = '\0';
+    memcpy(pat, fp_cd->content, fp_cd->content_len_raw);
+    pat[fp_cd->content_len_raw] = '\0';
 
     if (fp_cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) {
         SCFree(pat);
@@ -692,6 +692,7 @@ static void DumpContent(SCJsonBuilder *js, const DetectContentData *cd)
 
     SCJbSetString(js, "pattern", pattern_str);
     SCJbSetUint(js, "length", cd->content_len);
+    SCJbSetUint(js, "rawlength", cd->content_len_raw);
     SCJbSetBool(js, "nocase", cd->flags & DETECT_CONTENT_NOCASE);
     SCJbSetBool(js, "negated", cd->flags & DETECT_CONTENT_NEGATED);
     SCJbSetBool(js, "starts_with", cd->flags & DETECT_CONTENT_STARTS_WITH);
@@ -743,12 +744,12 @@ static void DumpMatches(RuleAnalyzer *ctx, SCJsonBuilder *js, const SigMatchData
                     AnalyzerNote(ctx, (char *)"'fast_pattern:only' option is silently ignored and "
                                               "is interpreted as regular 'fast_pattern'");
                 }
-                if (LooksLikeHTTPMethod(cd->content, cd->content_len)) {
+                if (LooksLikeHTTPMethod(cd->content, cd->content_len_raw)) {
                     AnalyzerNote(ctx,
                             (char *)"pattern looks like it inspects HTTP, use http.request_line or "
                                     "http.method and http.uri instead for improved performance");
                 }
-                if (LooksLikeHTTPUA(cd->content, cd->content_len)) {
+                if (LooksLikeHTTPUA(cd->content, cd->content_len_raw)) {
                     AnalyzerNote(ctx,
                             (char *)"pattern looks like it inspects HTTP, use http.user_agent "
                                     "or http.header for improved performance");
@@ -1463,6 +1464,7 @@ void DumpPatterns(DetectEngineCtx *de_ctx)
         SCJbStartObject(jb);
         SCJbSetString(jb, "pattern", str);
         SCJbSetUint(jb, "patlen", p->cd->content_len);
+        SCJbSetUint(jb, "rawpatlen", p->cd->content_len_raw);
         SCJbSetUint(jb, "cnt", p->cnt);
         SCJbSetUint(jb, "mpm", p->mpm);
         SCJbOpenObject(jb, "flags");
@@ -1668,7 +1670,7 @@ void EngineAnalysisRules(const DetectEngineCtx *de_ctx,
                 if (de_ctx->ea->analyzer_items[item_slot].check_encoding_match) {
                     DetectContentData *cd = (DetectContentData *)sm->ctx;
                     if (cd != NULL &&
-                            PerCentEncodingMatch(de_ctx->ea, cd->content, cd->content_len) > 0) {
+                            PerCentEncodingMatch(de_ctx->ea, cd->content, cd->content_len_raw) > 0) {
                         warn_encoding_norm_http_buf += 1;
                     }
                 }

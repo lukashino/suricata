@@ -31,6 +31,7 @@
 #include "detect-parse.h"
 #include "detect-engine.h"
 #include "detect-engine-build.h"
+#include "detect-content.h"
 
 #include "conf.h"
 #include "util-conf.h"
@@ -303,7 +304,7 @@ static int SCHSAddPattern(MpmCtx *mpm_ctx, const uint8_t *pat, uint16_t patlen, 
         p->offset = offset;
         p->depth = depth;
 
-        p->original_pat = SCMalloc(patlen);
+        p->original_pat = SCCalloc(patlen, sizeof(uint8_t));
         if (p->original_pat == NULL)
             goto error;
         mpm_ctx->memory_cnt++;
@@ -657,6 +658,7 @@ static int CompileDataExtensionsInit(hs_expr_ext_t **ext, const SCHSPattern *p)
         }
         if (p->flags & MPM_PATTERN_FLAG_OFFSET) {
             (*ext)->flags |= HS_EXT_FLAG_MIN_OFFSET;
+            printf("%d\n", CalculateRegexMaxLength(p->original_pat, p->len));
             (*ext)->min_offset = p->offset + p->len;
         }
         if (p->flags & MPM_PATTERN_FLAG_DEPTH) {

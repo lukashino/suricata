@@ -2308,24 +2308,24 @@ fn register_pattern_probe() -> i8 {
     unsafe {
         // SMB1
         r |= SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_SMB,
-                                                     b"|ff|SMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
+                                                     b"\\xffSMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
                                                      Direction::ToServer as u8, Some(smb_probe_begins_tcp), MIN_REC_SIZE, MIN_REC_SIZE);
         r |= SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_SMB,
-                                                     b"|ff|SMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
+                                                     b"\\xffSMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
                                                      Direction::ToClient as u8, Some(smb_probe_begins_tcp), MIN_REC_SIZE, MIN_REC_SIZE);
         // SMB2/3
         r |= SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_SMB,
-                                                     b"|fe|SMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
+                                                     b"\\xfeSMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
                                                      Direction::ToServer as u8, Some(smb_probe_begins_tcp), MIN_REC_SIZE, MIN_REC_SIZE);
         r |= SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_SMB,
-                                                     b"|fe|SMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
+                                                     b"\\xfeSMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
                                                      Direction::ToClient as u8, Some(smb_probe_begins_tcp), MIN_REC_SIZE, MIN_REC_SIZE);
         // SMB3 encrypted records
         r |= SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_SMB,
-                                                     b"|fd|SMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
+                                                     b"\\xfdSMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
                                                      Direction::ToServer as u8, Some(smb3_probe_tcp), MIN_REC_SIZE, MIN_REC_SIZE);
         r |= SCAppLayerProtoDetectPMRegisterPatternCSwPP(IPPROTO_TCP, ALPROTO_SMB,
-                                                     b"|fd|SMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
+                                                     b"\\xfdSMB\0".as_ptr() as *const std::os::raw::c_char, 8, 4,
                                                      Direction::ToClient as u8, Some(smb3_probe_tcp), MIN_REC_SIZE, MIN_REC_SIZE);
     }
 

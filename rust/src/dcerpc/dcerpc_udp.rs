@@ -337,7 +337,7 @@ unsafe extern "C" fn probe_udp(_f: *const Flow, direction: u8, input: *const u8,
 fn register_pattern_probe() -> i8 {
     unsafe {
         if SCAppLayerProtoDetectPMRegisterPatternCSwPP(core::IPPROTO_UDP, ALPROTO_DCERPC,
-                                                     b"|04 00|\0".as_ptr() as *const std::os::raw::c_char, 2, 0,
+                                                     b"\\x04\\x00\0".as_ptr() as *const std::os::raw::c_char, 2, 0,
                                                      Direction::ToServer.into(), Some(probe_udp), 0, 0) < 0 {
             SCLogDebug!("TOSERVER => SCAppLayerProtoDetectPMRegisterPatternCSwPP FAILED");
             return -1;

@@ -1185,7 +1185,7 @@ static int AppLayerProtoDetectPMSetContentIDs(AppLayerProtoDetectPMCtx *ctx)
 
     for (s = ctx->head; s != NULL; s = s->next) {
         struct_total_size += sizeof(TempContainer);
-        content_total_size += s->cd->content_len;
+        content_total_size += s->cd->content_len_raw;
         ctx->max_sig_id++;
     }
 
@@ -1198,7 +1198,7 @@ static int AppLayerProtoDetectPMSetContentIDs(AppLayerProtoDetectPMCtx *ctx)
     for (s = ctx->head; s != NULL; s = s->next) {
         TempContainer *tcdup = (TempContainer *)ahb;
         content = s->cd->content;
-        content_len = s->cd->content_len;
+        content_len = s->cd->content_len_raw;
 
         for (; tcdup != struct_offset; tcdup++) {
             if (tcdup->content_len != content_len ||
@@ -1257,13 +1257,13 @@ static int AppLayerProtoDetectPMMapSignatures(AppLayerProtoDetectPMCtx *ctx)
 
         if (s->cd->flags & DETECT_CONTENT_NOCASE) {
             mpm_ret = MpmAddPatternCI(&ctx->mpm_ctx,
-                    s->cd->content, s->cd->content_len,
+                    s->cd->content, s->cd->content_len_raw,
                     s->cd->offset, s->cd->depth, s->cd->id, s->id, 0);
             if (mpm_ret < 0)
                 goto error;
         } else {
             mpm_ret = MpmAddPatternCS(&ctx->mpm_ctx,
-                    s->cd->content, s->cd->content_len,
+                    s->cd->content, s->cd->content_len_raw,
                     s->cd->offset, s->cd->depth, s->cd->id, s->id, 0);
             if (mpm_ret < 0)
                 goto error;
@@ -1358,7 +1358,7 @@ static int AppLayerProtoDetectPMRegisterPattern(uint8_t ipproto, AppProto alprot
     if (!is_cs) {
         /* Rebuild as nocase */
         SpmDestroyCtx(cd->spm_ctx);
-        cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len, 1,
+        cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len_raw, 1,
                                  alpd_ctx.spm_global_thread_ctx);
         if (cd->spm_ctx == NULL) {
             goto error;
@@ -2443,7 +2443,7 @@ static int AppLayerProtoDetectTest08(void)
     memset(&f, 0x00, sizeof(f));
     f.protomap = FlowGetProtoMapping(IPPROTO_TCP);
 
-    const char *buf = "|ff|SMB";
+    const char *buf = "\\xffSMB";
     SCAppLayerProtoDetectPMRegisterPatternCS(IPPROTO_TCP, ALPROTO_SMB, buf, 8, 4, STREAM_TOCLIENT);
 
     AppLayerProtoDetectPrepareState();
@@ -2498,7 +2498,7 @@ static int AppLayerProtoDetectTest09(void)
     memset(&f, 0x00, sizeof(f));
     f.protomap = FlowGetProtoMapping(IPPROTO_TCP);
 
-    const char *buf = "|fe|SMB";
+    const char *buf = "\\xfeSMB";
     SCAppLayerProtoDetectPMRegisterPatternCS(IPPROTO_TCP, ALPROTO_SMB, buf, 8, 4, STREAM_TOCLIENT);
 
     AppLayerProtoDetectPrepareState();
@@ -2548,7 +2548,7 @@ static int AppLayerProtoDetectTest10(void)
     memset(&f, 0x00, sizeof(f));
     f.protomap = FlowGetProtoMapping(IPPROTO_TCP);
 
-    const char *buf = "|05 00|";
+    const char *buf = "\\x05\\x00";
     SCAppLayerProtoDetectPMRegisterPatternCS(
             IPPROTO_TCP, ALPROTO_DCERPC, buf, 4, 0, STREAM_TOCLIENT);
 

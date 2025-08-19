@@ -2568,8 +2568,8 @@ static int HTPRegisterPatternsForProtocolDetection(void)
         "COPY", "MOVE", "LOCK", "UNLOCK", "CHECKOUT", "UNCHECKOUT", "CHECKIN",
         "UPDATE", "LABEL", "REPORT", "MKWORKSPACE", "MKACTIVITY", "MERGE",
         "INVALID", "VERSION-CONTROL", "BASELINE-CONTROL", NULL};
-    const char *spacings[] = { "|20|", "|09|", NULL };
-    const char *versions[] = { "HTTP/0.9", "HTTP/1.0", "HTTP/1.1", NULL };
+    const char *spacings[] = { "\\x20", "\\x09", NULL };
+    const char *versions[] = { "HTTP/0\\.9", "HTTP/1\\.0", "HTTP/1\\.1", NULL };
 
     int methods_pos;
     int spacings_pos;
