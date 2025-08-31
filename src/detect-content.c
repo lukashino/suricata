@@ -248,8 +248,8 @@ static size_t EvaluateRegexPatternLength(const char *str, size_t len)
  */
 uint16_t CalculateRegexMaxLength(const char *str, size_t len)
 {
-    RegexFragment fragments[64];
-    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 64);
+    RegexFragment fragments[2048];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 2048);
     uint16_t total_length = 0;
 
     for (size_t i = 0; i < fragment_count; i++) {
@@ -275,8 +275,8 @@ uint16_t CalculateRegexMaxLength(const char *str, size_t len)
  */
 static uint16_t CalculateRegexMinLength(const char *str, size_t len)
 {
-    RegexFragment fragments[64];
-    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 64);
+    RegexFragment fragments[2048];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 2048);
     uint16_t total_length = 0;
 
     for (size_t i = 0; i < fragment_count; i++) {
@@ -309,8 +309,8 @@ static uint16_t CalculateRegexDepthFromAnchored(const char *str, size_t len)
  */
 static uint16_t CalculateRegexOffset(const char *str, size_t len)
 {
-    RegexFragment fragments[64];
-    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 64);
+    RegexFragment fragments[2048];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 2048);
 
     if (fragment_count == 0) {
         return 0;
@@ -380,6 +380,10 @@ static int DetectContentParseRegexPattern(
     }
 
     *result_len = CalculateRegexMaxLength(contentstr, strlen(contentstr));
+    if (*result_len == 0) {
+        SCLogInfo("Unbounded regex pattern, setting its minimal length as pattern length: %s", contentstr);
+        *result_len = CalculateRegexMinLength(contentstr, strlen(contentstr));
+    }
     *result = (uint8_t *)strdup(contentstr);
     return 0;
 }
@@ -548,7 +552,7 @@ DetectContentData *DetectContentParse(
         return NULL;
     }
 
-    cd = SCCalloc(1, sizeof(DetectContentData) + len);
+    cd = SCCalloc(1, sizeof(DetectContentData) + len_raw);
     if (unlikely(cd == NULL)) {
         SCFree(content);
         exit(EXIT_FAILURE);
@@ -558,6 +562,9 @@ DetectContentData *DetectContentParse(
     memcpy(cd->content, content, len_raw);
     cd->content_len = len;
     cd->content_len_raw = len_raw;
+    if (cd->content_len == 0) {
+        SCLogError("Content length is zero, setting min length");
+    }
 
     /* Prepare SPM search context. */
     cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len_raw, 0, spm_global_thread_ctx);

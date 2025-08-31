@@ -986,7 +986,7 @@ static void PopulateMpmHelperAddPattern(MpmCtx *mpm_ctx, const DetectContentData
             MpmAddPatternCI(mpm_ctx, cd->content + cd->fp_chop_offset, cd->fp_chop_len, pat_offset,
                     pat_depth, cd->id, s->iid, flags | MPM_PATTERN_CTX_OWNS_ID);
         } else {
-            MpmAddPatternCI(mpm_ctx, cd->content, cd->content_len, pat_offset, pat_depth, cd->id,
+            MpmAddPatternCI(mpm_ctx, cd->content, cd->content_len_raw, pat_offset, pat_depth, cd->id,
                     s->iid, flags | MPM_PATTERN_CTX_OWNS_ID);
         }
     } else {
@@ -994,7 +994,7 @@ static void PopulateMpmHelperAddPattern(MpmCtx *mpm_ctx, const DetectContentData
             MpmAddPatternCS(mpm_ctx, cd->content + cd->fp_chop_offset, cd->fp_chop_len, pat_offset,
                     pat_depth, cd->id, s->iid, flags | MPM_PATTERN_CTX_OWNS_ID);
         } else {
-            MpmAddPatternCS(mpm_ctx, cd->content, cd->content_len, pat_offset, pat_depth, cd->id,
+            MpmAddPatternCS(mpm_ctx, cd->content, cd->content_len_raw, pat_offset, pat_depth, cd->id,
                     s->iid, flags | MPM_PATTERN_CTX_OWNS_ID);
         }
     }
@@ -2387,13 +2387,13 @@ static char PatternChopCompareFunc(void *data1, uint16_t len1, void *data2, uint
     if (ContentFlagsForHash(p1->cd) != ContentFlagsForHash(p2->cd))
         return 0;
 
-    uint16_t p1_content_len = p1->cd->content_len;
+    uint16_t p1_content_len = p1->cd->content_len_raw;
     uint8_t *p1_content = p1->cd->content;
     if (p1->cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) {
         p1_content += p1->cd->fp_chop_offset;
         p1_content_len = p1->cd->fp_chop_len;
     }
-    uint16_t p2_content_len = p2->cd->content_len;
+    uint16_t p2_content_len = p2->cd->content_len_raw;
     uint8_t *p2_content = p2->cd->content;
     if (p2->cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) {
         p2_content += p2->cd->fp_chop_offset;
