@@ -83,6 +83,15 @@ typedef struct DPDKIfaceConfig_ {
     void (*DerefFunc)(void *);
 
     struct rte_flow *flow[100];
+    
+    /* Ring buffer configuration */
+    uint32_t buffer_ring_size;
+    uint16_t burst_size;
+    /* New buffering configuration */
+    uint16_t inline_budget;      /* packets processed inline below low watermark */
+    uint8_t low_wm_percent;      /* low watermark percentage of ring size */
+    uint8_t high_wm_percent;     /* high watermark percentage of ring size */
+    bool enable_wred;            /* whether WRED probabilistic drop is enabled */
 #endif
 } DPDKIfaceConfig;
 

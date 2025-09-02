@@ -40,6 +40,12 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *tx_descriptors;
     const char *copy_mode;
     const char *copy_iface;
+    const char *buffer_ring_size;
+    const char *burst_size;
+    const char *inline_budget;
+    const char *low_wm_percent;
+    const char *high_wm_percent;
+    const char *wred;
 } DPDKIfaceConfigAttributes;
 
 int RunModeIdsDpdkWorkers(void);

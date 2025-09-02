@@ -94,6 +94,12 @@ static int ConfigSetChecksumOffload(DPDKIfaceConfig *iconf, int entry_bool);
 static int ConfigSetCopyIface(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetCopyMode(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface, const char *mode);
+static int ConfigSetBufferRingSize(DPDKIfaceConfig *iconf, const char *entry_str);
+static int ConfigSetInlineBudget(DPDKIfaceConfig *iconf, const char *entry_str);
+static int ConfigSetLowWmPercent(DPDKIfaceConfig *iconf, const char *entry_str);
+static int ConfigSetHighWmPercent(DPDKIfaceConfig *iconf, const char *entry_str);
+static int ConfigSetWred(DPDKIfaceConfig *iconf, const char *entry_str);
+static int ConfigSetBurstSize(DPDKIfaceConfig *iconf, const char *entry_str);
 static void ConfigInit(DPDKIfaceConfig **iconf);
 static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface);
 static DPDKIfaceConfig *ConfigParse(const char *iface);
@@ -124,6 +130,13 @@ static void DPDKDerefConfig(void *conf);
 #define DPDK_CONFIG_DEFAULT_LINKUP_TIMEOUT              0
 #define DPDK_CONFIG_DEFAULT_COPY_MODE                   "none"
 #define DPDK_CONFIG_DEFAULT_COPY_INTERFACE              "none"
+#define DPDK_CONFIG_DEFAULT_BUFFER_RING_SIZE            65535
+#define DPDK_CONFIG_DEFAULT_BURST_SIZE                  32
+/* New buffering defaults */
+#define DPDK_CONFIG_DEFAULT_INLINE_BUDGET               8   /* process up to 8 inline when below low wm */
+#define DPDK_CONFIG_DEFAULT_LOW_WM_PERCENT              20  /* percent of ring size */
+#define DPDK_CONFIG_DEFAULT_HIGH_WM_PERCENT             80  /* percent of ring size */
+#define DPDK_CONFIG_DEFAULT_WRED                        1
 
 DPDKIfaceConfigAttributes dpdk_yaml = {
     .threads = "threads",
@@ -142,6 +155,12 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
+    .buffer_ring_size = "buffer-ring-size",
+    .burst_size = "burst-size",
+    .inline_budget = "inline-budget",
+    .low_wm_percent = "buffer-low-wm-percent",
+    .high_wm_percent = "buffer-high-wm-percent",
+    .wred = "wred",
 };
 
 /**
@@ -357,6 +376,14 @@ static void ConfigInit(DPDKIfaceConfig **iconf)
     (void)SC_ATOMIC_ADD(ptr->ref, 1);
     ptr->DerefFunc = DPDKDerefConfig;
     ptr->flags = 0;
+    
+    /* Initialize ring buffer configuration with defaults */
+    ptr->buffer_ring_size = DPDK_CONFIG_DEFAULT_BUFFER_RING_SIZE;
+    ptr->burst_size = DPDK_CONFIG_DEFAULT_BURST_SIZE;
+    ptr->inline_budget = DPDK_CONFIG_DEFAULT_INLINE_BUDGET;
+    ptr->low_wm_percent = DPDK_CONFIG_DEFAULT_LOW_WM_PERCENT;
+    ptr->high_wm_percent = DPDK_CONFIG_DEFAULT_HIGH_WM_PERCENT;
+    ptr->enable_wred = DPDK_CONFIG_DEFAULT_WRED;
 
     *iconf = ptr;
     SCReturn;
@@ -836,6 +863,160 @@ static int ConfigSetCopyMode(DPDKIfaceConfig *iconf, const char *entry_str)
     SCReturnInt(0);
 }
 
+static int ConfigSetBufferRingSize(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    uint64_t ring_size;
+    
+    if (entry_str == NULL) {
+        SCLogWarning("%s: buffer-ring-size not set; using default %u (set '0' to disable or 'auto' for heuristic)",
+                     iconf->iface, DPDK_CONFIG_DEFAULT_BUFFER_RING_SIZE);
+        iconf->buffer_ring_size = DPDK_CONFIG_DEFAULT_BUFFER_RING_SIZE;
+        SCReturnInt(0);
+    }
+    if (strcmp(entry_str, "auto") == 0) {
+        iconf->buffer_ring_size = DPDK_CONFIG_DEFAULT_BUFFER_RING_SIZE;
+        SCReturnInt(0);
+    }
+    
+    if (StringParseUint64((uint64_t *)&ring_size, 10, strlen(entry_str), entry_str) < 0) {
+        SCLogError("%s: invalid ring size value: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    
+    /* Special case: 0 disables buffering entirely */
+    if (ring_size == 0) {
+        SCLogInfo("%s: buffering disabled (ring size 0)", iconf->iface);
+        iconf->buffer_ring_size = 0;
+        SCReturnInt(0);
+    }
+
+    /* Ensure ring size is power of 2 and within reasonable bounds */
+    if (ring_size < 64 || ring_size > (1ULL << 31)) {
+        SCLogError("%s: ring size must be 0 (to disable) or between 64 and 2^31: %" PRIu64, iconf->iface, ring_size);
+        SCReturnInt(-EINVAL);
+    }
+    
+    /* Check if it's a power of 2 */
+    if (ring_size != 0 && (ring_size & (ring_size - 1)) != 0) {
+        /* Find the next power of 2 */
+        uint64_t next_pow2 = 1;
+        while (next_pow2 < ring_size) {
+            next_pow2 <<= 1;
+        }
+        SCLogWarning("%s: ring size %" PRIu64 " is not power of 2, adjusting to %" PRIu64, 
+                    iconf->iface, ring_size, next_pow2);
+        ring_size = next_pow2;
+        
+        /* Check bounds again after adjustment */
+        if (ring_size > (1ULL << 31)) {
+            SCLogError("%s: adjusted ring size %" PRIu64 " exceeds maximum", iconf->iface, ring_size);
+            SCReturnInt(-EINVAL);
+        }
+    }
+    
+    iconf->buffer_ring_size = (uint32_t)ring_size;
+    if (ring_size == 0) {
+        SCLogInfo("%s: ring buffering DISABLED (size=0)", iconf->iface);
+    }
+    SCReturnInt(0);
+}
+
+/* Inline budget / watermarks / wred setters live elsewhere now */
+static int ConfigSetInlineBudget(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    uint64_t val;
+    if (entry_str == NULL || strcmp(entry_str, "auto") == 0) {
+        iconf->inline_budget = DPDK_CONFIG_DEFAULT_INLINE_BUDGET;
+        SCReturnInt(0);
+    }
+    if (StringParseUint64(&val, 10, strlen(entry_str), entry_str) < 0) {
+        SCLogError("%s: invalid inline-budget value: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    if (val < 1 || val > 512) {
+        SCLogError("%s: inline-budget must be between 1 and 512: %" PRIu64, iconf->iface, val);
+        SCReturnInt(-EINVAL);
+    }
+    iconf->inline_budget = (uint16_t)val;
+    SCReturnInt(0);
+}
+
+static int ConfigSetLowWmPercent(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    uint64_t val;
+    if (entry_str == NULL || strcmp(entry_str, "auto") == 0) {
+        iconf->low_wm_percent = DPDK_CONFIG_DEFAULT_LOW_WM_PERCENT;
+        SCReturnInt(0);
+    }
+    if (StringParseUint64(&val, 10, strlen(entry_str), entry_str) < 0 || val < 1 || val > 99) {
+        SCLogError("%s: invalid buffer-low-wm-percent: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    iconf->low_wm_percent = (uint8_t)val;
+    SCReturnInt(0);
+}
+
+static int ConfigSetHighWmPercent(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    uint64_t val;
+    if (entry_str == NULL || strcmp(entry_str, "auto") == 0) {
+        iconf->high_wm_percent = DPDK_CONFIG_DEFAULT_HIGH_WM_PERCENT;
+        SCReturnInt(0);
+    }
+    if (StringParseUint64(&val, 10, strlen(entry_str), entry_str) < 0 || val < 1 || val > 99) {
+        SCLogError("%s: invalid buffer-high-wm-percent: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    iconf->high_wm_percent = (uint8_t)val;
+    SCReturnInt(0);
+}
+
+static int ConfigSetWred(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    if (entry_str == NULL || strcmp(entry_str, "auto") == 0) {
+        iconf->enable_wred = DPDK_CONFIG_DEFAULT_WRED;
+        SCReturnInt(0);
+    }
+    if (SCConfValIsTrue(entry_str)) {
+        iconf->enable_wred = true;
+    } else if (SCConfValIsFalse(entry_str)) {
+        iconf->enable_wred = false;
+    } else {
+        SCLogError("%s: invalid wred value: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    SCReturnInt(0);
+}
+
+static int ConfigSetBurstSize(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    uint64_t burst_size;
+    
+    if (entry_str == NULL || strcmp(entry_str, "auto") == 0) {
+        iconf->burst_size = DPDK_CONFIG_DEFAULT_BURST_SIZE;
+        SCReturnInt(0);
+    }
+    
+    if (StringParseUint64(&burst_size, 10, strlen(entry_str), entry_str) < 0) {
+        SCLogError("%s: invalid burst size value: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    
+    if (burst_size < 1 || burst_size > 512) {
+        SCLogError("%s: burst size must be between 1 and 512: %" PRIu64, iconf->iface, burst_size);
+        SCReturnInt(-EINVAL);
+    }
+    
+    iconf->burst_size = (uint16_t)burst_size;
+    SCReturnInt(0);
+}
+
 static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface, const char *mode)
 {
     SCEnter();
@@ -1021,6 +1202,54 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
             if_root, if_default, dpdk_yaml.copy_iface, &copy_iface_str);
     if (retval != 1) {
         copy_iface_str = DPDK_CONFIG_DEFAULT_COPY_INTERFACE;
+    }
+
+    /* Parse ring buffer configuration */
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.buffer_ring_size, &entry_str) != 1
+                     ? ConfigSetBufferRingSize(iconf, "auto")
+                     : ConfigSetBufferRingSize(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.burst_size, &entry_str) != 1
+                     ? ConfigSetBurstSize(iconf, "auto")
+                     : ConfigSetBurstSize(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+
+    /* New buffering configuration */
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.inline_budget, &entry_str) != 1
+                     ? ConfigSetInlineBudget(iconf, "auto")
+                     : ConfigSetInlineBudget(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.low_wm_percent, &entry_str) != 1
+                     ? ConfigSetLowWmPercent(iconf, "auto")
+                     : ConfigSetLowWmPercent(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.high_wm_percent, &entry_str) != 1
+                     ? ConfigSetHighWmPercent(iconf, "auto")
+                     : ConfigSetHighWmPercent(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.wred, &entry_str) != 1
+                     ? ConfigSetWred(iconf, "auto")
+                     : ConfigSetWred(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+
+    /* Validate watermarks */
+    if (iconf->low_wm_percent >= iconf->high_wm_percent) {
+        SCLogError("%s: buffer-low-wm-percent (%u) must be < buffer-high-wm-percent (%u)",
+                iconf->iface, iconf->low_wm_percent, iconf->high_wm_percent);
+        SCReturnInt(-EINVAL);
     }
 
     retval = ConfigSetCopyIfaceSettings(iconf, copy_iface_str, copy_mode_str);
