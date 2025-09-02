@@ -821,6 +821,9 @@ dpdk:
       buffer-low-wm-percent: 20  # Low watermark (percent of ring occupancy) enabling inline fast path
       buffer-high-wm-percent: 80 # High watermark (percent); above this all packets are enqueued and WRED may apply
       wred: yes                  # Enable probabilistic early drop between low/high watermarks
+  rx-burst-loop-threshold-percent: 75  # If initial RX burst >= this % of burst-size, aggressively re-poll NIC
+  rx-burst-loop-exit-consecutive: 2    # Stop aggressive re-poll after this many consecutive sub-threshold bursts
+  # Aggressive re-polling only applies when buffering (ring) is enabled. Disabled if buffer-ring-size is 0.
 
       # To approximately calculate required amount of space (in bytes) for interface's mempool: mempool-size * mtu
       # Make sure you have enough allocated hugepages.
@@ -858,6 +861,8 @@ dpdk:
   buffer-low-wm-percent: 20
   buffer-high-wm-percent: 80
   wred: yes
+  rx-burst-loop-threshold-percent: 75
+  rx-burst-loop-exit-consecutive: 2
 
 
 # Cross platform libpcap capture support

@@ -46,6 +46,8 @@ typedef struct DPDKIfaceConfigAttributes_ {
     const char *low_wm_percent;
     const char *high_wm_percent;
     const char *wred;
+    const char *burst_loop_threshold_pct;
+    const char *burst_loop_exit_consecutive;
 } DPDKIfaceConfigAttributes;
 
 int RunModeIdsDpdkWorkers(void);

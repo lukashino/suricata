@@ -92,6 +92,9 @@ typedef struct DPDKIfaceConfig_ {
     uint8_t low_wm_percent;      /* low watermark percentage of ring size */
     uint8_t high_wm_percent;     /* high watermark percentage of ring size */
     bool enable_wred;            /* whether WRED probabilistic drop is enabled */
+    /* Aggressive RX burst draining parameters */
+    uint8_t burst_loop_threshold_pct; /* percentage of burst_size that triggers rapid re-poll */
+    uint8_t burst_loop_exit_consecutive; /* number of consecutive sub-threshold bursts to exit */
 #endif
 } DPDKIfaceConfig;
 

@@ -148,6 +148,11 @@ typedef struct DPDKThreadVars_ {
     uint16_t burst_size;         /* base RX/worker burst */
     uint16_t inline_budget;      /* max packets processed inline below low_wm */
     bool enable_wred;            /* runtime flag whether WRED dropping is active */
+    /* Aggressive RX burst loop config (copied from iface config) */
+    uint8_t burst_loop_threshold_pct;      /* threshold percent of burst to trigger re-poll */
+    uint8_t burst_loop_exit_consecutive;   /* consecutive sub-threshold bursts to exit loop */
+    /* Aggressive RX loop state */
+    uint8_t burst_loop_below_count;        /* current consecutive below-threshold counter */
 
     /* Ring statistics */
     uint64_t ring_enqueue_count;
@@ -163,6 +168,11 @@ typedef struct DPDKThreadVars_ {
     uint16_t stat_wred_drop;
     uint16_t stat_inline;
     uint16_t stat_ring_depth;
+    /* Aggressive RX loop stats */
+    uint16_t stat_extra_polls;
+    uint64_t extra_polls;              /* number of additional rx_burst calls after first */
+    uint64_t extra_polled_packets;     /* packets obtained via extra polls */
+    uint16_t stat_extra_polled_pkts;
 } DPDKThreadVars;
 
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *, const void *, void **);
@@ -614,9 +624,43 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             break;
         }
 
-        /* Receive burst */
-        uint16_t nb_rx = rte_eth_rx_burst(ptv->port_id, ptv->queue_id,
-                ptv->received_mbufs, ptv->burst_size);
+        /* Receive burst (with optional aggressive re-poll) */
+    uint16_t nb_rx = rte_eth_rx_burst(ptv->port_id, ptv->queue_id,
+        ptv->received_mbufs, ptv->burst_size);
+
+    /* Aggressive polling only when buffering enabled (ring_size>0) */
+    if (likely(ptv->burst_loop_threshold_pct > 0 && ptv->ring_size > 0)) {
+            const uint16_t threshold = (uint16_t)((uint32_t)ptv->burst_size * ptv->burst_loop_threshold_pct / 100u);
+            if (nb_rx >= threshold) {
+                /* Aggressive polling phase: keep draining while we stay above threshold */
+                ptv->burst_loop_below_count = 0;
+                uint16_t offset = nb_rx;
+                while (1) {
+                    if (offset >= BURST_SIZE_MAX) break; /* safety */
+                    uint16_t room = ptv->burst_size;
+                    if (room > (BURST_SIZE_MAX - offset)) room = BURST_SIZE_MAX - offset;
+                    if (room == 0) break;
+            uint16_t got = rte_eth_rx_burst(ptv->port_id, ptv->queue_id,
+                &ptv->received_mbufs[offset], room);
+            ptv->extra_polls++;
+                    if (got == 0) {
+                        ptv->burst_loop_below_count++;
+                    } else if (got < threshold) {
+                        ptv->burst_loop_below_count++;
+                        offset += got;
+            ptv->extra_polled_packets += got;
+                    } else { /* got >= threshold */
+                        ptv->burst_loop_below_count = 0;
+                        offset += got;
+            ptv->extra_polled_packets += got;
+                    }
+                    if (ptv->burst_loop_below_count >= ptv->burst_loop_exit_consecutive)
+                        break;
+                    /* If we didn't fill at least one packet this iteration and below counter hit, break */
+                }
+                nb_rx = offset;
+            }
+        }
 
         /* If buffering disabled, process everything inline immediately */
         if (unlikely(ptv->ring_size == 0)) {
@@ -650,6 +694,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 StatsSetUI64(ptv->tv, ptv->stat_tail_drop, ptv->tail_drops);
                 StatsSetUI64(ptv->tv, ptv->stat_wred_drop, ptv->wred_drops);
                 StatsSetUI64(ptv->tv, ptv->stat_inline, ptv->inline_processed);
+                StatsSetUI64(ptv->tv, ptv->stat_extra_polls, ptv->extra_polls);
+                StatsSetUI64(ptv->tv, ptv->stat_extra_polled_pkts, ptv->extra_polled_packets);
             }
             PeriodicDPDKDumpCounters(ptv);
             StatsSyncCountersIfSignalled(tv);
@@ -761,6 +807,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             StatsSetUI64(ptv->tv, ptv->stat_tail_drop, ptv->tail_drops);
             StatsSetUI64(ptv->tv, ptv->stat_wred_drop, ptv->wred_drops);
             StatsSetUI64(ptv->tv, ptv->stat_inline, ptv->inline_processed);
+            StatsSetUI64(ptv->tv, ptv->stat_extra_polls, ptv->extra_polls);
+            StatsSetUI64(ptv->tv, ptv->stat_extra_polled_pkts, ptv->extra_polled_packets);
         }
 
         PeriodicDPDKDumpCounters(ptv);
@@ -918,6 +966,8 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
         ptv->high_wm = MAX(ptv->low_wm + 1U, high_cfg);
     }
     ptv->inline_budget = dpdk_config->inline_budget;
+    ptv->burst_loop_threshold_pct = dpdk_config->burst_loop_threshold_pct;
+    ptv->burst_loop_exit_consecutive = dpdk_config->burst_loop_exit_consecutive;
     ptv->ring_enqueue_count = 0;
     ptv->ring_dequeue_count = 0;
     ptv->tail_drops = 0;
@@ -931,6 +981,8 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     ptv->stat_wred_drop = StatsRegisterCounter("capture.dpdk.ring.wred_drops", ptv->tv);
     ptv->stat_inline = StatsRegisterCounter("capture.dpdk.ring.inline", ptv->tv);
     ptv->stat_ring_depth = StatsRegisterCounter("capture.dpdk.ring.depth", ptv->tv);
+    ptv->stat_extra_polls = StatsRegisterCounter("capture.dpdk.ring.extra_polls", ptv->tv);
+    ptv->stat_extra_polled_pkts = StatsRegisterCounter("capture.dpdk.ring.extra_polled_packets", ptv->tv);
 
     if (ptv->ring_size > 0) {
         /* Create ring buffer for this thread */

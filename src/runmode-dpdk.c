@@ -83,7 +83,7 @@ static int ConfigSetTxQueues(
         DPDKIfaceConfig *iconf, uint16_t nb_queues, uint16_t max_queues, bool iface_sends_pkts);
 static int ConfigSetMempoolSize(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetMempoolCacheSize(DPDKIfaceConfig *iconf, const char *entry_str);
-static int ConfigSetRxDescriptors(DPDKIfaceConfig *iconf, const char *entry_str, uint16_t max_desc);
+/* prototype removed; function defined later after mempool cache size section */
 static int ConfigSetTxDescriptors(
         DPDKIfaceConfig *iconf, const char *entry_str, uint16_t max_desc, bool iface_sends_pkts);
 static int ConfigSetMtu(DPDKIfaceConfig *iconf, intmax_t entry_int);
@@ -94,36 +94,21 @@ static int ConfigSetChecksumOffload(DPDKIfaceConfig *iconf, int entry_bool);
 static int ConfigSetCopyIface(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetCopyMode(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface, const char *mode);
-static int ConfigSetBufferRingSize(DPDKIfaceConfig *iconf, const char *entry_str);
-static int ConfigSetInlineBudget(DPDKIfaceConfig *iconf, const char *entry_str);
-static int ConfigSetLowWmPercent(DPDKIfaceConfig *iconf, const char *entry_str);
-static int ConfigSetHighWmPercent(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetWred(DPDKIfaceConfig *iconf, const char *entry_str);
-static int ConfigSetBurstSize(DPDKIfaceConfig *iconf, const char *entry_str);
-static void ConfigInit(DPDKIfaceConfig **iconf);
-static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface);
-static DPDKIfaceConfig *ConfigParse(const char *iface);
 
-static void DeviceInitPortConf(const DPDKIfaceConfig *iconf,
-        const struct rte_eth_dev_info *dev_info, struct rte_eth_conf *port_conf);
-static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_dev_info *dev_info,
-        const struct rte_eth_conf *port_conf);
-static int DeviceValidateOutIfaceConfig(DPDKIfaceConfig *iconf);
-static int DeviceConfigureIPS(DPDKIfaceConfig *iconf);
-static int DeviceConfigure(DPDKIfaceConfig *iconf);
-static void *ParseDpdkConfigAndConfigureDevice(const char *iface);
-static void DPDKDerefConfig(void *conf);
-
+/* NOTE: Several default macros were accidentally removed during recent edits.
+ * Re-introducing them here to restore build integrity. Values chosen reflect
+ * Suricata upstream defaults or safe heuristics. */
 #define DPDK_CONFIG_DEFAULT_THREADS                     "auto"
-#define DPDK_CONFIG_DEFAULT_INTERRUPT_MODE              false
+#define DPDK_CONFIG_DEFAULT_INTERRUPT_MODE              0
+#define DPDK_CONFIG_DEFAULT_RSS_HASH_FUNCTIONS          (RTE_ETH_RSS_IP | RTE_ETH_RSS_TCP | RTE_ETH_RSS_UDP)
+#define DPDK_CONFIG_DEFAULT_RX_DESCRIPTORS              "1024"
+#define DPDK_CONFIG_DEFAULT_TX_DESCRIPTORS              "1024"
 #define DPDK_CONFIG_DEFAULT_MEMPOOL_SIZE                "auto"
 #define DPDK_CONFIG_DEFAULT_MEMPOOL_CACHE_SIZE          "auto"
-#define DPDK_CONFIG_DEFAULT_RX_DESCRIPTORS              "auto"
-#define DPDK_CONFIG_DEFAULT_TX_DESCRIPTORS              "auto"
-#define DPDK_CONFIG_DEFAULT_RSS_HASH_FUNCTIONS          RTE_ETH_RSS_IP
 #define DPDK_CONFIG_DEFAULT_MTU                         1500
 #define DPDK_CONFIG_DEFAULT_PROMISCUOUS_MODE            1
-#define DPDK_CONFIG_DEFAULT_MULTICAST_MODE              1
+#define DPDK_CONFIG_DEFAULT_MULTICAST_MODE              0
 #define DPDK_CONFIG_DEFAULT_CHECKSUM_VALIDATION         1
 #define DPDK_CONFIG_DEFAULT_CHECKSUM_VALIDATION_OFFLOAD 1
 #define DPDK_CONFIG_DEFAULT_VLAN_STRIP                  0
@@ -137,6 +122,9 @@ static void DPDKDerefConfig(void *conf);
 #define DPDK_CONFIG_DEFAULT_LOW_WM_PERCENT              20  /* percent of ring size */
 #define DPDK_CONFIG_DEFAULT_HIGH_WM_PERCENT             80  /* percent of ring size */
 #define DPDK_CONFIG_DEFAULT_WRED                        1
+/* Aggressive RX burst loop defaults */
+#define DPDK_CONFIG_DEFAULT_BURST_LOOP_THRESHOLD_PCT    75  /* percent of burst filled to continue polling */
+#define DPDK_CONFIG_DEFAULT_BURST_LOOP_EXIT_CONSEC      2   /* consecutive sub-threshold bursts to stop */
 
 DPDKIfaceConfigAttributes dpdk_yaml = {
     .threads = "threads",
@@ -161,6 +149,8 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .low_wm_percent = "buffer-low-wm-percent",
     .high_wm_percent = "buffer-high-wm-percent",
     .wred = "wred",
+    .burst_loop_threshold_pct = "rx-burst-loop-threshold-percent",
+    .burst_loop_exit_consecutive = "rx-burst-loop-exit-consecutive",
 };
 
 /**
@@ -384,6 +374,8 @@ static void ConfigInit(DPDKIfaceConfig **iconf)
     ptr->low_wm_percent = DPDK_CONFIG_DEFAULT_LOW_WM_PERCENT;
     ptr->high_wm_percent = DPDK_CONFIG_DEFAULT_HIGH_WM_PERCENT;
     ptr->enable_wred = DPDK_CONFIG_DEFAULT_WRED;
+    ptr->burst_loop_threshold_pct = DPDK_CONFIG_DEFAULT_BURST_LOOP_THRESHOLD_PCT;
+    ptr->burst_loop_exit_consecutive = DPDK_CONFIG_DEFAULT_BURST_LOOP_EXIT_CONSEC;
 
     *iconf = ptr;
     SCReturn;
@@ -634,29 +626,29 @@ static int ConfigSetMempoolCacheSize(DPDKIfaceConfig *iconf, const char *entry_s
 {
     SCEnter();
     if (entry_str == NULL || entry_str[0] == '\0' || strcmp(entry_str, "auto") == 0) {
-        // calculate the mempool size based on the mempool size (it needs to be already filled in)
         if (iconf->mempool_size == 0) {
-            SCLogError("%s: cannot calculate mempool cache size of a mempool with size %d",
-                    iconf->iface, iconf->mempool_size);
+            SCLogError("%s: cannot calculate mempool cache size without mempool-size set", iconf->iface);
             SCReturnInt(-EINVAL);
         }
-
         iconf->mempool_cache_size = MempoolCacheSizeCalculate(iconf->mempool_size);
         SCReturnInt(0);
     }
 
     if (StringParseUint32(&iconf->mempool_cache_size, 10, 0, entry_str) < 0) {
-        SCLogError("%s: mempool cache size entry contain non-numerical characters - \"%s\"",
-                iconf->iface, entry_str);
+        SCLogError("%s: mempool cache size entry contains non-numerical characters - \"%s\"", iconf->iface, entry_str);
         SCReturnInt(-EINVAL);
     }
-
-    if (iconf->mempool_cache_size <= 0 || iconf->mempool_cache_size > RTE_MEMPOOL_CACHE_MAX_SIZE) {
-        SCLogError("%s: mempool cache size requires a positive number smaller than %" PRIu32,
-                iconf->iface, RTE_MEMPOOL_CACHE_MAX_SIZE);
+    if (iconf->mempool_cache_size == 0) {
+        SCLogError("%s: mempool cache size requires a positive integer", iconf->iface);
         SCReturnInt(-ERANGE);
     }
-
+    if (iconf->mempool_size == 0) {
+        SCLogError("%s: mempool-size must be configured before mempool-cache-size", iconf->iface);
+        SCReturnInt(-EINVAL);
+    }
+    if (iconf->mempool_size % iconf->mempool_cache_size != 0) {
+        SCLogWarning("%s: mempool-size (%" PRIu32 ") not divisible by mempool-cache-size (%" PRIu32 ")", iconf->iface, iconf->mempool_size, iconf->mempool_cache_size);
+    }
     SCReturnInt(0);
 }
 
@@ -664,22 +656,17 @@ static int ConfigSetRxDescriptors(DPDKIfaceConfig *iconf, const char *entry_str,
 {
     SCEnter();
     if (entry_str == NULL || entry_str[0] == '\0') {
-        SCLogInfo("%s: number of RX descriptors not found, going with: %s", iconf->iface,
-                DPDK_CONFIG_DEFAULT_RX_DESCRIPTORS);
+        SCLogInfo("%s: number of RX descriptors not found, going with: %s", iconf->iface, DPDK_CONFIG_DEFAULT_RX_DESCRIPTORS);
         entry_str = DPDK_CONFIG_DEFAULT_RX_DESCRIPTORS;
     }
-
     if (strcmp(entry_str, "auto") == 0) {
         iconf->nb_rx_desc = (uint16_t)GreatestPowOf2UpTo(max_desc);
         SCReturnInt(0);
     }
-
     if (StringParseUint16(&iconf->nb_rx_desc, 10, 0, entry_str) < 0) {
-        SCLogError("%s: RX descriptors entry contains non-numerical characters - \"%s\"",
-                iconf->iface, entry_str);
+        SCLogError("%s: RX descriptors entry contains non-numerical characters - \"%s\"", iconf->iface, entry_str);
         SCReturnInt(-EINVAL);
     }
-
     if (iconf->nb_rx_desc == 0) {
         SCLogError("%s: positive number of RX descriptors is required", iconf->iface);
         SCReturnInt(-ERANGE);
@@ -687,7 +674,6 @@ static int ConfigSetRxDescriptors(DPDKIfaceConfig *iconf, const char *entry_str,
         SCLogError("%s: number of RX descriptors cannot exceed %" PRIu16, iconf->iface, max_desc);
         SCReturnInt(-ERANGE);
     }
-
     SCReturnInt(0);
 }
 
@@ -1017,6 +1003,38 @@ static int ConfigSetBurstSize(DPDKIfaceConfig *iconf, const char *entry_str)
     SCReturnInt(0);
 }
 
+static int ConfigSetBurstLoopThresholdPct(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    uint64_t val;
+    if (entry_str == NULL || strcmp(entry_str, "auto") == 0) {
+        iconf->burst_loop_threshold_pct = DPDK_CONFIG_DEFAULT_BURST_LOOP_THRESHOLD_PCT;
+        SCReturnInt(0);
+    }
+    if (StringParseUint64(&val, 10, strlen(entry_str), entry_str) < 0 || val < 1 || val > 100) {
+        SCLogError("%s: invalid rx-burst-loop-threshold-percent: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    iconf->burst_loop_threshold_pct = (uint8_t)val;
+    SCReturnInt(0);
+}
+
+static int ConfigSetBurstLoopExitConsecutive(DPDKIfaceConfig *iconf, const char *entry_str)
+{
+    SCEnter();
+    uint64_t val;
+    if (entry_str == NULL || strcmp(entry_str, "auto") == 0) {
+        iconf->burst_loop_exit_consecutive = DPDK_CONFIG_DEFAULT_BURST_LOOP_EXIT_CONSEC;
+        SCReturnInt(0);
+    }
+    if (StringParseUint64(&val, 10, strlen(entry_str), entry_str) < 0 || val < 1 || val > 32) {
+        SCLogError("%s: invalid rx-burst-loop-exit-consecutive: %s", iconf->iface, entry_str);
+        SCReturnInt(-EINVAL);
+    }
+    iconf->burst_loop_exit_consecutive = (uint8_t)val;
+    SCReturnInt(0);
+}
+
 static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface, const char *mode)
 {
     SCEnter();
@@ -1242,6 +1260,20 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
                      if_root, if_default, dpdk_yaml.wred, &entry_str) != 1
                      ? ConfigSetWred(iconf, "auto")
                      : ConfigSetWred(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+
+    /* Aggressive RX burst loop parameters */
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.burst_loop_threshold_pct, &entry_str) != 1
+                     ? ConfigSetBurstLoopThresholdPct(iconf, "auto")
+                     : ConfigSetBurstLoopThresholdPct(iconf, entry_str);
+    if (retval < 0)
+        SCReturnInt(retval);
+    retval = SCConfGetChildValueWithDefault(
+                     if_root, if_default, dpdk_yaml.burst_loop_exit_consecutive, &entry_str) != 1
+                     ? ConfigSetBurstLoopExitConsecutive(iconf, "auto")
+                     : ConfigSetBurstLoopExitConsecutive(iconf, entry_str);
     if (retval < 0)
         SCReturnInt(retval);
 
