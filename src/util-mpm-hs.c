@@ -658,8 +658,8 @@ static int CompileDataExtensionsInit(hs_expr_ext_t **ext, const SCHSPattern *p)
         }
         if (p->flags & MPM_PATTERN_FLAG_OFFSET) {
             (*ext)->flags |= HS_EXT_FLAG_MIN_OFFSET;
-            printf("%d\n", CalculateRegexMaxLength(p->original_pat, p->len));
-            (*ext)->min_offset = p->offset + p->len;
+            SCLogInfo("%d", CalculateRegexMaxLength(p->original_pat, p->len));
+            (*ext)->min_offset = p->offset + CalculateRegexMaxLength(p->original_pat, p->len);
         }
         if (p->flags & MPM_PATTERN_FLAG_DEPTH) {
             (*ext)->flags |= HS_EXT_FLAG_MAX_OFFSET;
@@ -739,6 +739,9 @@ static int PatternDatabaseCompile(PatternDatabase *pd, SCHSCompileData *cd)
             (const hs_expr_ext_t *const *)cd->ext, cd->pattern_cnt, HS_MODE_BLOCK, NULL, &pd->hs_db,
             &compile_err);
     if (err != HS_SUCCESS) {
+        if (compile_err && compile_err->expression > 0) {
+            SCLogNotice("Hyperscan compilation failed, likely pattern %s", cd->expressions[compile_err->expression]);
+        }
         HSLogCompileError(compile_err);
         return -1;
     }

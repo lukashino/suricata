@@ -78,7 +78,7 @@ typedef struct {
 } RegexQuantifier;
 
 typedef struct {
-    const char *start;
+    const unsigned char *start;
     size_t length;
     RegexQuantifier quantifier;
 } RegexFragment;
@@ -91,7 +91,7 @@ typedef struct {
  * \param consumed Output: number of characters consumed
  * \return RegexQuantifier structure with parsed values
  */
-static RegexQuantifier ParseRegexQuantifier(const char *str, size_t len, size_t *consumed)
+static RegexQuantifier ParseRegexQuantifier(const uint8_t *str, size_t len, size_t *consumed)
 {
     RegexQuantifier quant = { 0, 0, false };
     *consumed = 0;
@@ -152,7 +152,7 @@ static RegexQuantifier ParseRegexQuantifier(const char *str, size_t len, size_t 
  * \return Number of fragments parsed
  */
 static size_t SliceRegexByQuantifiers(
-        const char *str, size_t len, RegexFragment *fragments, size_t max_fragments)
+        const uint8_t *str, size_t len, RegexFragment *fragments, size_t max_fragments)
 {
     size_t fragment_count = 0;
     size_t i = 0;
@@ -202,7 +202,7 @@ static size_t SliceRegexByQuantifiers(
  * \param len Length of string
  * \return Length in bytes
  */
-static size_t EvaluateRegexPatternLength(const char *str, size_t len)
+static size_t EvaluateRegexPatternLength(const unsigned char *str, size_t len)
 {
     size_t length = 0;
 
@@ -246,10 +246,10 @@ static size_t EvaluateRegexPatternLength(const char *str, size_t len)
  * \param len Length of string
  * \return Maximum possible length, 0 if unbounded
  */
-uint16_t CalculateRegexMaxLength(const char *str, size_t len)
+uint16_t CalculateRegexMaxLength(const uint8_t *str, size_t len)
 {
-    RegexFragment fragments[2048];
-    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 2048);
+    RegexFragment fragments[len];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, len);
     uint16_t total_length = 0;
 
     for (size_t i = 0; i < fragment_count; i++) {
@@ -273,10 +273,10 @@ uint16_t CalculateRegexMaxLength(const char *str, size_t len)
  * \param len Length of string
  * \return Minimum possible length
  */
-static uint16_t CalculateRegexMinLength(const char *str, size_t len)
+static uint16_t CalculateRegexMinLength(const uint8_t *str, size_t len)
 {
-    RegexFragment fragments[2048];
-    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 2048);
+    RegexFragment fragments[len];
+    size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, len);
     uint16_t total_length = 0;
 
     for (size_t i = 0; i < fragment_count; i++) {
@@ -295,7 +295,7 @@ static uint16_t CalculateRegexMinLength(const char *str, size_t len)
  * \param len Length of string
  * \return Calculated depth, 0 if unbounded
  */
-static uint16_t CalculateRegexDepthFromAnchored(const char *str, size_t len)
+static uint16_t CalculateRegexDepthFromAnchored(const uint8_t *str, size_t len)
 {
     return CalculateRegexMaxLength(str, len);
 }
@@ -307,7 +307,7 @@ static uint16_t CalculateRegexDepthFromAnchored(const char *str, size_t len)
  * \param len Length of string
  * \return Calculated offset
  */
-static uint16_t CalculateRegexOffset(const char *str, size_t len)
+static uint16_t CalculateRegexOffset(const uint8_t *str, size_t len)
 {
     RegexFragment fragments[2048];
     size_t fragment_count = SliceRegexByQuantifiers(str, len, fragments, 2048);
@@ -330,14 +330,14 @@ static uint16_t CalculateRegexOffset(const char *str, size_t len)
  *
  * Parses regex patterns to determine depth for content matching
  */
-static uint16_t DetectContentCalculateRegexDepth(const char *contentstr, uint16_t content_len)
+static uint16_t DetectContentCalculateRegexDepth(const unsigned char *contentstr, uint16_t content_len)
 {
     if (contentstr == NULL) {
         return 0;
     }
 
-    const char *str = contentstr;
-    size_t len = strlen(str);
+    const unsigned char *str = contentstr;
+    size_t len = strlen((const char *)str);
 
     // Only process anchored patterns (starting with ^) to avoid conflicts with within/distance
     if (len > 0 && str[0] == '^') {
@@ -379,10 +379,10 @@ static int DetectContentParseRegexPattern(
         return -1;
     }
 
-    *result_len = CalculateRegexMaxLength(contentstr, strlen(contentstr));
+    *result_len = CalculateRegexMaxLength((const uint8_t *)contentstr, strlen(contentstr));
     if (*result_len == 0) {
         SCLogInfo("Unbounded regex pattern, setting its minimal length as pattern length: %s", contentstr);
-        *result_len = CalculateRegexMinLength(contentstr, strlen(contentstr));
+        *result_len = CalculateRegexMinLength((const uint8_t *)contentstr, strlen(contentstr));
     }
     *result = (uint8_t *)strdup(contentstr);
     return 0;
