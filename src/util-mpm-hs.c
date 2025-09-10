@@ -304,12 +304,11 @@ static int SCHSAddPattern(MpmCtx *mpm_ctx, const uint8_t *pat, uint16_t patlen, 
         p->offset = offset;
         p->depth = depth;
 
-        p->original_pat = SCCalloc(patlen, sizeof(uint8_t));
+        p->original_pat = (uint8_t *)strndup((const char *)pat, patlen);
         if (p->original_pat == NULL)
             goto error;
         mpm_ctx->memory_cnt++;
         mpm_ctx->memory_size += patlen;
-        memcpy(p->original_pat, pat, patlen);
 
         /* put in the pattern hash */
         if (SCHSInitHashAdd(ctx, p) != 0)
