@@ -657,7 +657,6 @@ static int CompileDataExtensionsInit(hs_expr_ext_t **ext, const SCHSPattern *p)
         }
         if (p->flags & MPM_PATTERN_FLAG_OFFSET) {
             (*ext)->flags |= HS_EXT_FLAG_MIN_OFFSET;
-            SCLogInfo("%d", CalculateRegexMaxLength(p->original_pat, p->len));
             (*ext)->min_offset = p->offset + CalculateRegexMaxLength(p->original_pat, p->len);
         }
         if (p->flags & MPM_PATTERN_FLAG_DEPTH) {

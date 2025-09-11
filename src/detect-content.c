@@ -381,7 +381,7 @@ static int DetectContentParseRegexPattern(
 
     *result_len = CalculateRegexMaxLength((const uint8_t *)contentstr, strlen(contentstr));
     if (*result_len == 0) {
-        SCLogInfo("Unbounded regex pattern, setting its minimal length as pattern length: %s", contentstr);
+        // SCLogInfo("Unbounded regex pattern, setting its minimal length as pattern length: %s", contentstr);
         *result_len = CalculateRegexMinLength((const uint8_t *)contentstr, strlen(contentstr));
     }
     *result = (uint8_t *)strdup(contentstr);
