@@ -234,7 +234,7 @@ static void DetectTlsFingerprintSetupCallback(const DetectEngineCtx *de_ctx,
             if (changed) {
                 SpmDestroyCtx(cd->spm_ctx);
                 cd->spm_ctx =
-                        SpmInitCtx(cd->content, cd->content_len_raw, 1, de_ctx->spm_global_thread_ctx);
+                        SpmInitCtx(cd->content, cd->content_len, 1, de_ctx->spm_global_thread_ctx);
             }
         }
     }

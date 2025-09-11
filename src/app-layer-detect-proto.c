@@ -1358,7 +1358,7 @@ static int AppLayerProtoDetectPMRegisterPattern(uint8_t ipproto, AppProto alprot
     if (!is_cs) {
         /* Rebuild as nocase */
         SpmDestroyCtx(cd->spm_ctx);
-        cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len_raw, 1,
+        cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len, 1,
                                  alpd_ctx.spm_global_thread_ctx);
         if (cd->spm_ctx == NULL) {
             goto error;

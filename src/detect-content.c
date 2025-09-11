@@ -365,7 +365,6 @@ static uint16_t DetectContentCalculateRegexDepth(const unsigned char *contentstr
  * \brief Enhanced regex pattern parsing with escape handling
  *
  * \param contentstr The content string to parse
- * \param result Pointer to store the parsed content
  * \param result_len Pointer to store the length of parsed content
  * \param is_regex Pointer to indicate if this is a regex pattern
  *
@@ -373,9 +372,9 @@ static uint16_t DetectContentCalculateRegexDepth(const unsigned char *contentstr
  * \retval -1 on error
  */
 static int DetectContentParseRegexPattern(
-        const char *contentstr, uint8_t **result, uint16_t *result_len)
+        const char *contentstr, uint16_t *result_len)
 {
-    if (contentstr == NULL || result == NULL || result_len == NULL) {
+    if (contentstr == NULL || result_len == NULL) {
         return -1;
     }
 
@@ -384,7 +383,6 @@ static int DetectContentParseRegexPattern(
         // SCLogInfo("Unbounded regex pattern, setting its minimal length as pattern length: %s", contentstr);
         *result_len = CalculateRegexMinLength((const uint8_t *)contentstr, strlen(contentstr));
     }
-    *result = (uint8_t *)strdup(contentstr);
     return 0;
 }
 
@@ -399,139 +397,130 @@ int DetectContentDataParse(
         return -1;
     }
 
-    // First try to parse as regex pattern
-    uint8_t *regex_result = NULL;
-    uint16_t regex_len = 0;
+    if (strncmp(keyword, "content", 7) == 0) {
+        uint16_t regex_len = 0;
+        if (DetectContentParseRegexPattern(contentstr, &regex_len) == 0) {
+            *plen = regex_len;
+            *pstr = strndup(contentstr, slen);
+            return 0;
+        }
 
-    if (DetectContentParseRegexPattern(contentstr, &regex_result, &regex_len) == 0) {
-        *plen = regex_len;
-        *pstr = regex_result;
-        return 0;
-    }
+        FatalError("Maybe you should have left the non-regex content parsing code here?");
+    } else {
+        uint8_t buffer[slen + 1];
+        strlcpy((char *)&buffer, contentstr, slen + 1);
+        str = (char *)buffer;
 
-    // Fall back to original parsing logic for non-regex content
-    uint8_t buffer[slen + 1];
-    strlcpy((char *)&buffer, contentstr, slen + 1);
-    str = (char *)buffer;
+        SCLogDebug("\"%s\", len %" PRIuMAX, str, (uintmax_t)slen);
 
-    SCLogDebug("\"%s\", len %" PRIuMAX, str, (uintmax_t)slen);
+        //SCLogDebug("DetectContentParse: \"%s\", len %" PRIu32 "", str, len);
+        char converted = 0;
 
-    // SCLogDebug("DetectContentParse: \"%s\", len %" PRIu32 "", str, len);
-    char converted = 0;
+        {
+            size_t i, x;
+            uint8_t bin = 0;
+            uint8_t escape = 0;
+            uint8_t binstr[3] = "";
+            uint8_t binpos = 0;
+            uint16_t bin_count = 0;
 
-    {
-        size_t i, x;
-        uint8_t bin = 0;
-        uint8_t escape = 0;
-        uint8_t binstr[3] = "";
-        uint8_t binpos = 0;
-        uint16_t bin_count = 0;
-
-        for (i = 0, x = 0; i < slen; i++) {
-            // SCLogDebug("str[%02u]: %c", i, str[i]);
-            if (str[i] == '|') {
-                bin_count++;
-                if (bin) {
-                    if (binpos > 0) {
-                        SCLogError("Incomplete hex code in content - %s. Invalidating signature.",
-                                contentstr);
-                        goto error;
-                    }
-                    bin = 0;
-                } else {
-                    bin = 1;
-                }
-            } else if (!escape && str[i] == '\\') {
-                escape = 1;
-            } else {
-                if (bin) {
-                    if (isdigit((unsigned char)str[i]) || str[i] == 'A' || str[i] == 'a' ||
-                            str[i] == 'B' || str[i] == 'b' || str[i] == 'C' || str[i] == 'c' ||
-                            str[i] == 'D' || str[i] == 'd' || str[i] == 'E' || str[i] == 'e' ||
-                            str[i] == 'F' || str[i] == 'f') {
-                        // SCLogDebug("part of binary: %c", str[i]);
-
-                        binstr[binpos] = (char)str[i];
-                        binpos++;
-
-                        if (binpos == 2) {
-                            uint8_t c = strtol((char *)binstr, (char **)NULL, 16) & 0xFF;
-                            binpos = 0;
-                            str[x] = c;
-                            x++;
-                            converted = 1;
-                        }
-                    } else if (str[i] == ' ') {
-                        // SCLogDebug("space as part of binary string");
-                    } else if (str[i] != ',') {
-                        SCLogError("Invalid hex code in "
-                                   "content - %s, hex %c. Invalidating signature.",
-                                contentstr, str[i]);
-                        goto error;
-                    }
-                } else if (escape) {
-                    if (str[i] == ':' || str[i] == ';' || str[i] == '\\' || str[i] == '\"') {
-                        str[x] = str[i];
-                        x++;
-                    } else if (str[i] == 'x') {
-                        // Handle \x hex escape sequences
-                        if (i + 2 < slen) {
-                            char hex[3] = { str[i + 1], str[i + 2], '\0' };
-                            if (isxdigit(hex[0]) && isxdigit(hex[1])) {
-                                uint8_t c = strtol(hex, NULL, 16) & 0xFF;
-                                str[x] = c;
-                                x++;
-                                i += 2; // Skip the two hex digits
-                            } else {
-                                SCLogError("Invalid hex escape sequence \\x%c%c", str[i + 1],
-                                        str[i + 2]);
-                                goto error;
-                            }
-                        } else {
-                            SCLogError("Incomplete hex escape sequence");
+            for (i = 0, x = 0; i < slen; i++) {
+                // SCLogDebug("str[%02u]: %c", i, str[i]);
+                if (str[i] == '|') {
+                    bin_count++;
+                    if (bin) {
+                        if (binpos > 0) {
+                            SCLogError("Incomplete hex code in content - %s. Invalidating signature.",
+                                    contentstr);
                             goto error;
                         }
+                        bin = 0;
                     } else {
-                        SCLogError("'%c' has to be escaped", str[i - 1]);
-                        goto error;
+                        bin = 1;
                     }
-                    escape = 0;
-                    converted = 1;
-                } else if (str[i] == '"') {
-                    SCLogError("Invalid unescaped double quote within content section.");
-                    goto error;
+                } else if(!escape && str[i] == '\\') {
+                    escape = 1;
                 } else {
-                    str[x] = str[i];
-                    x++;
+                    if (bin) {
+                        if (isdigit((unsigned char)str[i]) ||
+                                str[i] == 'A' || str[i] == 'a' ||
+                                str[i] == 'B' || str[i] == 'b' ||
+                                str[i] == 'C' || str[i] == 'c' ||
+                                str[i] == 'D' || str[i] == 'd' ||
+                                str[i] == 'E' || str[i] == 'e' ||
+                                str[i] == 'F' || str[i] == 'f')
+                        {
+                            // SCLogDebug("part of binary: %c", str[i]);
+
+                            binstr[binpos] = (char)str[i];
+                            binpos++;
+
+                            if (binpos == 2) {
+                                uint8_t c = strtol((char *)binstr, (char **) NULL, 16) & 0xFF;
+                                binpos = 0;
+                                str[x] = c;
+                                x++;
+                                converted = 1;
+                            }
+                        } else if (str[i] == ' ') {
+                            // SCLogDebug("space as part of binary string");
+                        }
+                        else if (str[i] != ',') {
+                            SCLogError("Invalid hex code in "
+                                    "content - %s, hex %c. Invalidating signature.",
+                                    contentstr, str[i]);
+                            goto error;
+                        }
+                    } else if (escape) {
+                        if (str[i] == ':' ||
+                            str[i] == ';' ||
+                            str[i] == '\\' ||
+                            str[i] == '\"')
+                        {
+                            str[x] = str[i];
+                            x++;
+                        } else {
+                            SCLogError("'%c' has to be escaped", str[i - 1]);
+                            goto error;
+                        }
+                        escape = 0;
+                        converted = 1;
+                    } else if (str[i] == '"') {
+                        SCLogError("Invalid unescaped double quote within content section.");
+                        goto error;
+                    } else {
+                        str[x] = str[i];
+                        x++;
+                    }
                 }
+            }
+
+            if (bin_count % 2 != 0) {
+                SCLogError("Invalid hex code assembly in "
+                        "%s - %s.  Invalidating signature.",
+                        keyword, contentstr);
+                goto error;
+            }
+
+            if (converted) {
+                slen = x;
             }
         }
 
-        if (bin_count % 2 != 0) {
-            SCLogError("Invalid hex code assembly in "
-                       "%s - %s.  Invalidating signature.",
-                    keyword, contentstr);
-            goto error;
-        }
+        if (slen) {
+            uint8_t *ptr = SCCalloc(1, slen);
+            if (ptr == NULL) {
+                return -1;
+            }
+            memcpy(ptr, str, slen);
 
-        if (converted) {
-            slen = x;
+            *plen = (uint16_t)slen;
+            *pstr = ptr;
+            return 0;
         }
-    }
-
-    if (slen) {
-        uint8_t *ptr = SCCalloc(1, slen);
-        if (ptr == NULL) {
-            return -1;
-        }
-        memcpy(ptr, str, slen);
-
-        *plen = (uint16_t)slen;
-        *pstr = ptr;
-        return 0;
-    }
 error:
-    return -1;
+        return -1;
+    }
 }
 
 /**
@@ -559,15 +548,15 @@ DetectContentData *DetectContentParse(
     }
 
     cd->content = (uint8_t *)cd + sizeof(DetectContentData);
-    memcpy(cd->content, content, len_raw);
-    cd->content_len = len;
-    cd->content_len_raw = len_raw;
+    memcpy(cd->content, content, len_raw); // content and contentstr are the same strings
+    cd->content_len = len; // the matching length
+    cd->content_len_raw = len_raw; // pattern length
     if (cd->content_len == 0) {
         SCLogError("Content length is zero, setting min length");
     }
 
     /* Prepare SPM search context. */
-    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len_raw, 0, spm_global_thread_ctx);
+    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len, 0, spm_global_thread_ctx);
     if (cd->spm_ctx == NULL) {
         SCFree(content);
         SCFree(cd);
@@ -1116,7 +1105,7 @@ int DetectContentConvertToNocase(DetectEngineCtx *de_ctx, DetectContentData *cd)
     cd->flags |= DETECT_CONTENT_NOCASE;
     /* Recreate the context with nocase chars */
     SpmDestroyCtx(cd->spm_ctx);
-    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len_raw, 1, de_ctx->spm_global_thread_ctx);
+    cd->spm_ctx = SpmInitCtx(cd->content, cd->content_len, 1, de_ctx->spm_global_thread_ctx);
     if (cd->spm_ctx == NULL) {
         return -1;
     }
