@@ -592,9 +592,9 @@ void DetectContentPrint(DetectContentData *cd)
         SCLogDebug("DetectContentData \"cd\" is NULL");
         return;
     }
-    char *tmpstr = SCMalloc(sizeof(char) * cd->content_len + 1);
+    char *tmpstr = SCMalloc(sizeof(char) * cd->content_len_raw + 1);
     if (tmpstr != NULL) {
-        for (i = 0; i < cd->content_len; i++) {
+        for (i = 0; i < cd->content_len_raw; i++) {
             if (isprint(cd->content[i]))
                 tmpstr[i] = cd->content[i];
             else
@@ -605,12 +605,13 @@ void DetectContentPrint(DetectContentData *cd)
         SCFree(tmpstr);
     } else {
         SCLogDebug("Content: ");
-        for (i = 0; i < cd->content_len; i++)
+        for (i = 0; i < cd->content_len_raw; i++)
             SCLogDebug("%c", cd->content[i]);
     }
 
     SCLogDebug("Content_id: %" PRIu32, cd->id);
-    SCLogDebug("Content_len: %" PRIu16, cd->content_len);
+    SCLogDebug("Effective Content_len: %" PRIu16, cd->content_len);
+    SCLogDebug("Raw Content_len: %" PRIu16, cd->content_len_raw);
     SCLogDebug("Depth: %" PRIu16, cd->depth);
     SCLogDebug("Offset: %" PRIu16, cd->offset);
     SCLogDebug("Within: %" PRIi32, cd->within);

@@ -159,10 +159,8 @@ static uint8_t *HSScan(const SpmCtx *ctx, SpmThreadCtx *thread_ctx,
         return NULL;
     }
 
-    DEBUG_VALIDATE_BUG_ON(match_offset < sctx->needle_len);
-
     /* Note: existing API returns non-const ptr */
-    return (uint8_t *)haystack + (match_offset - sctx->needle_len);
+    return (uint8_t *)haystack + match_offset;
 }
 
 static SpmGlobalThreadCtx *HSInitGlobalThreadCtx(void)

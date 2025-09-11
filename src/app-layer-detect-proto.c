@@ -1158,6 +1158,7 @@ static void AppLayerProtoDetectPMGetIpprotos(AppProto alproto,
     SCReturn;
 }
 
+// this function just copies around contents, raw length is properly used here
 static int AppLayerProtoDetectPMSetContentIDs(AppLayerProtoDetectPMCtx *ctx)
 {
     SCEnter();
@@ -1174,7 +1175,7 @@ static int AppLayerProtoDetectPMSetContentIDs(AppLayerProtoDetectPMCtx *ctx)
     /* array hash buffer */
     uint8_t *ahb = NULL;
     uint8_t *content = NULL;
-    uint16_t content_len = 0;
+    uint16_t content_len_raw = 0;
     PatIntId max_id = 0;
     TempContainer *struct_offset = NULL;
     uint8_t *content_offset = NULL;
@@ -1198,10 +1199,10 @@ static int AppLayerProtoDetectPMSetContentIDs(AppLayerProtoDetectPMCtx *ctx)
     for (s = ctx->head; s != NULL; s = s->next) {
         TempContainer *tcdup = (TempContainer *)ahb;
         content = s->cd->content;
-        content_len = s->cd->content_len_raw;
+        content_len_raw = s->cd->content_len_raw;
 
         for (; tcdup != struct_offset; tcdup++) {
-            if (tcdup->content_len != content_len ||
+            if (tcdup->content_len != content_len_raw ||
                 SCMemcmp(tcdup->content, content, tcdup->content_len) != 0)
             {
                 continue;
@@ -1214,10 +1215,10 @@ static int AppLayerProtoDetectPMSetContentIDs(AppLayerProtoDetectPMCtx *ctx)
             continue;
         }
 
-        struct_offset->content_len = content_len;
+        struct_offset->content_len = content_len_raw;
         struct_offset->content = content_offset;
-        content_offset += content_len;
-        memcpy(struct_offset->content, content, content_len);
+        content_offset += content_len_raw;
+        memcpy(struct_offset->content, content, content_len_raw);
         struct_offset->id = max_id++;
         s->cd->id = struct_offset->id;
 

@@ -296,6 +296,7 @@ static int DetectEngineContentInspectionInternal(DetectEngineThreadCtx *det_ctx,
                 found = NULL;
             } else {
                 /* do the actual search */
+                // we get the END of the match
                 found = SpmScan(cd->spm_ctx, det_ctx->spm_thread_ctx, sbuffer,
                         sbuffer_len);
             }
@@ -317,7 +318,7 @@ static int DetectEngineContentInspectionInternal(DetectEngineThreadCtx *det_ctx,
                 }
             }
 
-            uint32_t match_offset = (uint32_t)((found - buffer) + cd->content_len);
+            uint32_t match_offset = (uint32_t)(found - buffer); // end of match minus start of buffer
             if (cd->flags & DETECT_CONTENT_NEGATED) {
                 SCLogDebug("content %" PRIu32 " matched at offset %" PRIu32
                            ", but negated so no match",
@@ -346,6 +347,7 @@ static int DetectEngineContentInspectionInternal(DetectEngineThreadCtx *det_ctx,
             if ((cd->flags & DETECT_CONTENT_ENDS_WITH) == 0 || match_offset == buffer_len) {
                 /* Match branch, add replace to the list if needed */
                 if (unlikely(cd->flags & DETECT_CONTENT_REPLACE)) {
+                    FatalError("Replace not supported in this context");
                     if (inspection_mode == DETECT_ENGINE_CONTENT_INSPECTION_MODE_PAYLOAD) {
                         /* we will need to replace content if match is confirmed
                          * cast to non-const as replace writes to it. */
@@ -387,6 +389,9 @@ static int DetectEngineContentInspectionInternal(DetectEngineThreadCtx *det_ctx,
                         cd->flags);
             }
             /* set the previous match offset to the start of this match + 1 */
+            // TODO: This prev_offset is set for the next possible matches to not have to rematch from start but only from the starting position of the last match + 1 --> setting cd->content_len is wrong as foo.*bar is counted as 6 and you don't know how much the .* matched
+            // We would need to rematch from the last known position before matching
+            // Take this with grain of salt as I might be wrong
             prev_offset = (match_offset - (cd->content_len - 1));
             SCLogDebug("trying to see if there is another match after prev_offset %" PRIu32,
                     prev_offset);

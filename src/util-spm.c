@@ -190,6 +190,7 @@ void SpmDestroyCtx(SpmCtx *ctx)
     spm_table[matcher].DestroyCtx(ctx);
 }
 
+// now it will return the end of the match because HS_FLAG_SOM_LEFTMOST is restrictive and less performant and it is impossible to calculate the end from the regex
 uint8_t *SpmScan(const SpmCtx *ctx, SpmThreadCtx *thread_ctx,
                  const uint8_t *haystack, uint32_t haystack_len)
 {
