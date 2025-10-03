@@ -32,8 +32,8 @@ void PcapTranslateIPToDevice(char *pcap_dev, size_t len);
 #define LIBPCAP_PROMISC     1
 
 /* per packet Pcap vars */
-typedef struct PcapPacketVars_
-{
+typedef struct PcapPacketVars_ {
+    uint64_t pcap_cnt; // do not access directly, use PcapPacketCntGet function
     uint32_t tenant_id;
 } PcapPacketVars;
 
@@ -58,5 +58,9 @@ typedef struct PcapIfaceConfig_
     SC_ATOMIC_DECLARE(unsigned int, ref);
     void (*DerefFunc)(void *);
 } PcapIfaceConfig;
+
+inline uint64_t PcapPacketCntGet(const Packet *p);
+inline void PcapPacketCntSet(const Packet *p, uint64_t pcap_cnt);
+inline void PcapPacketCntReset(const Packet *p);
 
 #endif /* SURICATA_SOURCE_PCAP_H */

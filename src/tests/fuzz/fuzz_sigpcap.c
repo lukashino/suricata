@@ -195,8 +195,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         p->ts = SCTIME_FROM_TIMEVAL(&header->ts);
         p->datalink = pcap_datalink(pkts);
         p->pkt_src = PKT_SRC_WIRE;
-        pcap_cnt++;
-        p->pcap_cnt = pcap_cnt;
+        PcapPacketCntSet(p, ++pcap_cnt);
     }
 bail:
     //close structure
