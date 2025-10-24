@@ -398,11 +398,11 @@ static void AutoRemainingThreadsReset(void)
 static void AutoRemainingThreadsInit(void)
 {
     if (remaining_auto_cpus == -1) {
-        ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
+        ThreadsAffinityType *wtaf = AffinityTypeGetByIfaceOrCpuset("worker-cpu-set", NULL);
         if (wtaf == NULL)
             FatalError("Worker-cpu-set not listed in the threading section");
 
-        int32_t total_cpus = UtilAffinityGetAffinedCPUNum(wtaf);
+        int32_t total_cpus = AffinityGetAffinedCPUNum(wtaf);
         if (total_cpus == 0)
             FatalError("No worker CPU cores with affinity were configured");
 
@@ -440,32 +440,32 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
     }
 
     bool wtaf_periface = true;
-    ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", iconf->iface);
+    ThreadsAffinityType *wtaf = AffinityTypeGetByIfaceOrCpuset("worker-cpu-set", iconf->iface);
     if (wtaf == NULL) {
         wtaf_periface = false;
-        wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL); // mandatory
+        wtaf = AffinityTypeGetByIfaceOrCpuset("worker-cpu-set", NULL); // mandatory
         if (wtaf == NULL) {
             SCLogError("Specify worker-cpu-set list in the threading section");
             SCReturnInt(-EINVAL);
         }
     }
-    ThreadsAffinityType *mtaf = GetAffinityTypeForNameAndIface("management-cpu-set", NULL);
+    ThreadsAffinityType *mtaf = AffinityTypeGetByIfaceOrCpuset("management-cpu-set", NULL);
     if (mtaf == NULL) {
         SCLogError("Specify management-cpu-set list in the threading section");
         SCReturnInt(-EINVAL);
     }
-    uint16_t sched_cpus = UtilAffinityGetAffinedCPUNum(wtaf);
+    uint16_t sched_cpus = AffinityGetAffinedCPUNum(wtaf);
     if (sched_cpus == UtilCpuGetNumProcessorsOnline()) {
         SCLogWarning(
                 "\"all\" specified in worker CPU cores affinity, excluding management threads");
-        UtilAffinityCpusExclude(wtaf, mtaf);
-        sched_cpus = UtilAffinityGetAffinedCPUNum(wtaf);
+        AffinityCpusSubtract(wtaf, mtaf);
+        sched_cpus = AffinityGetAffinedCPUNum(wtaf);
     }
 
     if (sched_cpus == 0) {
         SCLogError("No worker CPU cores with configured affinity were configured");
         SCReturnInt(-EINVAL);
-    } else if (UtilAffinityCpusOverlap(wtaf, mtaf) != 0) {
+    } else if (AffinityCpusOverlap(wtaf, mtaf)) {
         SCLogWarning("Worker threads should not overlap with management threads in the CPU core "
                      "affinity configuration");
     }
@@ -1083,10 +1083,10 @@ static bool ConfigThreadsGenericIsValid(uint16_t iface_threads, ThreadsAffinityT
         SCLogError("Specify worker-cpu-set list in the threading section");
         return false;
     }
-    if (total_cpus > UtilAffinityGetAffinedCPUNum(wtaf)) {
+    if (total_cpus > AffinityGetAffinedCPUNum(wtaf)) {
         SCLogError("Interfaces requested more cores than configured in the worker-cpu-set "
                    "threading section (requested %d configured %d",
-                total_cpus, UtilAffinityGetAffinedCPUNum(wtaf));
+                total_cpus, AffinityGetAffinedCPUNum(wtaf));
         return false;
     }
 
@@ -1095,10 +1095,10 @@ static bool ConfigThreadsGenericIsValid(uint16_t iface_threads, ThreadsAffinityT
 
 static bool ConfigThreadsInterfaceIsValid(uint16_t iface_threads, ThreadsAffinityType *itaf)
 {
-    if (iface_threads > UtilAffinityGetAffinedCPUNum(itaf)) {
+    if (iface_threads > AffinityGetAffinedCPUNum(itaf)) {
         SCLogError("Interface requested more cores than configured in the interface-specific "
                    "threading section (requested %d configured %d",
-                iface_threads, UtilAffinityGetAffinedCPUNum(itaf));
+                iface_threads, AffinityGetAffinedCPUNum(itaf));
         return false;
     }
 
@@ -1107,8 +1107,8 @@ static bool ConfigThreadsInterfaceIsValid(uint16_t iface_threads, ThreadsAffinit
 
 static bool ConfigIsThreadingValid(uint16_t iface_threads, const char *iface)
 {
-    ThreadsAffinityType *itaf = GetAffinityTypeForNameAndIface("worker-cpu-set", iface);
-    ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
+    ThreadsAffinityType *itaf = AffinityTypeGetByIfaceOrCpuset("worker-cpu-set", iface);
+    ThreadsAffinityType *wtaf = AffinityTypeGetByIfaceOrCpuset("worker-cpu-set", NULL);
     if (itaf && !ConfigThreadsInterfaceIsValid(iface_threads, itaf)) {
         return false;
     } else if (itaf == NULL && !ConfigThreadsGenericIsValid(iface_threads, wtaf)) {
@@ -2017,18 +2017,18 @@ int RunModeIdsDpdkWorkers(void)
  */
 static int UnitTestsUtilAffinityVerifyCPURequirement(void)
 {
-    ThreadsAffinityType *wtaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
+    ThreadsAffinityType *wtaf = AffinityTypeGetByIfaceOrCpuset("worker-cpu-set", NULL);
     if (wtaf == NULL) {
         SCLogError("Specify worker-cpu-set list in the threading section");
         SCReturnInt(-EINVAL);
     }
-    ThreadsAffinityType *mtaf = GetAffinityTypeForNameAndIface("management-cpu-set", NULL);
+    ThreadsAffinityType *mtaf = AffinityTypeGetByIfaceOrCpuset("management-cpu-set", NULL);
     if (mtaf == NULL) {
         SCLogError("Specify management-cpu-set list in the threading section");
         SCReturnInt(-EINVAL);
     }
-    UtilAffinityCpusExclude(wtaf, mtaf);
-    uint32_t sched_cpus = UtilAffinityGetAffinedCPUNum(wtaf) + UtilAffinityGetAffinedCPUNum(mtaf);
+    AffinityCpusSubtract(wtaf, mtaf);
+    uint32_t sched_cpus = AffinityGetAffinedCPUNum(wtaf) + AffinityGetAffinedCPUNum(mtaf);
 
     if (UtilCpuGetNumProcessorsOnline() < sched_cpus) {
         char err_msg[256];
@@ -2043,7 +2043,7 @@ static void DPDKRunmodeSetThreadsInit(const char *input, size_t input_len)
 {
     SCConfCreateContextBackup();
     SCConfInit();
-    ResetAffinityForTest();
+    AffinityReset();
     AutoRemainingThreadsReset();
     int ret = SCConfYamlLoadString(input, input_len);
     if (ret != 0) {
