@@ -410,6 +410,7 @@ typedef struct AFPPeersList_ {
     int cnt;
     int peered;
     int turn; /**< Next value for initialisation order */
+    int total_threads;               /**< Total number of threads for this interface */
     SC_ATOMIC_DECLARE(int, reached); /**< Counter used to synchronize start */
 } AFPPeersList;
 
@@ -453,6 +454,7 @@ TmEcode AFPPeersListInit(void)
     peerslist.peered = 0;
     peerslist.cnt = 0;
     peerslist.turn = 0;
+    peerslist.total_threads = 0;
     SC_ATOMIC_INIT(peerslist.reached);
     (void) SC_ATOMIC_SET(peerslist.reached, 0);
     SCReturnInt(TM_ECODE_OK);
@@ -498,7 +500,28 @@ static TmEcode AFPPeersListAdd(AFPThreadVars *ptv)
     SC_ATOMIC_INIT(peer->if_idx);
     SC_ATOMIC_INIT(peer->state);
     peer->flags = ptv->flags;
-    peer->turn = peerslist.turn++;
+
+    /* Assign turn with reordering: last thread gets turn 0, others get sequential turns.
+     * Original assignment: W#01=0, W#02=1, ..., W#N=N-1
+     * Reordered assignment: W#N=0, W#01=1, W#02=2, ..., W#N-1=N-1
+     * This ensures W#N joins the fanout group first.
+     */
+    int sequential_turn = peerslist.turn;
+    int total_threads = ptv->threads;
+
+    if (total_threads > 1 && sequential_turn == (total_threads - 1)) {
+        /* This is the last thread (W#N), assign turn 0 */
+        peer->turn = 0;
+    } else if (total_threads > 1 && sequential_turn < (total_threads - 1)) {
+        /* These are threads W#01 through W#N-1, shift turns by +1 */
+        peer->turn = sequential_turn + 1;
+    } else {
+        /* Single thread or fallback */
+        peer->turn = sequential_turn;
+    }
+
+    peerslist.turn++;
+    peerslist.total_threads = peerslist.turn;
 
     if (peer->flags & AFP_SOCK_PROTECT) {
         SCMutexInit(&peer->sock_protect, NULL);
