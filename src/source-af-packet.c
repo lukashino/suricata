@@ -2061,10 +2061,7 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose, const
         }
     }
 #endif
-    /* bind() done, allow next thread to continue */
-    if (peer_update) {
-        AFPPeersListReachedInc();
-    }
+
     ret = AFPSetupRing(ptv, devname);
     if (ret != 0)
         goto socket_err;
@@ -2081,6 +2078,11 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose, const
 
     /* Init is ok */
     AFPSwitchState(ptv, AFP_STATE_UP);
+
+    /* bind() done, allow next thread to continue */
+    if (peer_update) {
+        AFPPeersListReachedInc();
+    }
     return 0;
 
 socket_err:
