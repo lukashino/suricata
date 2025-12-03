@@ -251,8 +251,22 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
                               const char *live_dev, void *aconf,
                               unsigned char single_mode)
 {
+#ifdef HAVE_DPDK
+    // unsigned int to follow rte_get_next_lcore prototype, UINT32_MAX to get the first lcore_id
+    // static to remember last used lcore over multiple function calls (more ifaces in config)
+    static unsigned int dpdk_last_spawned_lcore = UINT_MAX;
+#endif
     uint16_t threads_count;
-    const uint16_t thread_max = TmThreadsGetWorkerThreadMax();
+    uint16_t thread_max;
+    TmModule *recv_module = TmModuleGetByName(recv_mod_name);
+    bool is_dpdk_module = recv_module != NULL && strcmp(recv_module->name, "ReceiveDPDK") == 0;
+    if (is_dpdk_module) {
+#ifdef HAVE_DPDK
+        thread_max = rte_lcore_count() - 1;
+#endif /* HAVE_DPDK */
+    } else {
+        thread_max = TmThreadsGetWorkerThreadMax();
+    }
 
     if (single_mode) {
         threads_count = 1;
@@ -264,6 +278,15 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
 
     /* create the threads */
     for (uint16_t thread = 0; thread < threads_count; thread++) {
+#ifdef HAVE_DPDK
+        if (is_dpdk_module) {
+            dpdk_last_spawned_lcore = rte_get_next_lcore(dpdk_last_spawned_lcore, 1, 0);
+            // rte_get_next_lcore returns RTE_MAX_LCORE when last worker is reached
+            if (dpdk_last_spawned_lcore >= RTE_MAX_LCORE) {
+                FatalError("Attempting to spawn more lcores than configured in EAL");
+            }
+        }
+#endif /* HAVE_DPDK */
         const uint16_t thread_id = (uint16_t)(thread + 1);
         const char *visual_devname = LiveGetShortName(live_dev);
         const size_t printable_threadname_size = strlen(thread_name) + 5 + strlen(live_dev) + 1;
@@ -321,6 +344,11 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
         TmSlotSetFuncAppend(tv, tm_module, NULL);
 
         TmThreadSetCPU(tv, WORKER_CPU_SET);
+
+#ifdef HAVE_DPDK
+        if (is_dpdk_module)
+            tv->lcore_id = (uint32_t)dpdk_last_spawned_lcore;
+#endif /* HAVE_DPDK */
 
         if (TmThreadSpawn(tv) != TM_ECODE_OK) {
             FatalError("TmThreadSpawn failed");

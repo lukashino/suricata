@@ -139,6 +139,11 @@ typedef struct ThreadVars_ {
     /** Interface-specific thread affinity */
     char *iface_name;
 
+#ifdef HAVE_DPDK
+    /** For DPDK thread exit */
+    uint32_t lcore_id;
+#endif /* HAVE_DPDK */
+
     Storage storage[];
 } ThreadVars;
 

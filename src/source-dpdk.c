@@ -520,6 +520,8 @@ static void PeriodicDPDKDumpCounters(DPDKThreadVars *ptv)
  */
 static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 {
+
+    SCLogNotice("Starting DPDK receive loop on thread %s lcoreid %u", tv->name, rte_lcore_id());
     SCEnter();
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
     ptv->slot = ((TmSlot *)slot)->slot_next;
