@@ -27,26 +27,53 @@
 #include "suricata-common.h"
 #include "tm-threads.h"
 #include "conf.h"
-#include "runmodes.h"
-#include "runmode-af-packet.h"
-#include "output.h"
-#include "log-httplog.h"
-
-#include "detect-engine.h"
-#include "detect-engine-mpm.h"
-
-#include "alert-fastlog.h"
-#include "alert-debuglog.h"
-
-#include "util-debug.h"
-#include "util-time.h"
-#include "util-cpu.h"
-#include "util-affinity.h"
-#include "util-device-private.h"
-
 #include "util-runmodes.h"
+#include "util-affinity.h"
+#include "runmodes.h"
+#ifdef HAVE_DPDK
+#include <rte_lcore.h>
+#include <rte_launch.h>
 
-#include "flow-hash.h"
+/* Track which lcores have been consumed to avoid duplicates across interfaces. */
+static cpu_set_t dpdk_used_lcores;
+static bool dpdk_used_lcores_init;
+
+/* Select the next lcore for a given interface from its child worker-cpu-set, skipping used or
+ * disabled lcores. */
+static unsigned int DpdkNextLcoreForInterface(const char *iface)
+{
+    if (!dpdk_used_lcores_init) {
+        CPU_ZERO(&dpdk_used_lcores);
+        dpdk_used_lcores_init = true;
+    }
+
+    ThreadsAffinityType *itaf = GetAffinityTypeForNameAndIface("worker-cpu-set", iface);
+    if (itaf == NULL) {
+        itaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
+    }
+    if (itaf == NULL) {
+        FatalError("Specify worker-cpu-set list in the threading section");
+    }
+
+    const unsigned int max_cpu = MIN((unsigned int)RTE_MAX_LCORE, (unsigned int)CPU_SETSIZE);
+    for (unsigned int cpu = 0; cpu < max_cpu; cpu++) {
+        if (!CPU_ISSET(cpu, &itaf->cpu_set)) {
+            continue;
+        }
+        if (CPU_ISSET(cpu, &dpdk_used_lcores)) {
+            continue;
+        }
+        if (!rte_lcore_is_enabled(cpu)) {
+            continue;
+        }
+
+        CPU_SET(cpu, &dpdk_used_lcores);
+        return cpu;
+    }
+
+    FatalError("Interface %s requested more DPDK lcores than available in worker-cpu-set", iface);
+}
+#endif
 
 #define THREADS_MAX (uint16_t)1024
 
@@ -251,11 +278,6 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
                               const char *live_dev, void *aconf,
                               unsigned char single_mode)
 {
-#ifdef HAVE_DPDK
-    // unsigned int to follow rte_get_next_lcore prototype, UINT32_MAX to get the first lcore_id
-    // static to remember last used lcore over multiple function calls (more ifaces in config)
-    static unsigned int dpdk_last_spawned_lcore = UINT_MAX;
-#endif
     uint16_t threads_count;
     uint16_t thread_max;
     TmModule *recv_module = TmModuleGetByName(recv_mod_name);
@@ -278,15 +300,6 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
 
     /* create the threads */
     for (uint16_t thread = 0; thread < threads_count; thread++) {
-#ifdef HAVE_DPDK
-        if (is_dpdk_module) {
-            dpdk_last_spawned_lcore = rte_get_next_lcore(dpdk_last_spawned_lcore, 1, 0);
-            // rte_get_next_lcore returns RTE_MAX_LCORE when last worker is reached
-            if (dpdk_last_spawned_lcore >= RTE_MAX_LCORE) {
-                FatalError("Attempting to spawn more lcores than configured in EAL");
-            }
-        }
-#endif /* HAVE_DPDK */
         const uint16_t thread_id = (uint16_t)(thread + 1);
         const char *visual_devname = LiveGetShortName(live_dev);
         const size_t printable_threadname_size = strlen(thread_name) + 5 + strlen(live_dev) + 1;
@@ -313,6 +326,15 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
         if (tv == NULL) {
             FatalError("TmThreadsCreate failed");
         }
+#ifdef HAVE_DPDK
+        if (is_dpdk_module) {
+            unsigned int lcore = DpdkNextLcoreForInterface(live_dev);
+            if (lcore >= RTE_MAX_LCORE) {
+                FatalError("Attempting to spawn more lcores than configured in EAL");
+            }
+            tv->lcore_id = (uint32_t)lcore;
+        }
+#endif /* HAVE_DPDK */
         tv->printable_name = printable_threadname;
         tv->iface_name = SCStrdup(live_dev);
         if (tv->iface_name == NULL) {
@@ -344,11 +366,6 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
         TmSlotSetFuncAppend(tv, tm_module, NULL);
 
         TmThreadSetCPU(tv, WORKER_CPU_SET);
-
-#ifdef HAVE_DPDK
-        if (is_dpdk_module)
-            tv->lcore_id = (uint32_t)dpdk_last_spawned_lcore;
-#endif /* HAVE_DPDK */
 
         if (TmThreadSpawn(tv) != TM_ECODE_OK) {
             FatalError("TmThreadSpawn failed");
