@@ -521,9 +521,11 @@ static void PeriodicDPDKDumpCounters(DPDKThreadVars *ptv)
 static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 {
 
-    SCLogNotice("Starting DPDK receive loop on thread %s lcoreid %u", tv->name, rte_lcore_id());
     SCEnter();
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
+    // rte_eth_dev_get_port_by_name()
+    
+    SCLogNotice("TOREMOVE: Starting DPDK receive loop on thread %s iface %s lcoreid %u", tv->name, ptv->livedev->dev, rte_lcore_id());
     ptv->slot = ((TmSlot *)slot)->slot_next;
     TmEcode ret = ReceiveDPDKLoopInit(tv, ptv);
     if (ret != TM_ECODE_OK) {
