@@ -30,50 +30,6 @@
 #include "util-runmodes.h"
 #include "util-affinity.h"
 #include "runmodes.h"
-#ifdef HAVE_DPDK
-#include <rte_lcore.h>
-#include <rte_launch.h>
-
-/* Track which lcores have been consumed to avoid duplicates across interfaces. */
-static cpu_set_t dpdk_used_lcores;
-static bool dpdk_used_lcores_init;
-
-/* Select the next lcore for a given interface from its child worker-cpu-set, skipping used or
- * disabled lcores. */
-static unsigned int DpdkNextLcoreForInterface(const char *iface)
-{
-    if (!dpdk_used_lcores_init) {
-        CPU_ZERO(&dpdk_used_lcores);
-        dpdk_used_lcores_init = true;
-    }
-
-    ThreadsAffinityType *itaf = GetAffinityTypeForNameAndIface("worker-cpu-set", iface);
-    if (itaf == NULL) {
-        itaf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
-    }
-    if (itaf == NULL) {
-        FatalError("Specify worker-cpu-set list in the threading section");
-    }
-
-    const unsigned int max_cpu = MIN((unsigned int)RTE_MAX_LCORE, (unsigned int)CPU_SETSIZE);
-    for (unsigned int cpu = 0; cpu < max_cpu; cpu++) {
-        if (!CPU_ISSET(cpu, &itaf->cpu_set)) {
-            continue;
-        }
-        if (CPU_ISSET(cpu, &dpdk_used_lcores)) {
-            continue;
-        }
-        if (!rte_lcore_is_enabled(cpu)) {
-            continue;
-        }
-
-        CPU_SET(cpu, &dpdk_used_lcores);
-        return cpu;
-    }
-
-    FatalError("Interface %s requested more DPDK lcores than available in worker-cpu-set", iface);
-}
-#endif
 
 #define THREADS_MAX (uint16_t)1024
 
@@ -276,19 +232,11 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
                               const char *recv_mod_name,
                               const char *decode_mod_name, const char *thread_name,
                               const char *live_dev, void *aconf,
-                              unsigned char single_mode)
+                              unsigned char single_mode, RunModeThreadVarsSetupFunc setup_cb,
+                              void *setup_cb_data)
 {
     uint16_t threads_count;
-    uint16_t thread_max;
-    TmModule *recv_module = TmModuleGetByName(recv_mod_name);
-    bool is_dpdk_module = recv_module != NULL && strcmp(recv_module->name, "ReceiveDPDK") == 0;
-    if (is_dpdk_module) {
-#ifdef HAVE_DPDK
-        thread_max = rte_lcore_count() - 1;
-#endif /* HAVE_DPDK */
-    } else {
-        thread_max = TmThreadsGetWorkerThreadMax();
-    }
+    const uint16_t thread_max = TmThreadsGetWorkerThreadMax();
 
     if (single_mode) {
         threads_count = 1;
@@ -326,15 +274,6 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
         if (tv == NULL) {
             FatalError("TmThreadsCreate failed");
         }
-#ifdef HAVE_DPDK
-        if (is_dpdk_module) {
-            unsigned int lcore = DpdkNextLcoreForInterface(live_dev);
-            if (lcore >= RTE_MAX_LCORE) {
-                FatalError("Attempting to spawn more lcores than configured in EAL");
-            }
-            tv->lcore_id = (uint32_t)lcore;
-        }
-#endif /* HAVE_DPDK */
         tv->printable_name = printable_threadname;
         tv->iface_name = SCStrdup(live_dev);
         if (tv->iface_name == NULL) {
@@ -367,6 +306,10 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
 
         TmThreadSetCPU(tv, WORKER_CPU_SET);
 
+        if (setup_cb != NULL) {
+            setup_cb(tv, live_dev, aconf, thread_id, setup_cb_data);
+        }
+
         if (TmThreadSpawn(tv) != TM_ECODE_OK) {
             FatalError("TmThreadSpawn failed");
         }
@@ -378,6 +321,15 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
 int RunModeSetLiveCaptureWorkers(ConfigIfaceParserFunc ConfigParser,
         ConfigIfaceThreadsCountFunc ModThreadsCount, const char *recv_mod_name,
         const char *decode_mod_name, const char *thread_name, const char *live_dev)
+{
+    return RunModeSetLiveCaptureWorkersWithSetup(ConfigParser, ModThreadsCount, recv_mod_name,
+            decode_mod_name, thread_name, live_dev, NULL, NULL);
+}
+
+int RunModeSetLiveCaptureWorkersWithSetup(ConfigIfaceParserFunc ConfigParser,
+        ConfigIfaceThreadsCountFunc ModThreadsCount, const char *recv_mod_name,
+        const char *decode_mod_name, const char *thread_name, const char *live_dev,
+        RunModeThreadVarsSetupFunc setup_cb, void *setup_cb_data)
 {
     const int nlive = LiveGetDeviceCount();
 
@@ -393,7 +345,8 @@ int RunModeSetLiveCaptureWorkers(ConfigIfaceParserFunc ConfigParser,
             aconf = ConfigParser(live_dev_c);
         }
         RunModeSetLiveCaptureWorkersForDevice(
-                ModThreadsCount, recv_mod_name, decode_mod_name, thread_name, live_dev_c, aconf, 0);
+                ModThreadsCount, recv_mod_name, decode_mod_name, thread_name, live_dev_c, aconf, 0,
+                setup_cb, setup_cb_data);
     }
 
     return 0;
@@ -404,6 +357,15 @@ int RunModeSetLiveCaptureSingle(ConfigIfaceParserFunc ConfigParser,
                               const char *recv_mod_name,
                               const char *decode_mod_name, const char *thread_name,
                               const char *live_dev)
+{
+    return RunModeSetLiveCaptureSingleWithSetup(ConfigParser, ModThreadsCount, recv_mod_name,
+            decode_mod_name, thread_name, live_dev, NULL, NULL);
+}
+
+int RunModeSetLiveCaptureSingleWithSetup(ConfigIfaceParserFunc ConfigParser,
+        ConfigIfaceThreadsCountFunc ModThreadsCount, const char *recv_mod_name,
+        const char *decode_mod_name, const char *thread_name, const char *live_dev,
+        RunModeThreadVarsSetupFunc setup_cb, void *setup_cb_data)
 {
     const int nlive = LiveGetDeviceCount();
     const char *live_dev_c = NULL;
@@ -422,7 +384,8 @@ int RunModeSetLiveCaptureSingle(ConfigIfaceParserFunc ConfigParser,
     }
 
     return RunModeSetLiveCaptureWorkersForDevice(
-            ModThreadsCount, recv_mod_name, decode_mod_name, thread_name, live_dev_c, aconf, 1);
+            ModThreadsCount, recv_mod_name, decode_mod_name, thread_name, live_dev_c, aconf, 1,
+            setup_cb, setup_cb_data);
 }
 
 

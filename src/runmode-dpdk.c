@@ -51,6 +51,8 @@
 #include "util-conf.h"
 #include "suricata.h"
 #include "util-affinity.h"
+#include "util-dpdk-thread.h"
+#include "tm-threads.h"
 
 #ifdef HAVE_DPDK
 
@@ -105,6 +107,9 @@ static int ConfigSetCopyIfaceSettings(DPDKIfaceConfig *iconf, const char *iface,
 static void ConfigInit(DPDKIfaceConfig **iconf);
 static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface);
 static DPDKIfaceConfig *ConfigParse(const char *iface);
+
+static void DpdkRunModeThreadSetup(
+        ThreadVars *tv, const char *live_dev, void *iface_conf, uint16_t thread_id, void *data);
 
 static void DeviceInitPortConf(const DPDKIfaceConfig *iconf,
         const struct rte_eth_dev_info *dev_info, struct rte_eth_conf *port_conf);
@@ -186,6 +191,20 @@ static uint64_t GreatestPowOf2UpTo(uint64_t num)
     num = num - (num >> 1);
 
     return num;
+}
+
+static void DpdkRunModeThreadSetup(
+        ThreadVars *tv, const char *live_dev, void *iface_conf, uint16_t thread_id, void *data)
+{
+    (void)iface_conf;
+    (void)thread_id;
+    (void)data;
+
+    tv->thread_spawn_func = DpdkThreadSpawn;
+    tv->thread_join_func = DpdkThreadJoin;
+    tv->thread_exit_func = DpdkThreadExit;
+    tv->capture_worker_id = DpdkLcoreAllocate(live_dev);
+    TmThreadsSetFlag(tv, THV_CAPTURE_AFFINITY_HANDLED);
 }
 
 static char *AllocArgument(size_t arg_len)
@@ -2193,8 +2212,10 @@ int RunModeIdsDpdkWorkers(void)
     TimeModeSetLive();
 
     InitEal();
-    ret = RunModeSetLiveCaptureWorkers(ParseDpdkConfigAndConfigureDevice, DPDKConfigGetThreadsCount,
-            "ReceiveDPDK", "DecodeDPDK", thread_name_workers, NULL);
+    DpdkThreadingInit();
+    ret = RunModeSetLiveCaptureWorkersWithSetup(ParseDpdkConfigAndConfigureDevice,
+            DPDKConfigGetThreadsCount, "ReceiveDPDK", "DecodeDPDK", thread_name_workers, NULL,
+            DpdkRunModeThreadSetup, NULL);
     if (ret != 0) {
         FatalError("Unable to start runmode");
     }
