@@ -27,6 +27,15 @@ typedef void *(*ConfigIfaceParserFunc) (const char *);
 typedef void *(*ConfigIPSParserFunc) (int);
 typedef uint16_t (*ConfigIfaceThreadsCountFunc)(void *);
 
+typedef struct ThreadVars_ ThreadVars;
+/**
+ * Optional hook invoked for each per-device capture worker thread just before spawning.
+ *
+ * Allows a runmode to set capture-method specific thread fields (e.g. custom spawn/join/exit).
+ */
+typedef void (*RunModeThreadVarsSetupFunc)(
+        ThreadVars *tv, const char *live_dev, void *iface_conf, uint16_t thread_id, void *data);
+
 int RunModeSetLiveCaptureAuto(ConfigIfaceParserFunc configparser,
                               ConfigIfaceThreadsCountFunc ModThreadsCount,
                               const char *recv_mod_name,
@@ -46,6 +55,16 @@ int RunModeSetLiveCaptureSingle(ConfigIfaceParserFunc configparser,
 int RunModeSetLiveCaptureWorkers(ConfigIfaceParserFunc configparser,
         ConfigIfaceThreadsCountFunc ModThreadsCount, const char *recv_mod_name,
         const char *decode_mod_name, const char *thread_name, const char *live_dev);
+
+int RunModeSetLiveCaptureSingleWithSetup(ConfigIfaceParserFunc configparser,
+        ConfigIfaceThreadsCountFunc ModThreadsCount, const char *recv_mod_name,
+        const char *decode_mod_name, const char *thread_name, const char *live_dev,
+        RunModeThreadVarsSetupFunc setup_cb, void *setup_cb_data);
+
+int RunModeSetLiveCaptureWorkersWithSetup(ConfigIfaceParserFunc configparser,
+        ConfigIfaceThreadsCountFunc ModThreadsCount, const char *recv_mod_name,
+        const char *decode_mod_name, const char *thread_name, const char *live_dev,
+        RunModeThreadVarsSetupFunc setup_cb, void *setup_cb_data);
 
 int RunModeSetIPSAutoFp(ConfigIPSParserFunc ConfigParser,
                         const char *recv_mod_name,
