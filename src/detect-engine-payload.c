@@ -113,26 +113,27 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
 
-            if (det_ctx->mtc.save_stream_mpm_results && 
-                (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH || 
-                    det_ctx->mtc.pids[0] == UINT32_MAX)) {
-                // det_ctx->mtc.pids[0] != UINT32_MAX is a special case in which I need to reset the packet's pids to UINT32_MAX
-                p->matched_sids[0] = UINT32_MAX;
-                p->matched_sids_cnt = 1;
-            } else {
-                for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
-                    if (det_ctx->mtc.pids[i] > PREFILTER_FLAGS_SPACE) {
-                        FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
-                                det_ctx->mtc.pids[i]);
+            if (det_ctx->mtc.save_stream_mpm_results) {
+                if (p->matched_sids_cnt + det_ctx->mtc.pids_count > MATCHED_SIDS_ARR_LEN_THRESH || 
+                        det_ctx->mtc.pids[0] == UINT32_MAX) {
+                    // det_ctx->mtc.pids[0] != UINT32_MAX is a special case in which I need to reset the packet's pids to UINT32_MAX
+                    p->matched_sids[0] = UINT32_MAX;
+                    p->matched_sids_cnt = 1;
+                } else {
+                    for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
+                        if (det_ctx->mtc.pids[i] > PREFILTER_FLAGS_SPACE) {
+                            FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
+                                    det_ctx->mtc.pids[i]);
+                        }
+                        p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
+                        p->matched_sids[p->matched_sids_cnt] &= ~PREFILTER_PKT_PAYLOAD_FN;
+                        if (p->flowflags & FLOW_PKT_TOSERVER) {
+                            p->matched_sids[p->matched_sids_cnt] |= PREFILTER_PKT_TOSERVER_DIR;
+                        } else {
+                            p->matched_sids[p->matched_sids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
+                        }
+                        p->matched_sids_cnt++;
                     }
-                    p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
-                    p->matched_sids[p->matched_sids_cnt] &= ~PREFILTER_PKT_PAYLOAD_FN;
-                    if (p->flowflags & FLOW_PKT_TOSERVER) {
-                        p->matched_sids[p->matched_sids_cnt] |= PREFILTER_PKT_TOSERVER_DIR;
-                    } else {
-                        p->matched_sids[p->matched_sids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
-                    }
-                    p->matched_sids_cnt++;
                 }
             }
             PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
