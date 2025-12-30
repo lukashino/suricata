@@ -130,13 +130,13 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                         FPGA_OFFLOADED_PM_MAX_SIZE < MATCHED_SIDS_ARR_LEN_THRESH && 
                         patids_ptr[FPGA_OFFLOADED_PM_MAX_SIZE] == 0)
                     )) {
-                    for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+                    bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+                    for (uint32_t i = 0; i < FPGA_OFFLOADED_PM_MAX_SIZE; i++) {
                         // to determine if the PID is valid for this prefilter or PktStream
                         if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
                             // the top bit (PREFILTER_PKT_PAYLOAD_FN) is not set to indicate that this is a stream pattern
                             
                             bool pat_toserver = (patids_ptr[i] & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
-                            bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
                             if (!SGH_REVERSE_MATCHING_ENABLED || pat_toserver == pkt_toserver) {
                                 // only consider patterns from same direction as the packet
                                 uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_TOSERVER_DIR;
@@ -208,12 +208,12 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
                 FPGA_OFFLOADED_PM_MAX_SIZE < MATCHED_SIDS_ARR_LEN_THRESH && 
                 patids_ptr[FPGA_OFFLOADED_PM_MAX_SIZE] == 0)
             )) {
-            for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
+            bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+            for (uint32_t i = 0; i < FPGA_OFFLOADED_PM_MAX_SIZE; i++) {
                 // to determine if the PID is valid for this prefilter or PktStream
                 if (patids_ptr[i] && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN)) {
                     uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_PAYLOAD_FN;
                     bool pat_toserver = (adjusted_pid & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
-                    bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
                     if (!SGH_REVERSE_MATCHING_ENABLED || pat_toserver == pkt_toserver) {
                         // only consider patterns from same direction as the packet or it is not enabled
                         adjusted_pid &= ~PREFILTER_PKT_TOSERVER_DIR; // reset the bit
