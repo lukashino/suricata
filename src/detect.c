@@ -149,15 +149,11 @@ static void DetectRun(ThreadVars *th_v,
     
         DetectRunScratchpad scratch_reverse = scratch;
         DetectRunGetRuleGroup(de_ctx, &p_rev, pflow, &scratch_reverse);
-        /* if we didn't get a sig group head, we
-         * have nothing to do.... */
-        if (scratch_reverse.sgh == NULL) {
-            SCLogDebug("no sgh for this packet, nothing to match against");
-            goto end;
-        }
-    
+        /* if we didn't get a sig group head for reverse direction,
+         * skip reverse prefilter but continue with main detection */
         // extracted from Prefilter function
-        if (scratch_reverse.sgh->payload_engines &&
+        if (scratch_reverse.sgh != NULL &&
+            scratch_reverse.sgh->payload_engines &&
             // we can now use the orignal packet,
             // we needed reversed packet only to get SGH
             (p->payload_len || (p->flags & PKT_DETECT_HAS_STREAMDATA)) &&
