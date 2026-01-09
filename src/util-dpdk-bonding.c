@@ -81,6 +81,16 @@ uint16_t BondingMemberDevicesGet(
 #endif
 }
 
+uint64_t BondingMempoolSizeAdjust(uint16_t bond_pid, uint32_t mempool_size)
+{
+    uint16_t bonded_devs[RTE_MAX_ETHPORTS] = { 0 };
+    uint16_t cnt = BondingMemberDevicesGet(bond_pid, bonded_devs, RTE_MAX_ETHPORTS);
+    if (cnt == 0)
+        return mempool_size;
+
+    return mempool_size * cnt;
+}
+
 int32_t BondingAllDevicesSameDriver(uint16_t bond_pid)
 {
     uint16_t bonded_devs[RTE_MAX_ETHPORTS] = { 0 };
