@@ -200,11 +200,8 @@ static void DpdkRunModeThreadSetup(
     (void)thread_id;
     (void)data;
 
-    tv->thread_spawn_func = DpdkThreadSpawn;
-    tv->thread_join_func = DpdkThreadJoin;
-    tv->thread_exit_func = DpdkThreadExit;
-    tv->capture_worker_id = DpdkLcoreAllocate(live_dev);
-    TmThreadsSetFlag(tv, THV_CAPTURE_AFFINITY_HANDLED);
+    uint32_t lcore_id = DpdkLcoreAllocate(live_dev);
+    DpdkThreadLifecycleRegister(tv, lcore_id);
 }
 
 static char *AllocArgument(size_t arg_len)

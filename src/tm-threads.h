@@ -30,6 +30,8 @@
 #include "tm-modules.h"
 #include "flow.h" // for the FlowQueue
 
+#define TM_THREAD_AFFINITY_INVALID UINT32_MAX
+
 #ifdef OS_WIN32
 static inline void SleepUsec(uint64_t usec)
 {
@@ -82,6 +84,12 @@ extern ThreadVars *tv_root[TVT_MAX];
 
 extern SCMutex tv_root_lock;
 
+typedef struct TmThreadLifecycleOps_ {
+    TmEcode (*spawn)(ThreadVars *, void *);
+    TmEcode (*join)(ThreadVars *, void *);
+    void (*exit)(ThreadVars *, int64_t, void *);
+} TmThreadLifecycleOps;
+
 void TmSlotSetFuncAppend(ThreadVars *, TmModule *, const void *);
 
 ThreadVars *TmThreadCreate(const char *, const char *, const char *, const char *, const char *, const char *,
@@ -100,6 +108,11 @@ void TmThreadKillThreadsFamily(int family);
 void TmThreadKillThreads(void);
 void TmThreadClearThreadsFamily(int family);
 void TmThreadAppend(ThreadVars *, int);
+
+void TmThreadLifecycleRegister(ThreadVars *tv, const TmThreadLifecycleOps *ops, void *data,
+        void (*data_free)(void *), bool handles_affinity, uint32_t managed_cpu);
+void TmThreadLifecycleUnregister(ThreadVars *tv);
+bool TmThreadLifecycleAffinityHandled(const ThreadVars *tv, uint32_t *cpu_out);
 
 TmEcode TmThreadSetCPUAffinity(ThreadVars *, uint16_t);
 TmEcode TmThreadSetThreadPriority(ThreadVars *, int);

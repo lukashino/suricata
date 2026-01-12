@@ -24,6 +24,7 @@
 #include "suricata-common.h"
 
 #include "threadvars.h"
+#include "tm-threads.h"
 #include "util-affinity.h"
 #include "util-debug.h"
 #include "util-dpdk-thread.h"
@@ -36,6 +37,10 @@
 
 static cpu_set_t dpdk_used_lcores;
 static bool dpdk_used_lcores_init;
+
+typedef struct DpdkThreadCtx_ {
+    uint32_t lcore_id;
+} DpdkThreadCtx;
 
 void DpdkThreadingInit(void)
 {
@@ -74,7 +79,7 @@ uint32_t DpdkLcoreAllocate(const char *iface)
     }
 
     FatalError("Interface %s requested more DPDK lcores than available in worker-cpu-set", iface);
-    return THREAD_CAPTURE_WORKER_ID_INVALID;
+    return TM_THREAD_AFFINITY_INVALID;
 }
 
 static int DpdkThreadEntry(void *arg)
@@ -86,32 +91,32 @@ static int DpdkThreadEntry(void *arg)
     return 0;
 }
 
-TmEcode DpdkThreadSpawn(ThreadVars *tv)
+static TmEcode DpdkThreadSpawn(ThreadVars *tv, void *data)
 {
-    if (tv == NULL || tv->tm_func == NULL) {
+    DpdkThreadCtx *ctx = (DpdkThreadCtx *)data;
+    if (tv == NULL || tv->tm_func == NULL || ctx == NULL) {
         FatalError("DpdkThreadSpawn called with invalid thread");
     }
-    if (tv->capture_worker_id == THREAD_CAPTURE_WORKER_ID_INVALID) {
+
+    if (ctx->lcore_id == TM_THREAD_AFFINITY_INVALID) {
         FatalError("DpdkThreadSpawn called without assigned lcore for thread %s", tv->name);
     }
 
-    const int rc = rte_eal_remote_launch(DpdkThreadEntry, (void *)tv, tv->capture_worker_id);
+    const int rc = rte_eal_remote_launch(DpdkThreadEntry, (void *)tv, ctx->lcore_id);
     if (rc != 0) {
         FatalError("Error (%s): can not launch function on lcore", rte_strerror(-rc));
     }
     return TM_ECODE_OK;
 }
 
-TmEcode DpdkThreadJoin(ThreadVars *tv)
+static TmEcode DpdkThreadJoin(ThreadVars *tv, void *data)
 {
-    if (tv == NULL) {
+    DpdkThreadCtx *ctx = (DpdkThreadCtx *)data;
+    if (tv == NULL || ctx == NULL) {
         return TM_ECODE_FAILED;
     }
-    if (tv->capture_worker_id == THREAD_CAPTURE_WORKER_ID_INVALID) {
-        return TM_ECODE_OK;
-    }
 
-    const int rc = rte_eal_wait_lcore(tv->capture_worker_id);
+    const int rc = rte_eal_wait_lcore(ctx->lcore_id);
     if (rc < 0) {
         FatalError("Error (%s): can not wait on lcore", rte_strerror(-rc));
     }
@@ -119,15 +124,33 @@ TmEcode DpdkThreadJoin(ThreadVars *tv)
     return TM_ECODE_OK;
 }
 
-bool DpdkThreadAffinityHandled(const ThreadVars *tv)
-{
-    return tv != NULL && tv->thread_spawn_func == DpdkThreadSpawn;
-}
-
-void DpdkThreadExit(ThreadVars *tv, int64_t code)
+static void DpdkThreadExit(ThreadVars *tv, int64_t code, void *data)
 {
     (void)tv;
     (void)code;
+    (void)data;
+}
+
+static void DpdkThreadCtxFree(void *ptr)
+{
+    SCFree(ptr);
+}
+
+static const TmThreadLifecycleOps dpdk_thread_ops = {
+    .spawn = DpdkThreadSpawn,
+    .join = DpdkThreadJoin,
+    .exit = DpdkThreadExit,
+};
+
+void DpdkThreadLifecycleRegister(ThreadVars *tv, uint32_t lcore_id)
+{
+    DpdkThreadCtx *ctx = SCCalloc(1, sizeof(*ctx));
+    if (unlikely(ctx == NULL)) {
+        FatalError("Failed to allocate DPDK thread context");
+    }
+    ctx->lcore_id = lcore_id;
+
+    TmThreadLifecycleRegister(tv, &dpdk_thread_ops, ctx, DpdkThreadCtxFree, true, lcore_id);
 }
 
 #endif /* HAVE_DPDK */

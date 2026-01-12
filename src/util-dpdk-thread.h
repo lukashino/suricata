@@ -27,9 +27,7 @@
 #ifndef SURICATA_UTIL_DPDK_THREAD_H
 #define SURICATA_UTIL_DPDK_THREAD_H
 
-#include "tm-threads-common.h"
-
-typedef struct ThreadVars_ ThreadVars;
+#include "tm-threads.h"
 
 #ifdef HAVE_DPDK
 
@@ -39,17 +37,8 @@ void DpdkThreadingInit(void);
 /** Allocate the next enabled lcore for the given interface from worker-cpu-set. */
 uint32_t DpdkLcoreAllocate(const char *iface);
 
-/** Spawn the thread on the lcore stored in `tv->capture_worker_id`. */
-TmEcode DpdkThreadSpawn(ThreadVars *tv);
-
-/** Wait for the lcore stored in `tv->capture_worker_id` to finish. */
-TmEcode DpdkThreadJoin(ThreadVars *tv);
-
-/** Return true if the thread is configured to be managed by DPDK (lcore thread). */
-bool DpdkThreadAffinityHandled(const ThreadVars *tv);
-
-/** Thread-exit hook for lcore threads (does not call pthread_exit). */
-void DpdkThreadExit(ThreadVars *tv, int64_t code);
+/** Register custom lifecycle callbacks for a DPDK-managed Suricata thread. */
+void DpdkThreadLifecycleRegister(ThreadVars *tv, uint32_t lcore_id);
 
 #endif /* HAVE_DPDK */
 

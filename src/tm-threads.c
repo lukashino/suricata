@@ -78,6 +78,52 @@ thread_local uint64_t rwr_lock_cnt;
 static int SetCPUAffinity(uint16_t cpu);
 static void TmThreadDeinitMC(ThreadVars *tv);
 
+typedef struct TmThreadLifecycleState_ {
+    const TmThreadLifecycleOps *ops;
+    void *data;
+    void (*data_free)(void *);
+    bool handles_affinity;
+    uint32_t affinity_cpu;
+} TmThreadLifecycleState;
+
+typedef struct TmThreadLifecycleEntry_ {
+    ThreadVars *tv;
+    TmThreadLifecycleState state;
+    TAILQ_ENTRY(TmThreadLifecycleEntry_) next;
+} TmThreadLifecycleEntry;
+
+static SCMutex lifecycle_lock = SCMUTEX_INITIALIZER;
+static TAILQ_HEAD(, TmThreadLifecycleEntry_) lifecycle_list =
+        TAILQ_HEAD_INITIALIZER(lifecycle_list);
+
+static bool TmThreadLifecycleLookup(const ThreadVars *tv, TmThreadLifecycleState *state)
+{
+    bool found = false;
+    SCMutexLock(&lifecycle_lock);
+    TmThreadLifecycleEntry *entry = NULL;
+    TAILQ_FOREACH (entry, &lifecycle_list, next) {
+        if (entry->tv == tv) {
+            if (state != NULL) {
+                *state = entry->state;
+            }
+            found = true;
+            break;
+        }
+    }
+    SCMutexUnlock(&lifecycle_lock);
+    return found;
+}
+
+static bool TmThreadLifecycleCallExit(ThreadVars *tv, int64_t exit_code)
+{
+    TmThreadLifecycleState state;
+    if (!TmThreadLifecycleLookup(tv, &state) || state.ops == NULL || state.ops->exit == NULL) {
+        return false;
+    }
+    state.ops->exit(tv, exit_code, state.data);
+    return true;
+}
+
 /**
  *
  * \brief Exit helper for thread functions.
@@ -87,11 +133,9 @@ static void TmThreadDeinitMC(ThreadVars *tv);
  */
 static void TmThreadExit(ThreadVars *tv, int64_t exit_code)
 {
-    if (tv != NULL && tv->thread_exit_func != NULL) {
-        tv->thread_exit_func(tv, exit_code);
-        return;
+    if (!TmThreadLifecycleCallExit(tv, exit_code)) {
+        pthread_exit((void *)exit_code);
     }
-    pthread_exit((void *)exit_code);
 }
 
 /* root of the threadvars list */
@@ -125,6 +169,108 @@ void TmThreadsSetFlag(ThreadVars *tv, uint32_t flag)
 void TmThreadsUnsetFlag(ThreadVars *tv, uint32_t flag)
 {
     SC_ATOMIC_AND(tv->flags, ~flag);
+}
+
+void TmThreadLifecycleRegister(ThreadVars *tv, const TmThreadLifecycleOps *ops, void *data,
+        void (*data_free)(void *), bool handles_affinity, uint32_t managed_cpu)
+{
+    if (tv == NULL || ops == NULL) {
+        return;
+    }
+
+    SCMutexLock(&lifecycle_lock);
+    TmThreadLifecycleEntry *entry = NULL;
+    TAILQ_FOREACH (entry, &lifecycle_list, next) {
+        if (entry->tv != tv) {
+            continue;
+        }
+
+        if (entry->state.data != data && entry->state.data != NULL &&
+                entry->state.data_free != NULL) {
+            entry->state.data_free(entry->state.data);
+        }
+
+        entry->state.ops = ops;
+        entry->state.data = data;
+        entry->state.data_free = data_free;
+        entry->state.handles_affinity = handles_affinity;
+        entry->state.affinity_cpu = managed_cpu;
+        SCMutexUnlock(&lifecycle_lock);
+        return;
+    }
+
+    entry = SCCalloc(1, sizeof(*entry));
+    if (unlikely(entry == NULL)) {
+        SCMutexUnlock(&lifecycle_lock);
+        FatalError("Failed to allocate lifecycle entry for thread %s", tv->name);
+    }
+
+    entry->tv = tv;
+    entry->state.ops = ops;
+    entry->state.data = data;
+    entry->state.data_free = data_free;
+    entry->state.handles_affinity = handles_affinity;
+    entry->state.affinity_cpu = managed_cpu;
+
+    TAILQ_INSERT_TAIL(&lifecycle_list, entry, next);
+    SCMutexUnlock(&lifecycle_lock);
+}
+
+void TmThreadLifecycleUnregister(ThreadVars *tv)
+{
+    if (tv == NULL) {
+        return;
+    }
+
+    SCMutexLock(&lifecycle_lock);
+    TmThreadLifecycleEntry *entry = NULL;
+    TAILQ_FOREACH (entry, &lifecycle_list, next) {
+        if (entry->tv != tv) {
+            continue;
+        }
+
+        TAILQ_REMOVE(&lifecycle_list, entry, next);
+        if (entry->state.data != NULL && entry->state.data_free != NULL) {
+            entry->state.data_free(entry->state.data);
+        }
+        SCFree(entry);
+        break;
+    }
+    SCMutexUnlock(&lifecycle_lock);
+}
+
+bool TmThreadLifecycleAffinityHandled(const ThreadVars *tv, uint32_t *cpu_out)
+{
+    TmThreadLifecycleState state;
+    const bool handled = TmThreadLifecycleLookup(tv, &state) && state.handles_affinity;
+    if (cpu_out != NULL) {
+        *cpu_out = handled ? state.affinity_cpu : TM_THREAD_AFFINITY_INVALID;
+    }
+    return handled;
+}
+
+static bool TmThreadLifecycleCallSpawn(ThreadVars *tv)
+{
+    TmThreadLifecycleState state;
+    if (!TmThreadLifecycleLookup(tv, &state) || state.ops == NULL || state.ops->spawn == NULL) {
+        return false;
+    }
+
+    if (state.ops->spawn(tv, state.data) != TM_ECODE_OK) {
+        FatalError("Unable to create thread %s with custom spawn function", tv->name);
+    }
+    return true;
+}
+
+static bool TmThreadLifecycleCallJoin(ThreadVars *tv)
+{
+    TmThreadLifecycleState state;
+    if (!TmThreadLifecycleLookup(tv, &state) || state.ops == NULL || state.ops->join == NULL) {
+        return false;
+    }
+
+    (void)state.ops->join(tv, state.data);
+    return true;
 }
 
 TmEcode TmThreadsProcessDecodePseudoPackets(
@@ -878,11 +1024,14 @@ int TmThreadGetNbThreads(uint8_t type)
  */
 TmEcode TmThreadSetupOptions(ThreadVars *tv)
 {
+    uint32_t managed_cpu = TM_THREAD_AFFINITY_INVALID;
+    const bool affinity_handled = TmThreadLifecycleAffinityHandled(tv, &managed_cpu);
+
     if (tv->thread_setup_flags & THREAD_SET_AFFINITY) {
         SCLogPerf("Setting affinity for thread \"%s\"to cpu/core "
                   "%"PRIu16", thread id %lu", tv->name, tv->cpu_affinity,
                   SCGetThreadIdLong());
-        if (!TmThreadsCheckFlag(tv, THV_CAPTURE_AFFINITY_HANDLED)) {
+        if (!affinity_handled) {
             SetCPUAffinity(tv->cpu_affinity);
         }
     }
@@ -909,10 +1058,9 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
         }
 
         if (taf->mode_flag == EXCLUSIVE_AFFINITY) {
-            const bool affinity_handled = TmThreadsCheckFlag(tv, THV_CAPTURE_AFFINITY_HANDLED);
             uint16_t cpu = 0;
-            if (affinity_handled && tv->capture_worker_id != THREAD_CAPTURE_WORKER_ID_INVALID) {
-                cpu = (uint16_t)tv->capture_worker_id;
+            if (affinity_handled && managed_cpu != TM_THREAD_AFFINITY_INVALID) {
+                cpu = (uint16_t)managed_cpu;
             } else {
                 cpu = AffinityGetNextCPU(tv, taf);
                 if (!affinity_handled) {
@@ -934,7 +1082,7 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
                       "%d, thread id %lu", tv->thread_priority,
                       tv->name, cpu, SCGetThreadIdLong());
         } else {
-            if (!TmThreadsCheckFlag(tv, THV_CAPTURE_AFFINITY_HANDLED)) {
+            if (!affinity_handled) {
                 SetCPUAffinitySet(&taf->cpu_set);
             }
             tv->thread_priority = taf->prio;
@@ -986,7 +1134,6 @@ ThreadVars *TmThreadCreate(const char *name, const char *inq_name, const char *i
 
     /* default state for every newly created thread */
     TmThreadsSetFlag(tv, THV_PAUSE);
-    tv->capture_worker_id = THREAD_CAPTURE_WORKER_ID_INVALID;
 
     /* set the incoming queue */
     if (inq_name != NULL && strcmp(inq_name, "packetpool") != 0) {
@@ -1326,12 +1473,12 @@ static int TmThreadKillThread(ThreadVars *tv)
 
     /* Join the thread and flag as dead, unless the thread ID is 0 as
      * its not a thread created by Suricata. */
-    if (tv->thread_join_func != NULL) {
-        (void)tv->thread_join_func(tv);
-    } else if (tv->t) {
+    if (!TmThreadLifecycleCallJoin(tv) && tv->t) {
         pthread_join(tv->t, NULL);
         SCLogDebug("thread %s stopped", tv->name);
     }
+
+    TmThreadLifecycleUnregister(tv);
 
     TmThreadsSetFlag(tv, THV_DEAD);
     return 1;
@@ -1670,6 +1817,7 @@ static void TmThreadFree(ThreadVars *tv)
         return;
 
     SCLogDebug("Freeing thread '%s'.", tv->name);
+    TmThreadLifecycleUnregister(tv);
 
     ThreadFreeStorage(tv);
 
@@ -1782,11 +1930,7 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
         FatalError("No thread function set");
     }
 
-    if (tv->thread_spawn_func != NULL) {
-        if (tv->thread_spawn_func(tv) != TM_ECODE_OK) {
-            FatalError("Unable to create thread %s with custom spawn function", tv->name);
-        }
-    } else {
+    if (!TmThreadLifecycleCallSpawn(tv)) {
         TmThreadSpawnPthreadCreate(tv);
     }
     TmThreadWaitForFlag(tv, THV_INIT_DONE | THV_RUNNING_DONE);

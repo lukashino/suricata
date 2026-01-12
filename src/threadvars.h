@@ -25,7 +25,6 @@
 #define SURICATA_THREADVARS_H
 
 #include "tm-queues.h"
-#include "tm-threads-common.h"
 #include "counters.h"
 #include "packet-queue.h"
 #include "util-atomic.h"
@@ -55,10 +54,6 @@ struct TmSlot_;
 #define THV_CAPTURE_INJECT_PKT  BIT_U32(11)
 #define THV_DEAD                BIT_U32(12) /**< thread has been joined with pthread_join() */
 #define THV_RUNNING             BIT_U32(13) /**< thread is running */
-/** capture method handles affinity (do not call SetCPUAffinity* in core thread setup) */
-#define THV_CAPTURE_AFFINITY_HANDLED BIT_U32(14)
-
-#define THREAD_CAPTURE_WORKER_ID_INVALID UINT32_MAX
 
 /** \brief Per thread variable structure */
 typedef struct ThreadVars_ {
@@ -139,14 +134,6 @@ typedef struct ThreadVars_ {
 
     /** Interface-specific thread affinity */
     char *iface_name;
-
-    /** Capture-method specific worker identifier (DPDK: lcore id, others: queue id, etc.). */
-    uint32_t capture_worker_id;
-
-    /** Optional capture-method specific thread lifecycle callbacks (NULL = pthread). */
-    TmEcode (*thread_spawn_func)(struct ThreadVars_ *);
-    TmEcode (*thread_join_func)(struct ThreadVars_ *);
-    void (*thread_exit_func)(struct ThreadVars_ *, int64_t);
 
     Storage storage[];
 } ThreadVars;

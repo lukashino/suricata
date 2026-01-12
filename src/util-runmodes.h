@@ -23,11 +23,12 @@
 #ifndef SURICATA_UTIL_RUNMODES_H
 #define SURICATA_UTIL_RUNMODES_H
 
+#include "threadvars.h"
+
 typedef void *(*ConfigIfaceParserFunc) (const char *);
 typedef void *(*ConfigIPSParserFunc) (int);
 typedef uint16_t (*ConfigIfaceThreadsCountFunc)(void *);
 
-typedef struct ThreadVars_ ThreadVars;
 /**
  * Optional hook invoked for each per-device capture worker thread just before spawning.
  *
