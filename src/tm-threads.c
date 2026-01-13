@@ -47,6 +47,8 @@
 #include "queue.h"
 #include "util-validate.h"
 
+#include <rte_eal.h>
+
 #ifdef PROFILE_LOCKING
 thread_local uint64_t mutex_lock_contention;
 thread_local uint64_t mutex_lock_wait_ticks;
@@ -320,9 +322,20 @@ static void *TmThreadsSlotPktAcqLoop(void *td)
                    " tmqh_out=%p",
                 s, s ? s->PktAcqLoop : NULL, tv->tmqh_in, tv->tmqh_out);
         TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-        pthread_exit(NULL);
         return NULL;
     }
+
+    // iterate once through all enabled DPDK EAL lcores 
+    #ifdef HAVE_DPDK
+        if (SCRunmodeGet() == RUNMODE_DPDK) {
+            unsigned int lcore_id;
+
+            /* One-time walk of enabled lcores for diagnostics. */
+            RTE_LCORE_FOREACH(lcore_id) {
+                SCLogInfo("%s: DPDK enabled lcore %u", tv->name, lcore_id);
+            }
+        }
+    #endif
 
     if (!TmThreadsSlotPktAcqLoopInit(td)) {
         goto error;
@@ -349,11 +362,9 @@ static void *TmThreadsSlotPktAcqLoop(void *td)
     }
 
     SCLogDebug("%s ending", tv->name);
-    pthread_exit((void *) 0);
     return NULL;
 
 error:
-    pthread_exit(NULL);
     return NULL;
 }
 
@@ -428,7 +439,6 @@ static void *TmThreadsSlotVar(void *td)
     /* check if we are setup properly */
     if (s == NULL || tv->tmqh_in == NULL || tv->tmqh_out == NULL) {
         TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-        pthread_exit(NULL);
         return NULL;
     }
 
@@ -454,7 +464,6 @@ static void *TmThreadsSlotVar(void *td)
             tv->flow_queue = FlowQueueNew();
             if (tv->flow_queue == NULL) {
                 TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-                pthread_exit(NULL);
                 return NULL;
             }
         /* setup a queue */
@@ -469,7 +478,6 @@ static void *TmThreadsSlotVar(void *td)
             tv->flow_queue = FlowQueueNew();
             if (tv->flow_queue == NULL) {
                 TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-                pthread_exit(NULL);
                 return NULL;
             }
         }
@@ -526,12 +534,10 @@ static void *TmThreadsSlotVar(void *td)
     }
     StatsSyncCounters(&tv->stats);
 
-    pthread_exit(NULL);
     return NULL;
 
 error:
     tv->stream_pq = NULL;
-    pthread_exit(NULL);
     return NULL;
 }
 
@@ -558,7 +564,6 @@ static void *TmThreadsManagement(void *td)
         r = s->SlotThreadInit(tv, s->slot_initdata, &slot_data);
         if (r != TM_ECODE_OK) {
             TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
-            pthread_exit(NULL);
             return NULL;
         }
         (void)SC_ATOMIC_SET(s->slot_data, slot_data);
@@ -589,13 +594,11 @@ static void *TmThreadsManagement(void *td)
         r = s->SlotThreadDeinit(tv, SC_ATOMIC_GET(s->slot_data));
         if (r != TM_ECODE_OK) {
             TmThreadsSetFlag(tv, THV_CLOSED);
-            pthread_exit(NULL);
             return NULL;
         }
     }
 
     TmThreadsSetFlag(tv, THV_CLOSED);
-    pthread_exit((void *) 0);
     return NULL;
 }
 
@@ -1236,6 +1239,36 @@ static bool ThreadStillHasPackets(ThreadVars *tv)
     return false;
 }
 
+static void TmThreadJoinDpdkEalThread(ThreadVars *tv)
+{
+    int ret = rte_eal_wait_lcore(tv->lcore_id);
+    if (ret < 0) {
+        SCLogError(
+            "%s: error waiting for DPDK lcore %"PRIu32" (%s) to finish (%s)", 
+            tv->iface_name, tv->lcore_id, tv->name, rte_strerror(-ret));
+    }
+}
+
+static void TmThreadJoinPthread(ThreadVars *tv)
+{
+    /* Join the thread and flag as dead, unless the thread ID is 0 as
+     * its not a thread created by Suricata. */
+    if (tv->t) {
+        pthread_join(tv->t, NULL);
+    }
+}
+
+static void TmThreadJoin(ThreadVars *tv)
+{
+    if (SCRunmodeGet() == RUNMODE_DPDK && tv->type == TVT_PPT) {
+        TmThreadJoinDpdkEalThread(tv);
+    } else {
+        TmThreadJoinPthread(tv);
+    }
+
+    SCLogDebug("thread %s stopped", tv->name);
+}
+
 /**
  * \brief Kill a thread.
  *
@@ -1294,12 +1327,7 @@ static int TmThreadKillThread(ThreadVars *tv)
         }
     }
 
-    /* Join the thread and flag as dead, unless the thread ID is 0 as
-     * its not a thread created by Suricata. */
-    if (tv->t) {
-        pthread_join(tv->t, NULL);
-        SCLogDebug("thread %s stopped", tv->name);
-    }
+    TmThreadJoin(tv);
     TmThreadsSetFlag(tv, THV_DEAD);
     return 1;
 }
@@ -1694,17 +1722,9 @@ void TmThreadClearThreadsFamily(int family)
     SCMutexUnlock(&tv_root_lock);
 }
 
-/**
- * \brief Spawns a thread associated with the ThreadVars instance tv
- *
- * \retval TM_ECODE_OK on success and TM_ECODE_FAILED on failure
- */
-TmEcode TmThreadSpawn(ThreadVars *tv)
+static void TmThreadSpawnPthread(ThreadVars *tv)
 {
     pthread_attr_t attr;
-    if (tv->tm_func == NULL) {
-        FatalError("No thread function set");
-    }
 
     /* Initialize and set thread detached attribute */
     pthread_attr_init(&attr);
@@ -1741,6 +1761,79 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
     }
 #endif
 
+    pthread_attr_destroy(&attr);
+}
+
+static void TmThreadSpawnDpdkEalThread(ThreadVars *tv)
+{
+#ifdef HAVE_DPDK
+    if (!(tv->thread_setup_flags & THREAD_SET_AFFTYPE)) {
+        FatalError("%s: DPDK requires exclusive affinity setting", tv->iface_name);
+    }
+    ThreadsAffinityType *taf = &thread_affinity[tv->cpu_affinity];
+    if (!RunmodeIsWorkers() || !(tv->cpu_affinity == WORKER_CPU_SET)) {
+        FatalError("%s: DPDK EAL threads can only initialize worker threads", tv->iface_name);
+    }
+
+    ThreadsAffinityType *if_taf = FindAffinityByInterface(taf, tv->iface_name);
+    if (if_taf) {
+        taf = if_taf;
+    }
+
+    if (UtilAffinityGetAffinedCPUNum(taf) == 0) {
+        if (!taf->nocpu_warned) {
+            SCLogWarning("No CPU affinity set for %s", AffinityGetYamlPath(taf));
+            taf->nocpu_warned = true;
+        }
+    }
+
+    if (taf->mode_flag != EXCLUSIVE_AFFINITY) {
+        FatalError("%s: DPDK requires exclusive affinity setting", tv->iface_name);
+    }
+
+    tv->lcore_id = AffinityGetNextCPU(tv, taf);
+    int ret = rte_eal_remote_launch((lcore_function_t *)tv->tm_func, (void *)tv, tv->lcore_id);
+    if (ret != 0) {
+        FatalError("Unable to create DPDK EAL thread %s with rte_eal_remote_launch(): retval %d", tv->name, ret);
+    }
+    /* If CPU is in a set overwrite the default thread prio */
+    if (CPU_ISSET(tv->lcore_id, &taf->lowprio_cpu)) {
+        tv->thread_priority = PRIO_LOW;
+    } else if (CPU_ISSET(tv->lcore_id, &taf->medprio_cpu)) {
+        tv->thread_priority = PRIO_MEDIUM;
+    } else if (CPU_ISSET(tv->lcore_id, &taf->hiprio_cpu)) {
+        tv->thread_priority = PRIO_HIGH;
+    } else {
+        tv->thread_priority = taf->prio;
+    }
+    // TODO: perf message wrong as you are not setting priority just yet
+    SCLogPerf("Setting prio %d for thread \"%s\" to cpu/core "
+                "%d, thread id %lu", tv->thread_priority,
+                tv->name, tv->lcore_id, SCGetThreadIdLong());
+
+    tv->thread_setup_flags = THREAD_SET_PRIORITY; // affinity is handled, prio handles the thread itself
+#else
+    FatalError("DPDK support not compiled in, cannot launch DPDK EAL thread %s", tv->name);
+#endif
+}
+
+/**
+ * \brief Spawns a thread associated with the ThreadVars instance tv
+ *
+ * \retval TM_ECODE_OK on success and TM_ECODE_FAILED on failure
+ */
+TmEcode TmThreadSpawn(ThreadVars *tv)
+{
+    if (tv->tm_func == NULL) {
+        FatalError("No thread function set");
+    }
+
+    if (SCRunmodeGet() == RUNMODE_DPDK && tv->type == TVT_PPT) {
+        TmThreadSpawnDpdkEalThread(tv);
+    } else {
+        TmThreadSpawnPthread(tv);
+    }
+    
     TmThreadWaitForFlag(tv, THV_INIT_DONE | THV_RUNNING_DONE);
 
     TmThreadAppend(tv, tv->type);
