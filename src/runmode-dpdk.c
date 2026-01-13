@@ -74,7 +74,15 @@ static void ArgumentsInit(struct Arguments *args, uint16_t capacity);
 static void ArgumentsCleanup(struct Arguments *args);
 static void ArgumentsAdd(struct Arguments *args, char *value);
 static void ArgumentsAddOptionAndArgument(struct Arguments *args, const char *opt, const char *arg);
+static void ArgumentsAddLcoreArguments(struct Arguments *args);
+static void ArgumentsLcoreValidate(void);
+static void ArgumentsEnsureEalOptionAllowed(const char *opt);
 static void InitEal(void);
+
+static uint16_t DpdkCountDigits(uint32_t value);
+static char *ConfigLcoreArgValGet(void);
+static int ConfigLcoreWorkersSet(uint32_t *cpus, size_t cap);
+static uint32_t ConfigLcoreMainGet(void);
 
 static void ConfigSetIface(DPDKIfaceConfig *iconf, const char *entry_str);
 static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str);
