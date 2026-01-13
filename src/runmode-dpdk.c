@@ -75,11 +75,10 @@ static void ArgumentsCleanup(struct Arguments *args);
 static void ArgumentsAdd(struct Arguments *args, char *value);
 static void ArgumentsAddOptionAndArgument(struct Arguments *args, const char *opt, const char *arg);
 static void ArgumentsAddLcoreArguments(struct Arguments *args);
-static void ArgumentsLcoreValidate(void);
 static void ArgumentsEnsureEalOptionAllowed(const char *opt);
 static void InitEal(void);
 
-static uint16_t DpdkCountDigits(uint32_t value);
+static uint16_t CountDigits(uint32_t value);
 static char *ConfigLcoreArgValGet(void);
 static int ConfigLcoreWorkersSet(uint32_t *cpus, size_t cap);
 static uint32_t ConfigLcoreMainGet(void);
@@ -188,6 +187,16 @@ static uint64_t GreatestPowOf2UpTo(uint64_t num)
     return num;
 }
 
+static uint16_t CountDigits(uint32_t value)
+{
+    uint16_t digits = 1;
+    while (value >= 10U) {
+        value /= 10U;
+        digits++;
+    }
+    return digits;
+}
+
 static char *AllocArgument(size_t arg_len)
 {
     SCEnter();
@@ -294,16 +303,6 @@ static void ArgumentsAddOptionAndArgument(struct Arguments *args, const char *op
     SCReturn;
 }
 
-static uint16_t DpdkCountDigits(uint32_t value)
-{
-    uint16_t digits = 1;
-    while (value >= 10U) {
-        value /= 10U;
-        digits++;
-    }
-    return digits;
-}
-
 static void ConfigLcoreManagementCpuSetGet(cpu_set_t *management_set)
 {
     if (management_set == NULL) {
@@ -346,21 +345,25 @@ static void ConfigLcoreWorkersCpuSetMerge(cpu_set_t *worker_set)
 
     CPU_ZERO(worker_set);
 
-    ThreadsAffinityType *taf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
-    if (taf == NULL) {
-        FatalError("Unable to obtain CPU affinity for \"worker-cpu-set\"");
+    bool wtaf_used = false;
+    LiveDevice *ldev = NULL, *ndev = NULL;
+    while(LiveDeviceForEach(&ldev, &ndev)) {
+        ThreadsAffinityType *taf = GetAffinityTypeForNameAndIface("worker-cpu-set", ldev->dev);
+        if (taf == NULL) {
+            wtaf_used = true;
+            continue;
+        }
+
+        CPU_OR(worker_set, worker_set, &taf->cpu_set);
     }
 
-    CPU_OR(worker_set, worker_set, &taf->cpu_set);
-
-    if (taf->children != NULL) {
-        for (uint32_t i = 0; i < taf->nb_children; i++) {
-            ThreadsAffinityType *child = taf->children[i];
-            if (child == NULL) {
-                continue;
-            }
-            CPU_OR(worker_set, worker_set, &child->cpu_set);
+    if (wtaf_used) {
+        ThreadsAffinityType *taf = GetAffinityTypeForNameAndIface("worker-cpu-set", NULL);
+        if (taf == NULL) {
+            FatalError("Unable to obtain CPU affinity for \"worker-cpu-set\"");
         }
+
+        CPU_OR(worker_set, worker_set, &taf->cpu_set);
     }
 }
 
@@ -374,20 +377,22 @@ static int ConfigLcoreWorkersSet(uint32_t *cpus, size_t cap)
     cpu_set_t worker_set;
     ConfigLcoreWorkersCpuSetMerge(&worker_set);
 
+    size_t wrk_cpus = CPU_COUNT(&worker_set);
+    if (wrk_cpus > cap) {
+        FatalError("Too many worker CPU cores configured (%zu), max supported is %zu", wrk_cpus, cap);
+    }
+
     size_t count = 0;
     const uint32_t max_cpu = MIN((uint32_t)RTE_MAX_LCORE, (uint32_t)CPU_SETSIZE);
     for (uint32_t cpu = 0; cpu < max_cpu; cpu++) {
         if (!CPU_ISSET(cpu, &worker_set)) {
             continue;
         }
-        if (count >= cap) {
-            FatalError("Too many worker CPU cores configured");
-        }
         cpus[count++] = cpu;
     }
 
     if (count == 0) {
-        FatalError("worker-cpu-set does not contain any CPUs");
+        FatalError("No worker CPUs detected");
     }
 
     SCReturnInt((int)count);
@@ -396,33 +401,16 @@ static int ConfigLcoreWorkersSet(uint32_t *cpus, size_t cap)
 static char *ConfigLcoreArgValGet(void)
 {
     SCEnter();
-    uint32_t worker_cpus[RTE_MAX_LCORE];
-    int worker_cnt = ConfigLcoreWorkersSet(worker_cpus, ARRAY_SIZE(worker_cpus));
-
     uint32_t lcore_list[RTE_MAX_LCORE + 1];
-    size_t lcore_cnt = 0;
-
+    size_t lcore_cnt = ConfigLcoreWorkersSet(lcore_list, ARRAY_SIZE(lcore_list) - 1);
     uint32_t main_lcore = ConfigLcoreMainGet();
     lcore_list[lcore_cnt++] = main_lcore;
 
-    for (int i = 0; i < worker_cnt; i++) {
-        if (worker_cpus[i] == main_lcore) {
-            FatalError("Worker CPU %u conflicts with management-cpu-set (main lcore)",
-                    worker_cpus[i]);
-        }
-        if (lcore_cnt >= ARRAY_SIZE(lcore_list)) {
-            FatalError("Too many worker lcores configured");
-        }
-        lcore_list[lcore_cnt++] = worker_cpus[i];
-    }
-
     size_t required_len = 0;
     for (size_t i = 0; i < lcore_cnt; i++) {
-        required_len += DpdkCountDigits(lcore_list[i]);
-        if (i + 1 < lcore_cnt) {
-            required_len++; // comma
-        }
+        required_len += CountDigits(lcore_list[i]);
     }
+    required_len += (lcore_cnt - 1); // commas
 
     char *lcore_arg = AllocArgument(required_len);
     size_t offset = 0;
@@ -443,44 +431,16 @@ static char *ConfigLcoreArgValGet(void)
     SCReturnCharPtr(lcore_arg);
 }
 
-static void ArgumentsLcoreValidate(void)
-{
-    SCEnter();
-    if (!threading_set_cpu_affinity) {
-        FatalError("DPDK runmode requires configured CPU affinity");
-    }
-
-    cpu_set_t management_set;
-    ConfigLcoreManagementCpuSetGet(&management_set);
-
-    cpu_set_t worker_set;
-    ConfigLcoreWorkersCpuSetMerge(&worker_set);
-
-    if (CPU_COUNT(&worker_set) == 0) {
-        FatalError("worker-cpu-set does not contain any CPUs");
-    }
-
-    cpu_set_t overlap;
-    CPU_AND(&overlap, &management_set, &worker_set);
-    if (CPU_COUNT(&overlap) != 0) {
-        FatalError("Affinity of management and worker threads must not overlap");
-    }
-
-    SCReturn;
-}
-
 static void ArgumentsAddLcoreArguments(struct Arguments *args)
 {
     SCEnter();
-    ArgumentsLcoreValidate();
-
     ArgumentsAdd(args, AllocAndSetArgument("-l"));
     char *lcore_arg = ConfigLcoreArgValGet();
     ArgumentsAdd(args, lcore_arg);
 
     ArgumentsAdd(args, AllocAndSetArgument("--main-lcore"));
     uint32_t main_lcore = ConfigLcoreMainGet();
-    uint16_t digits = DpdkCountDigits(main_lcore);
+    uint16_t digits = CountDigits(main_lcore);
     char *main_lcore_arg = AllocArgument(digits);
     int ret = snprintf(main_lcore_arg, digits + 1, "%u", main_lcore);
     if (ret < 0 || ret > digits) {
@@ -518,11 +478,6 @@ static void ArgumentsEnsureEalOptionAllowed(const char *opt)
         if (strcasecmp(sanitized, forbidden_opts[i]) == 0) {
             FatalError("DPDK EAL option \"%s\" conflicts with Suricata CPU affinity settings", opt);
         }
-    }
-
-    // TODO: evaluate if this cannot be merged into forbidden_opts above
-    if (strncasecmp(sanitized, "lcore", 5) == 0) {
-        FatalError("DPDK EAL option \"%s\" conflicts with Suricata CPU affinity settings", opt);
     }
 }
 
@@ -656,8 +611,9 @@ static int ConfigSetThreads(DPDKIfaceConfig *iconf, const char *entry_str)
         SCLogError("No worker CPU cores with configured affinity were configured");
         SCReturnInt(-EINVAL);
     } else if (UtilAffinityCpusOverlap(wtaf, mtaf) != 0) {
-        SCLogWarning("Worker threads should not overlap with management threads in the CPU core "
+        SCLogError("Worker threads cannot overlap with management threads in the CPU core "
                      "affinity configuration");
+        SCReturnInt(-EINVAL);
     }
 
     const char *active_runmode = RunmodeGetActive();

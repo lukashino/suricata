@@ -48,6 +48,7 @@
 #include "util-validate.h"
 
 #include <rte_eal.h>
+#include <rte_lcore.h>
 
 #ifdef PROFILE_LOCKING
 thread_local uint64_t mutex_lock_contention;
@@ -324,18 +325,6 @@ static void *TmThreadsSlotPktAcqLoop(void *td)
         TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
         return NULL;
     }
-
-    // iterate once through all enabled DPDK EAL lcores 
-    #ifdef HAVE_DPDK
-        if (SCRunmodeGet() == RUNMODE_DPDK) {
-            unsigned int lcore_id;
-
-            /* One-time walk of enabled lcores for diagnostics. */
-            RTE_LCORE_FOREACH(lcore_id) {
-                SCLogInfo("%s: DPDK enabled lcore %u", tv->name, lcore_id);
-            }
-        }
-    #endif
 
     if (!TmThreadsSlotPktAcqLoopInit(td)) {
         goto error;
@@ -875,6 +864,9 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
 #if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined sun
     if (tv->thread_setup_flags & THREAD_SET_PRIORITY)
         TmThreadSetPrio(tv);
+        SCLogPerf("Setting prio %d for thread \"%s\", "
+                      "thread id %lu", tv->thread_priority,
+                      tv->name, SCGetThreadIdLong());
     if (tv->thread_setup_flags & THREAD_SET_AFFTYPE) {
         ThreadsAffinityType *taf = &thread_affinity[tv->cpu_affinity];
         bool use_iface_affinity = RunmodeIsAutofp() && tv->cpu_affinity == RECEIVE_CPU_SET &&
@@ -1764,6 +1756,19 @@ static void TmThreadSpawnPthread(ThreadVars *tv)
     pthread_attr_destroy(&attr);
 }
 
+#ifdef HAVE_DPDK
+/**
+ * \brief Wrapper function to convert ThreadVars thread function signature
+ *        from void* (*)(void*) to int (*)(void*) for DPDK EAL threads.
+ */
+static int DpdkEalThreadWrapper(void *arg)
+{
+    ThreadVars *tv = (ThreadVars *)arg;
+    tv->tm_func(tv);
+    return 0;
+}
+#endif
+
 static void TmThreadSpawnDpdkEalThread(ThreadVars *tv)
 {
 #ifdef HAVE_DPDK
@@ -1791,11 +1796,6 @@ static void TmThreadSpawnDpdkEalThread(ThreadVars *tv)
         FatalError("%s: DPDK requires exclusive affinity setting", tv->iface_name);
     }
 
-    tv->lcore_id = AffinityGetNextCPU(tv, taf);
-    int ret = rte_eal_remote_launch((lcore_function_t *)tv->tm_func, (void *)tv, tv->lcore_id);
-    if (ret != 0) {
-        FatalError("Unable to create DPDK EAL thread %s with rte_eal_remote_launch(): retval %d", tv->name, ret);
-    }
     /* If CPU is in a set overwrite the default thread prio */
     if (CPU_ISSET(tv->lcore_id, &taf->lowprio_cpu)) {
         tv->thread_priority = PRIO_LOW;
@@ -1806,12 +1806,14 @@ static void TmThreadSpawnDpdkEalThread(ThreadVars *tv)
     } else {
         tv->thread_priority = taf->prio;
     }
-    // TODO: perf message wrong as you are not setting priority just yet
-    SCLogPerf("Setting prio %d for thread \"%s\" to cpu/core "
-                "%d, thread id %lu", tv->thread_priority,
-                tv->name, tv->lcore_id, SCGetThreadIdLong());
-
     tv->thread_setup_flags = THREAD_SET_PRIORITY; // affinity is handled, prio handles the thread itself
+    
+    tv->lcore_id = AffinityGetNextCPU(tv, taf);
+
+    int ret = rte_eal_remote_launch(DpdkEalThreadWrapper, (void *)tv, tv->lcore_id);
+    if (ret != 0) {
+        FatalError("Unable to create DPDK EAL thread %s with rte_eal_remote_launch(): retval %d", tv->name, ret);
+    }
 #else
     FatalError("DPDK support not compiled in, cannot launch DPDK EAL thread %s", tv->name);
 #endif
@@ -2026,6 +2028,8 @@ TmEcode TmThreadWaitOnThreadRunning(void)
 
     char append_str[app_len];
     char thread_counts[buf_len];
+
+    SCLogNotice("my lcore id %u", rte_lcore_id());
 
     strlcpy(thread_counts, "Threads created -> ", strlen("Threads created -> ") + 1);
     if (RX_num > 0) {
