@@ -27,12 +27,16 @@
 
 #ifdef OS_WIN32
 typedef struct _stat SCStat;
-#define SCFstatFn(fd, statbuf)      _fstat((fd), (statbuf))
-#define SCStatFn(pathname, statbuf) _stat((pathname), (statbuf))
+#define SCFstatFn(fd, statbuf)                       _fstat((fd), (statbuf))
+#define SCFstatatFn(dirfd, pathname, statbuf, flags) _stat((pathname), (statbuf))
+#define SCStatFn(pathname, statbuf)                  _stat((pathname), (statbuf))
+#define SCUnlinkatFn(dirfd, pathname, flags)         _unlink((pathname))
 #else
 typedef struct stat SCStat;
-#define SCFstatFn(fd, statbuf)      fstat((fd), (statbuf))
-#define SCStatFn(pathname, statbuf) stat((pathname), (statbuf))
+#define SCFstatFn(fd, statbuf)                       fstat((fd), (statbuf))
+#define SCFstatatFn(dirfd, pathname, statbuf, flags) fstatat((dirfd), (pathname), (statbuf), (flags))
+#define SCStatFn(pathname, statbuf)                  stat((pathname), (statbuf))
+#define SCUnlinkatFn(dirfd, pathname, flags)         unlinkat((dirfd), (pathname), (flags))
 #endif
 
 #if defined OS_WIN32 || defined __CYGWIN__

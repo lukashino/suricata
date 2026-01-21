@@ -360,6 +360,12 @@ int SCHSCachePruneEvaluate(MpmConfig *mpm_conf, HashTable *inuse_caches)
         return -1;
     }
 
+    int dir_fd = dirfd(dir);
+    if (dir_fd == -1) {
+        closedir(dir);
+        return -1;
+    }
+
     struct dirent *ent;
     char path[PATH_MAX];
     uint32_t considered = 0, removed = 0;
@@ -370,11 +376,8 @@ int SCHSCachePruneEvaluate(MpmConfig *mpm_conf, HashTable *inuse_caches)
         if (namelen < 3 || strcmp(name + namelen - 3, ".hs") != 0)
             continue;
 
-        if (PathMerge(path, ARRAY_SIZE(path), mpm_conf->cache_dir_path, name) != 0)
-            continue;
-
-        struct stat st;
-        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
+        SCStat st;
+        if (SCFstatatFn(dir_fd, name, &st, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISREG(st.st_mode))
             continue;
 
         considered++;
@@ -384,11 +387,14 @@ int SCHSCachePruneEvaluate(MpmConfig *mpm_conf, HashTable *inuse_caches)
         if (!prune_by_age && !prune_by_version)
             continue;
 
+        if (PathMerge(path, ARRAY_SIZE(path), mpm_conf->cache_dir_path, name) != 0)
+            continue;
+
         void *cache_inuse = HashTableLookup(inuse_caches, path, (uint16_t)strlen(path));
         if (cache_inuse != NULL)
             continue; // in use
 
-        if (unlink(path) == 0) {
+        if (SCUnlinkatFn(dir_fd, name, 0) == 0) {
             removed++;
             SCLogDebug("File %s removed because of %s%s%s", path, prune_by_age ? "age" : "",
                     prune_by_age && prune_by_version ? " and " : "",
