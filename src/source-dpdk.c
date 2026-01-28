@@ -406,6 +406,8 @@ static inline int RXPacketCountHeuristic(ThreadVars *tv, DPDKThreadVars *ptv, ui
                     PCAP_FILE_ZERO_POLL_THRESHOLD, ptv->port_id, ptv->queue_id);
             return -1; // Signal EOF
         }
+        // For PCAP file mode, continue polling even without interrupt mode
+        return true;
     }
 
     if (!ptv->intr_enabled)

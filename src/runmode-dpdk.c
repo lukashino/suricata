@@ -124,7 +124,6 @@ static void DPDKDerefConfig(void *conf);
 #define DPDK_CONFIG_DEFAULT_LINKUP_TIMEOUT              0
 #define DPDK_CONFIG_DEFAULT_COPY_MODE                   "none"
 #define DPDK_CONFIG_DEFAULT_COPY_INTERFACE              "none"
-#define DPDK_CONFIG_DEFAULT_PCAP_FILE_MODE              true
 
 DPDKIfaceConfigAttributes dpdk_yaml = {
     .threads = "threads",
