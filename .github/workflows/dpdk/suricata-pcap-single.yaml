@@ -1,0 +1,48 @@
+%YAML 1.1
+---
+# Test configuration for DPDK PCAP file mode - single PCAP file
+# This configuration demonstrates reading a single PCAP file using the net_pcap driver
+# and automatically exiting when the file is exhausted.
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      append: false
+      filename: eve.json
+      level: Info
+      types:
+        - stats:
+            totals: yes
+
+dpdk:
+  eal-params:
+    proc-type: primary
+    # Configure net_pcap virtual device to read from a PCAP file
+    # Replace /path/to/capture.pcap with actual PCAP file path
+    vdev: 'net_pcap0,rx_pcap=/path/to/capture.pcap'
+    no-huge:
+    m: 256
+
+  interfaces:
+    - interface: net_pcap0
+      threads: 1
+      mempool-size: 511
+      mempool-cache-size: auto
+      rx-descriptors: 16
+      tx-descriptors: 16
+      copy-mode: none
+      # Optional: explicitly enable PCAP file mode (auto-detected by default)
+      # pcap-file-mode: true
+
+threading:
+  set-cpu-affinity: yes
+  cpu-affinity:
+    - management-cpu-set:
+        cpu: [ 0 ]
+    - worker-cpu-set:
+        cpu: [ 1 ]
+        mode: "exclusive"
+
+unix-command:
+  enabled: auto

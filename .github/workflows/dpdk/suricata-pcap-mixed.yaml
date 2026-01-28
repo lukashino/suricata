@@ -1,0 +1,58 @@
+%YAML 1.1
+---
+# Test configuration for DPDK PCAP file mode - mixed interface types
+# This configuration demonstrates mixing net_pcap (PCAP file) and regular DPDK interfaces
+# The net_pcap interface will exit when exhausted, while regular interface continues.
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      append: false
+      filename: eve.json
+      level: Info
+      types:
+        - stats:
+            totals: yes
+
+dpdk:
+  eal-params:
+    proc-type: primary
+    # Mix net_pcap with a regular null device
+    vdev: ['net_pcap0,rx_pcap=/path/to/capture.pcap', 'net_null0']
+    no-huge:
+    m: 512
+
+  interfaces:
+    # PCAP file interface - will auto-exit when file is exhausted
+    - interface: net_pcap0
+      threads: 1
+      mempool-size: 511
+      mempool-cache-size: auto
+      rx-descriptors: 16
+      tx-descriptors: 16
+      copy-mode: none
+      pcap-file-mode: true
+
+    # Regular null device - continues running
+    - interface: net_null0
+      threads: 1
+      mempool-size: 511
+      mempool-cache-size: auto
+      rx-descriptors: 16
+      tx-descriptors: 16
+      copy-mode: none
+      # Explicitly disable PCAP file mode for regular interfaces
+      pcap-file-mode: false
+
+threading:
+  set-cpu-affinity: yes
+  cpu-affinity:
+    - management-cpu-set:
+        cpu: [ 0 ]
+    - worker-cpu-set:
+        cpu: [ "1-2" ]
+        mode: "exclusive"
+
+unix-command:
+  enabled: auto

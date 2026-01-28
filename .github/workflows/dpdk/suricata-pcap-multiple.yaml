@@ -1,0 +1,57 @@
+%YAML 1.1
+---
+# Test configuration for DPDK PCAP file mode - multiple PCAP files
+# This configuration demonstrates reading multiple PCAP files simultaneously
+# Each interface will independently exit when its PCAP file is exhausted.
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      append: false
+      filename: eve.json
+      level: Info
+      types:
+        - stats:
+            totals: yes
+
+dpdk:
+  eal-params:
+    proc-type: primary
+    # Configure multiple net_pcap virtual devices
+    # Replace paths with actual PCAP files
+    vdev: ['net_pcap0,rx_pcap=/path/to/capture1.pcap',
+           'net_pcap1,rx_pcap=/path/to/capture2.pcap']
+    no-huge:
+    m: 512
+
+  interfaces:
+    - interface: net_pcap0
+      threads: 1
+      mempool-size: 511
+      mempool-cache-size: auto
+      rx-descriptors: 16
+      tx-descriptors: 16
+      copy-mode: none
+      pcap-file-mode: true
+
+    - interface: net_pcap1
+      threads: 1
+      mempool-size: 511
+      mempool-cache-size: auto
+      rx-descriptors: 16
+      tx-descriptors: 16
+      copy-mode: none
+      pcap-file-mode: true
+
+threading:
+  set-cpu-affinity: yes
+  cpu-affinity:
+    - management-cpu-set:
+        cpu: [ 0 ]
+    - worker-cpu-set:
+        cpu: [ "1-2" ]
+        mode: "exclusive"
+
+unix-command:
+  enabled: auto
