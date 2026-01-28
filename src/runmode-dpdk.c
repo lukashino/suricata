@@ -124,6 +124,7 @@ static void DPDKDerefConfig(void *conf);
 #define DPDK_CONFIG_DEFAULT_LINKUP_TIMEOUT              0
 #define DPDK_CONFIG_DEFAULT_COPY_MODE                   "none"
 #define DPDK_CONFIG_DEFAULT_COPY_INTERFACE              "none"
+#define DPDK_CONFIG_DEFAULT_PCAP_FILE_MODE              true
 
 DPDKIfaceConfigAttributes dpdk_yaml = {
     .threads = "threads",
@@ -142,6 +143,7 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
+    .pcap_file_mode = "pcap-file-mode",
 };
 
 /**
@@ -1026,6 +1028,25 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     retval = ConfigSetCopyIfaceSettings(iconf, copy_iface_str, copy_mode_str);
     if (retval < 0)
         SCReturnInt(retval);
+
+    // Store the driver name for later use
+    strlcpy(iconf->driver_name, dev_info.driver_name, sizeof(iconf->driver_name));
+
+    // Parse pcap-file-mode configuration
+    retval = SCConfGetChildValueBoolWithDefault(
+            if_root, if_default, dpdk_yaml.pcap_file_mode, &entry_bool);
+    if (retval != 1) {
+        // Auto-detect: enable if driver is net_pcap
+        iconf->pcap_file_mode_enabled =
+                (strcmp(iconf->driver_name, "net_pcap") == 0) ? true : false;
+    } else {
+        iconf->pcap_file_mode_enabled = entry_bool ? true : false;
+    }
+
+    if (iconf->pcap_file_mode_enabled) {
+        SCLogConfig("%s: PCAP file mode enabled - interface will stop after EOF (no packets)",
+                iconf->iface);
+    }
 
     SCReturnInt(0);
 }
