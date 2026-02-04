@@ -895,13 +895,23 @@ static int SCHSMatchEvent(unsigned int id, unsigned long long from,
     PrefilterRuleStore *pmq = cctx->pmq;
     const PatternDatabase *pd = cctx->ctx->pattern_db;
     const SCHSPattern *pat = pd->parray[id];
-    if (cctx->pids_count + 1 > MATCHED_SIDS_ARR_LEN_THRESH) {
-        cctx->pids[0] = UINT32_MAX;
-        cctx->pids_count = 1;
+
+    bool duplicate = false;
+    for (uint32_t i = 0; i < cctx->pids_count; i++) {
+        if (cctx->pids[i] == id) {
+            duplicate = true;
+            break;
+        }
     }
-    if (cctx->pids[0] != UINT32_MAX) {
-        // TODO: check for duplicate pattern ids
-        cctx->pids[cctx->pids_count++] = id;
+
+    if (!duplicate) {
+        if (cctx->pids_count + 1 > MATCHED_SIDS_ARR_LEN_THRESH) {
+            cctx->pids[0] = UINT32_MAX;
+            cctx->pids_count = 1;
+        }
+        if (cctx->pids[0] != UINT32_MAX) {
+            cctx->pids[cctx->pids_count++] = id;
+        }
     }
     
 
