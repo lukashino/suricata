@@ -745,7 +745,8 @@ af-xdp:
 dpdk:
   eal-params:
     proc-type: primary
-    vdev: net_pcap0,rx_pcap=/home/luks/Downloads/http.cap,tx_pcap=/tmp/http.cap
+    vdev: net_pcap0,rx_pcap=/home/local/xsismi01/suricata/custom-patlen/shmu-tls-new.pcap
+    #/home/luks/Downloads/http.cap,tx_pcap=/tmp/http.cap
     no-pci: 
     #no-huge:
 
@@ -787,8 +788,8 @@ dpdk:
       # - none: IDS mode only - disables IPS functionality (does not further forward packets)
       # - tap: forwards all packets and generates alerts (omits DROP action) This is not DPDK TAP
       # - ips: the same as tap mode but it also drops packets that are flagged by rules to be dropped
-      copy-mode: tap
-      copy-iface: net_pcap0 # or PCIe address of the second interface
+      copy-mode: none
+      copy-iface: none 
 
     - interface: default
       threads: auto

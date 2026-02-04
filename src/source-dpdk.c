@@ -460,6 +460,90 @@ static inline Packet *PacketInitFromMbuf(DPDKThreadVars *ptv, struct rte_mbuf *m
     return p;
 }
 
+/**
+ * \brief Parse FPGA prefilter header from packet and extract pattern IDs
+ *
+ * The sender prepends a custom header before the Ethernet frame:
+ * | RESERVED (1B) | PATIDs_LEN (2B) | PATID_SIZE (1B) | [PAT_ID (4B)]... | Original Ethernet Header
+ *
+ * RESERVED: Always 0xff - marker to identify packets with pattern IDs
+ * PATIDs_LEN: Big-endian, total size in bytes of the pattern IDs array
+ * PATID_SIZE: Always 4 - size of each pattern ID in bytes
+ * PAT_ID[]: Little-endian uint32_t pattern IDs with flags in upper bits
+ *
+ * \param p Packet to populate with pattern IDs
+ * \param mbuf The mbuf containing the packet data
+ * \return Number of bytes to skip (header size), or 0 if no header present
+ */
+static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf)
+{
+    uint16_t pkt_len = rte_pktmbuf_pkt_len(mbuf);
+    uint8_t *pkt_data = rte_pktmbuf_mtod(mbuf, uint8_t *);
+
+    /* Initialize to no precomputed patterns */
+    p->has_precomputed_patterns = false;
+    p->fpga_prefilter_pids_cnt = 0;
+
+    /* Need at least 4 bytes for the header */
+    if (pkt_len < 4) {
+        return 0;
+    }
+
+    /* Check for FPGA prefilter header marker: RESERVED=0xff and PATID_SIZE=4 */
+    if (pkt_data[0] != 0xff || pkt_data[3] != 4) {
+        return 0;
+    }
+
+    /* Parse PATIDs_LEN (big-endian) */
+    uint16_t patids_len = ((uint16_t)pkt_data[1] << 8) | pkt_data[2];
+    uint16_t header_size = 4 + patids_len;
+
+    /* Validate header size doesn't exceed packet length */
+    if (header_size > pkt_len) {
+        SCLogWarning("FPGA prefilter header size (%u) exceeds packet length (%u)",
+                header_size, pkt_len);
+        return 0;
+    }
+
+    uint32_t num_patterns = patids_len / 4;
+    p->has_precomputed_patterns = true;
+
+    /* Handle no patterns case */
+    if (num_patterns == 0) {
+        p->fpga_prefilter_pids_cnt = 0;
+        SCLogDebug("FPGA prefilter: header found, 0 pattern IDs (no matches from sender)");
+        return header_size;
+    }
+
+    /* Get pointer to pattern IDs (little-endian uint32_t array) */
+    uint32_t *pattern_ids = (uint32_t *)(pkt_data + 4);
+
+    /* Check for overflow marker: single pattern ID = UINT32_MAX */
+    if (num_patterns == 1 && pattern_ids[0] == UINT32_MAX) {
+        /* Store the overflow marker - detection code will fall back to full MPM */
+        p->fpga_prefilter_pids[0] = UINT32_MAX;
+        p->fpga_prefilter_pids_cnt = 1;
+        SCLogDebug("FPGA prefilter: header found with OVERFLOW marker (too many patterns)");
+        return header_size;
+    }
+
+    /* Copy pattern IDs to packet structure */
+    uint8_t copy_count = (num_patterns > MATCHED_SIDS_ARR_LEN_THRESH)
+                                 ? MATCHED_SIDS_ARR_LEN_THRESH
+                                 : (uint8_t)num_patterns;
+
+    for (uint8_t i = 0; i < copy_count; i++) {
+        p->fpga_prefilter_pids[i] = pattern_ids[i];
+    }
+    p->fpga_prefilter_pids_cnt = copy_count;
+
+    SCLogDebug("FPGA prefilter: header found with %u pattern IDs: [0]=0x%08x%s",
+            copy_count, pattern_ids[0],
+            copy_count > 1 ? " ..." : "");
+
+    return header_size;
+}
+
 static inline void DPDKSegmentedMbufWarning(struct rte_mbuf *mbuf)
 {
     static thread_local bool segmented_mbufs_warned = false;
@@ -560,6 +644,20 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 continue;
             }
             DPDKSegmentedMbufWarning(ptv->received_mbufs[i]);
+
+            /* Parse FPGA prefilter header if present and adjust mbuf */
+            uint16_t header_skip = ParseFpgaPrefilterHeader(p, p->dpdk_v.mbuf);
+            if (header_skip > 0) {
+                /* Adjust mbuf to skip the FPGA prefilter header */
+                if (rte_pktmbuf_adj(p->dpdk_v.mbuf, header_skip) == NULL) {
+                    SCLogWarning("Failed to adjust mbuf by %u bytes", header_skip);
+                    rte_pktmbuf_free(p->dpdk_v.mbuf);
+                    p->dpdk_v.mbuf = NULL;
+                    TmqhOutputPacketpool(ptv->tv, p);
+                    continue;
+                }
+            }
+
             PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
                     rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {

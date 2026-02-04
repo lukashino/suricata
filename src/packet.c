@@ -118,6 +118,9 @@ void PacketReinit(Packet *p)
     PacketClearL4(p);
     p->payload = NULL;
     p->payload_len = 0;
+    /* Reset FPGA prefilter pattern ID storage */
+    p->has_precomputed_patterns = false;
+    p->fpga_prefilter_pids_cnt = 0;
     p->BypassPacketsFlow = NULL;
 #define RESET_PKT_LEN(p) ((p)->pktlen = 0)
     RESET_PKT_LEN(p);
