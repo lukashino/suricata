@@ -905,7 +905,7 @@ static int SCHSMatchEvent(unsigned int id, unsigned long long from,
     }
 
     if (!duplicate) {
-        if (cctx->pids_count + 1 > MATCHED_SIDS_ARR_LEN_THRESH) {
+        if (cctx->pids_count + 1 > g_max_mpm_pattern_ids) {
             cctx->pids[0] = UINT32_MAX;
             cctx->pids_count = 1;
         }

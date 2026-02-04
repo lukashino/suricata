@@ -745,7 +745,8 @@ af-xdp:
 dpdk:
   eal-params:
     proc-type: primary
-    vdev: net_pcap0,rx_pcap=/home/luks/Downloads/http.cap,tx_pcap=/tmp/http.cap
+    vdev: net_pcap0,rx_pcap=/home/local/xsismi01/suricata/custom-patlen/shmu-tls.pcap,tx_pcap=/home/local/xsismi01/suricata/custom-patlen/shmu-tls-new.pcap
+    #/home/luks/Downloads/http.cap,tx_pcap=/tmp/http.cap
     no-pci: 
     #no-huge:
 
@@ -789,6 +790,8 @@ dpdk:
       # - ips: the same as tap mode but it also drops packets that are flagged by rules to be dropped
       copy-mode: tap
       copy-iface: net_pcap0 # or PCIe address of the second interface
+      # Maximum number of MPM pattern IDs to store in packets for FPGA acceleration experiments
+      max-mpm-pattern-ids: 12
 
     - interface: default
       threads: auto
@@ -804,6 +807,7 @@ dpdk:
       tx-descriptors: 1024
       copy-mode: none
       copy-iface: none
+      max-mpm-pattern-ids: 12
 
 
 # Cross platform libpcap capture support
@@ -1663,6 +1667,8 @@ detect:
     toclient-groups: 3
     toserver-groups: 25
   sgh-mpm-context: auto
+  sgh-reverse-matching: yes
+  save-mpm-stream-results: yes
   inspection-recursion-limit: 3000
   # If set to yes, the loading of signatures will be made after the capture
   # is started. This will limit the downtime in IPS mode.

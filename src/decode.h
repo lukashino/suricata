@@ -456,8 +456,13 @@ struct PacketL4 {
     } vars;
 };
 
-// the limit should be actually 3 because SigIntId is uint32_t and ETH header has 14 bytes out of which 12 are for MAC addresses
-#define MATCHED_SIDS_ARR_LEN_THRESH 3 // this is an absolute (technical) limit for ETH header
+// Maximum number of pattern IDs that can be stored per packet for FPGA acceleration experiments
+// This is the compile-time maximum (array size). Runtime limit is set via g_max_mpm_pattern_ids.
+// Absolute maximum is 64 - increase requires more memory per packet and larger mbufs.
+#define MATCHED_SIDS_ARR_LEN_THRESH 64
+
+// Runtime configurable limit for pattern IDs (set from DPDK config, defaults to 12)
+extern uint32_t g_max_mpm_pattern_ids;
 /* the pattern ID is valid in PrefilterPktPayload function */
 #define PREFILTER_PKT_PAYLOAD_FN BIT_U32(31) // when set, it is for payload MPM
 

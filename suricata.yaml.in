@@ -817,6 +817,10 @@ dpdk:
       # - ips: the same as tap mode but it also drops packets that are flagged by rules to be dropped
       copy-mode: none
       copy-iface: none # or PCIe address of the second interface
+      # Maximum number of MPM pattern IDs to store in packets for FPGA acceleration experiments
+      # Pattern IDs are prepended to the packet using headroom before transmission
+      # Valid range: 0-64 (default: 12)
+      max-mpm-pattern-ids: 12
 
     - interface: default
       threads: auto
@@ -833,6 +837,7 @@ dpdk:
       tx-descriptors: 1024
       copy-mode: none
       copy-iface: none
+      max-mpm-pattern-ids: 12
 
 
 # Cross platform libpcap capture support

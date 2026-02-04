@@ -94,6 +94,9 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
 #include "util-dpdk-bonding.h"
 #include <numa.h>
 
+/* Global runtime limit for pattern IDs - defaults to 12 (can be configured up to MATCHED_SIDS_ARR_LEN_THRESH) */
+uint32_t g_max_mpm_pattern_ids = 12;
+
 #define BURST_SIZE 32
 // interrupt mode constants
 #define MIN_ZERO_POLL_COUNT          10U
@@ -308,21 +311,46 @@ static inline void DPDKDumpCounters(DPDKThreadVars *ptv)
     }
 }
 
+/**
+ * \brief Prepend pattern IDs to packet using headroom
+ *
+ * Packet format after prepending:
+ * | RESERVED (1B, 0xff) | PATIDs_LEN (2B) | PATID_SIZE (1B) | [PAT_ID (4B)]... | Original Ethernet Header | IP...
+ *
+ * Where PATIDs_LEN is the total size in bytes of the pattern IDs array.
+ */
 static void DPDKReleasePacket(Packet *p)
 {
     int retval;
 
-    uint32_t *mac;
-    mac = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint32_t *);
-    for (uint32_t i = 0; i < MATCHED_SIDS_ARR_LEN_THRESH; i++) {
-        mac[i] = 0;
-    }
-    if (p->matched_sids_cnt > 0) {
+    /* Calculate space needed for pattern ID header:
+     * 1 byte RESERVED (0xff) + 2 bytes PATIDs_LEN + 1 byte PATID_SIZE + N*4 bytes pattern IDs
+     */
+    uint16_t pattern_ids_bytes = p->matched_sids_cnt * sizeof(uint32_t);
+    uint16_t header_size = 4; /* RESERVED + PATIDs_LEN + PATID_SIZE */
+    uint16_t prepend_size = header_size + pattern_ids_bytes;
+
+    /* Try to prepend space for pattern IDs using headroom */
+    uint8_t *prepend_ptr = (uint8_t *)rte_pktmbuf_prepend(p->dpdk_v.mbuf, prepend_size);
+
+    if (prepend_ptr != NULL) {
+        /* Successfully prepended - write the header */
+        prepend_ptr[0] = 0xff; /* RESERVED marker */
+        /* PATIDs_LEN: 2 bytes, big-endian for network order */
+        prepend_ptr[1] = (pattern_ids_bytes >> 8) & 0xff;
+        prepend_ptr[2] = pattern_ids_bytes & 0xff;
+        prepend_ptr[3] = sizeof(uint32_t); /* PATID_SIZE = 4 bytes */
+
+        /* Write pattern IDs after the header */
+        uint32_t *pattern_ids_ptr = (uint32_t *)(prepend_ptr + header_size);
         for (uint32_t i = 0; i < p->matched_sids_cnt; i++) {
-            mac[i] = p->matched_sids[i];
+            pattern_ids_ptr[i] = p->matched_sids[i];
         }
     } else {
-        mac[0] = 0;
+        /* Not enough headroom - log warning and continue without pattern IDs */
+        SCLogWarning("Insufficient headroom for %u pattern IDs (need %u bytes), "
+                     "try to increase mbuf size in your primary application",
+                     p->matched_sids_cnt, prepend_size);
     }
 
 

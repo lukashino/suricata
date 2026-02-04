@@ -120,6 +120,7 @@ static void DPDKDerefConfig(void *conf);
 #define DPDK_CONFIG_DEFAULT_VLAN_STRIP                  0
 #define DPDK_CONFIG_DEFAULT_COPY_MODE                   "none"
 #define DPDK_CONFIG_DEFAULT_COPY_INTERFACE              "none"
+#define DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS         12
 
 DPDKIfaceConfigAttributes dpdk_yaml = {
     .threads = "threads",
@@ -137,6 +138,7 @@ DPDKIfaceConfigAttributes dpdk_yaml = {
     .tx_descriptors = "tx-descriptors",
     .copy_mode = "copy-mode",
     .copy_iface = "copy-iface",
+    .max_mpm_pattern_ids = "max-mpm-pattern-ids",
 };
 
 static int GreatestDivisorUpTo(uint32_t num, uint32_t max_num)
@@ -833,6 +835,25 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     if (retval < 0)
         SCReturnInt(retval);
 
+    /* Parse max-mpm-pattern-ids for FPGA acceleration experiments */
+    retval = ConfGetChildValueIntWithDefault(
+            if_root, if_default, dpdk_yaml.max_mpm_pattern_ids, &entry_int);
+    if (retval != 1) {
+        iconf->max_mpm_pattern_ids = DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS;
+    } else {
+        if (entry_int < 0 || entry_int > MATCHED_SIDS_ARR_LEN_THRESH) {
+            SCLogWarning("%s: max-mpm-pattern-ids value %" PRIdMAX " out of range [0, %d], using default %d",
+                    iconf->iface, entry_int, MATCHED_SIDS_ARR_LEN_THRESH,
+                    DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS);
+            iconf->max_mpm_pattern_ids = DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS;
+        } else {
+            iconf->max_mpm_pattern_ids = (uint16_t)entry_int;
+        }
+    }
+    /* Set the global runtime limit for pattern IDs */
+    g_max_mpm_pattern_ids = iconf->max_mpm_pattern_ids;
+    SCLogConfig("%s: max-mpm-pattern-ids set to %u (global limit updated)", iconf->iface, iconf->max_mpm_pattern_ids);
+
     SCReturnInt(0);
 }
 
@@ -1255,9 +1276,14 @@ static int DeviceConfigureQueues(DPDKIfaceConfig *iconf, const struct rte_eth_de
     snprintf(mempool_name, 64, "mempool_%.20s", iconf->iface);
     // +4 for VLAN header
     mtu_size = iconf->mtu + RTE_ETHER_CRC_LEN + RTE_ETHER_HDR_LEN + 4;
-    mbuf_size = ROUNDUP(mtu_size, 1024) + RTE_PKTMBUF_HEADROOM;
-    SCLogConfig("%s: creating packet mbuf pool %s of size %d, cache size %d, mbuf size %d",
-            iconf->iface, mempool_name, iconf->mempool_size, iconf->mempool_cache_size, mbuf_size);
+    /* Add extra space for pattern ID storage in headroom:
+     * 4 bytes header (RESERVED + PATIDs_LEN + PATID_SIZE) + N * 4 bytes for pattern IDs */
+    uint16_t pattern_id_space = 4 + (iconf->max_mpm_pattern_ids * sizeof(uint32_t));
+    mbuf_size = ROUNDUP(mtu_size, 1024) + RTE_PKTMBUF_HEADROOM + pattern_id_space;
+    SCLogConfig("%s: creating packet mbuf pool %s of size %d, cache size %d, mbuf size %d "
+            "(includes %u bytes for %u pattern IDs)",
+            iconf->iface, mempool_name, iconf->mempool_size, iconf->mempool_cache_size, mbuf_size,
+            pattern_id_space, iconf->max_mpm_pattern_ids);
 
     iconf->pkt_mempool = rte_pktmbuf_pool_create(mempool_name, iconf->mempool_size,
             iconf->mempool_cache_size, 0, mbuf_size, (int)iconf->socket_id);
