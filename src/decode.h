@@ -459,7 +459,7 @@ struct PacketL4 {
 // Maximum number of pattern IDs that can be stored per packet for FPGA acceleration experiments
 // This is the compile-time maximum (array size). Runtime limit is set via g_max_mpm_pattern_ids.
 // Absolute maximum is 64 - increase requires more memory per packet and larger mbufs.
-#define MATCHED_SIDS_ARR_LEN_THRESH 64
+#define MATCHED_PIDS_ARR_LEN_THRESH 64
 
 // Runtime configurable limit for pattern IDs (set from DPDK config, defaults to 12)
 extern uint32_t g_max_mpm_pattern_ids;
@@ -669,8 +669,8 @@ typedef struct Packet_
     } persistent;
 
 
-    uint32_t matched_sids[MATCHED_SIDS_ARR_LEN_THRESH];
-    uint32_t matched_sids_cnt; // reset this in the packet init
+    uint32_t matched_pids[MATCHED_PIDS_ARR_LEN_THRESH];
+    uint32_t matched_pids_cnt; // reset this in the packet init
 
 
     /** flex array accessor to allocated packet data. Size of the additional

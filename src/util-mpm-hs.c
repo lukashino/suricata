@@ -882,7 +882,7 @@ typedef struct SCHSCallbackCtx_ {
     SCHSCtx *ctx;
     void *pmq;
     uint32_t match_count;
-    uint32_t pids[MATCHED_SIDS_ARR_LEN_THRESH];
+    uint32_t pids[MATCHED_PIDS_ARR_LEN_THRESH];
     uint32_t pids_count;
 } SCHSCallbackCtx;
 

@@ -746,9 +746,7 @@ dpdk:
   eal-params:
     proc-type: primary
     vdev: net_pcap0,rx_pcap=/home/local/xsismi01/suricata/custom-patlen/shmu-tls.pcap,tx_pcap=/home/local/xsismi01/suricata/custom-patlen/shmu-tls-new.pcap
-    #/home/luks/Downloads/http.cap,tx_pcap=/tmp/http.cap
     no-pci: 
-    #no-huge:
 
   # DPDK capture support
   # RX queues (and TX queues in IPS mode) are assigned to cores in 1:1 ratio

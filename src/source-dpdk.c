@@ -94,7 +94,7 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
 #include "util-dpdk-bonding.h"
 #include <numa.h>
 
-/* Global runtime limit for pattern IDs - defaults to 12 (can be configured up to MATCHED_SIDS_ARR_LEN_THRESH) */
+/* Global runtime limit for pattern IDs - defaults to 12 (can be configured up to MATCHED_PIDS_ARR_LEN_THRESH) */
 uint32_t g_max_mpm_pattern_ids = 12;
 
 #define BURST_SIZE 32
@@ -326,7 +326,7 @@ static void DPDKReleasePacket(Packet *p)
     /* Calculate space needed for pattern ID header:
      * 1 byte RESERVED (0xff) + 2 bytes PATIDs_LEN + 1 byte PATID_SIZE + N*4 bytes pattern IDs
      */
-    uint16_t pattern_ids_bytes = p->matched_sids_cnt * sizeof(uint32_t);
+    uint16_t pattern_ids_bytes = p->matched_pids_cnt * sizeof(uint32_t);
     uint16_t header_size = 4; /* RESERVED + PATIDs_LEN + PATID_SIZE */
     uint16_t prepend_size = header_size + pattern_ids_bytes;
 
@@ -343,14 +343,14 @@ static void DPDKReleasePacket(Packet *p)
 
         /* Write pattern IDs after the header */
         uint32_t *pattern_ids_ptr = (uint32_t *)(prepend_ptr + header_size);
-        for (uint32_t i = 0; i < p->matched_sids_cnt; i++) {
-            pattern_ids_ptr[i] = p->matched_sids[i];
+        for (uint32_t i = 0; i < p->matched_pids_cnt; i++) {
+            pattern_ids_ptr[i] = p->matched_pids[i];
         }
     } else {
         /* Not enough headroom - log warning and continue without pattern IDs */
         SCLogWarning("Insufficient headroom for %u pattern IDs (need %u bytes), "
                      "try to increase mbuf size in your primary application",
-                     p->matched_sids_cnt, prepend_size);
+                     p->matched_pids_cnt, prepend_size);
     }
 
 
@@ -464,8 +464,8 @@ static inline Packet *PacketInitFromMbuf(DPDKThreadVars *ptv, struct rte_mbuf *m
     if (unlikely(p == NULL)) {
         return NULL;
     }
-    p->matched_sids_cnt = 0;
-    p->matched_sids[0] = 0;
+    p->matched_pids_cnt = 0;
+    p->matched_pids[0] = 0;
     PKT_SET_SRC(p, PKT_SRC_WIRE);
     p->datalink = LINKTYPE_ETHERNET;
     if (ptv->checksum_mode == CHECKSUM_VALIDATION_DISABLE) {

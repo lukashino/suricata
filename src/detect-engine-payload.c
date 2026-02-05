@@ -114,25 +114,25 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                     p->payload, p->payload_len);
 
             if (det_ctx->mtc.save_stream_mpm_results) {
-                if (p->matched_sids_cnt + det_ctx->mtc.pids_count > g_max_mpm_pattern_ids ||
+                if (p->matched_pids_cnt + det_ctx->mtc.pids_count > g_max_mpm_pattern_ids ||
                         det_ctx->mtc.pids[0] == UINT32_MAX) {
                     // det_ctx->mtc.pids[0] != UINT32_MAX is a special case in which I need to reset the packet's pids to UINT32_MAX
-                    p->matched_sids[0] = UINT32_MAX;
-                    p->matched_sids_cnt = 1;
+                    p->matched_pids[0] = UINT32_MAX;
+                    p->matched_pids_cnt = 1;
                 } else {
                     for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
                         if (det_ctx->mtc.pids[i] > PREFILTER_FLAGS_SPACE) {
                             FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
                                     det_ctx->mtc.pids[i]);
                         }
-                        p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
-                        p->matched_sids[p->matched_sids_cnt] &= ~PREFILTER_PKT_PAYLOAD_FN;
+                        p->matched_pids[p->matched_pids_cnt] = det_ctx->mtc.pids[i];
+                        p->matched_pids[p->matched_pids_cnt] &= ~PREFILTER_PKT_PAYLOAD_FN;
                         if (p->flowflags & FLOW_PKT_TOSERVER) {
-                            p->matched_sids[p->matched_sids_cnt] |= PREFILTER_PKT_TOSERVER_DIR;
+                            p->matched_pids[p->matched_pids_cnt] |= PREFILTER_PKT_TOSERVER_DIR;
                         } else {
-                            p->matched_sids[p->matched_sids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
+                            p->matched_pids[p->matched_pids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
                         }
-                        p->matched_sids_cnt++;
+                        p->matched_pids_cnt++;
                     }
                 }
             }
@@ -165,24 +165,24 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
             &det_ctx->mtc, &det_ctx->pmq,
             p->payload, p->payload_len);
 
-    if (p->matched_sids_cnt + det_ctx->mtc.pids_count > g_max_mpm_pattern_ids || det_ctx->mtc.pids[0] == UINT32_MAX) {
+    if (p->matched_pids_cnt + det_ctx->mtc.pids_count > g_max_mpm_pattern_ids || det_ctx->mtc.pids[0] == UINT32_MAX) {
         // det_ctx->mtc.pids[0] != UINT32_MAX is a special case in which I need to reset the packet's pids to UINT32_MAX
-        p->matched_sids[0] = UINT32_MAX;
-        p->matched_sids_cnt = 1;
+        p->matched_pids[0] = UINT32_MAX;
+        p->matched_pids_cnt = 1;
     } else {
         for (uint32_t i = 0; i < det_ctx->mtc.pids_count; i++) {
             if (det_ctx->mtc.pids[i] > PREFILTER_FLAGS_SPACE) {
                 FatalError("MPM returned a pattern ID with the high bit set: %"PRIu32,
                         det_ctx->mtc.pids[i]);
             }
-            p->matched_sids[p->matched_sids_cnt] = det_ctx->mtc.pids[i];
-            p->matched_sids[p->matched_sids_cnt] |= PREFILTER_PKT_PAYLOAD_FN;
+            p->matched_pids[p->matched_pids_cnt] = det_ctx->mtc.pids[i];
+            p->matched_pids[p->matched_pids_cnt] |= PREFILTER_PKT_PAYLOAD_FN;
             if (p->flowflags & FLOW_PKT_TOSERVER) {
-                p->matched_sids[p->matched_sids_cnt] |= PREFILTER_PKT_TOSERVER_DIR;
+                p->matched_pids[p->matched_pids_cnt] |= PREFILTER_PKT_TOSERVER_DIR;
             } else {
-                p->matched_sids[p->matched_sids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
+                p->matched_pids[p->matched_pids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
             }
-            p->matched_sids_cnt++;
+            p->matched_pids_cnt++;
         }
     }
 

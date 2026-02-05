@@ -841,9 +841,9 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     if (retval != 1) {
         iconf->max_mpm_pattern_ids = DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS;
     } else {
-        if (entry_int < 0 || entry_int > MATCHED_SIDS_ARR_LEN_THRESH) {
+        if (entry_int < 0 || entry_int > MATCHED_PIDS_ARR_LEN_THRESH) {
             SCLogWarning("%s: max-mpm-pattern-ids value %" PRIdMAX " out of range [0, %d], using default %d",
-                    iconf->iface, entry_int, MATCHED_SIDS_ARR_LEN_THRESH,
+                    iconf->iface, entry_int, MATCHED_PIDS_ARR_LEN_THRESH,
                     DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS);
             iconf->max_mpm_pattern_ids = DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS;
         } else {
