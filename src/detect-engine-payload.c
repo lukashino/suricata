@@ -114,55 +114,60 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
             det_ctx->payload_mpm_size += p->payload_len;
 #endif
 
-            /* Check if we have precomputed pattern IDs from FPGA/sender */
-            if (FPGA_OFFLOADED_PM && FPGA_OFFLOADED_PM_PKTSTREAM_MPM && p->has_precomputed_patterns) {
-                uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
-                uint32_t patids_cnt = 0;
-
-                /* Check for no patterns case */
+            if (FPGA_OFFLOADED_PM && FPGA_OFFLOADED_PM_PKTSTREAM_MPM && p->dpdk_v.mbuf != NULL) {
                 if (p->fpga_prefilter_pids_cnt == 0) {
-                    /* No pattern matches - skip MPM search entirely */
-                    SCLogDebug("FPGA prefilter [stream]: skipping MPM - no pattern matches from sender");
+                    // no match in the FPGA offloaded patterns, skipping
                     return;
                 }
+                assert(p->fpga_prefilter_pids_ptr != NULL);
 
-                /* Check for overflow marker - need to fall back to full MPM search */
-                if (p->fpga_prefilter_pids_cnt == 1 && p->fpga_prefilter_pids[0] == UINT32_MAX) {
-                    SCLogDebug("FPGA prefilter [stream]: overflow marker - falling back to full MPM");
-                    goto full_stream_mpm_search;
+                if (p->fpga_prefilter_pids_ptr[0] == UINT32_MAX) {
+                    goto stream_full_scan; // overflow case
                 }
 
-                /* Process precomputed pattern IDs - stream patterns don't have PREFILTER_PKT_PAYLOAD_FN set */
-                bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
-
-                for (uint8_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
-                    uint32_t pid = p->fpga_prefilter_pids[i];
-
-                    /* Check if this is a stream pattern (PREFILTER_PKT_PAYLOAD_FN bit NOT set) */
-                    if (pid != 0 && (pid & PREFILTER_PKT_PAYLOAD_FN) == 0) {
-                        /* Check direction flag */
-                        bool pat_toserver = (pid & PREFILTER_PKT_TOSERVER_DIR) != 0;
-                        if (!SGH_REVERSE_MATCHING_ENABLED || pat_toserver == pkt_toserver) {
-                            /* Only consider patterns from same direction as the packet */
-                            uint32_t adjusted_pid = pid & ~PREFILTER_PKT_TOSERVER_DIR;
-                            patids[patids_cnt++] = adjusted_pid;
+                uint32_t *patids_ptr = p->fpga_prefilter_pids_ptr;
+                if (FPGA_OFFLOADED_PM_MAX_SIZE == 0) {
+                    // flag-only mode (1-bit): at least one pattern matched (cnt > 0).
+                    // Check if any is a stream pattern (PREFILTER_PKT_PAYLOAD_FN not set).
+                    bool has_stream_match = false;
+                    for (uint32_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
+                        if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
+                            has_stream_match = true;
+                            break;
                         }
                     }
-                }
+                    if (!has_stream_match) {
+                        return;
+                    }
+                    // at least one stream pattern matched, fall through to full scan
+                } else if (p->fpga_prefilter_pids_cnt <= FPGA_OFFLOADED_PM_MAX_SIZE) {
+                    static uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = { 0 };
+                    uint32_t patids_cnt = 0;
+                    bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+                    for (uint32_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
+                        // to determine if the PID is valid for this prefilter or PktStream
+                        if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
+                            // the top bit (PREFILTER_PKT_PAYLOAD_FN) is not set to indicate that this is a stream pattern
 
-                if (patids_cnt > 0) {
-                    SCLogDebug("FPGA prefilter [stream]: using %u precomputed pattern IDs (first=0x%08x)",
-                            patids_cnt, patids[0]);
-                    (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+                            bool pat_toserver = (patids_ptr[i] & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
+                            if (!SGH_REVERSE_MATCHING_ENABLED || pat_toserver == pkt_toserver) {
+                                // only consider patterns from same direction as the packet
+                                uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_TOSERVER_DIR;
+                                patids[patids_cnt++] = adjusted_pid;
+                            }
+                        }
+                    }
+
+                    if (patids_cnt > 0) {
+                        (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                             &det_ctx->mtc, &det_ctx->pmq,
                             (uint8_t *)patids, UINT32_MAX - patids_cnt);
-                } else {
-                    SCLogDebug("FPGA prefilter [stream]: no stream patterns for this direction, skipping");
+                    }
+                    return;
                 }
-                return;
             }
 
-full_stream_mpm_search:
+stream_full_scan:
             (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
@@ -187,59 +192,61 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
     if (p->payload_len < mpm_ctx->minlen)
         SCReturn;
 
-    /* Check if we have precomputed pattern IDs from FPGA/sender */
-    if (FPGA_OFFLOADED_PM && p->has_precomputed_patterns) {
-        uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
-        uint32_t patids_cnt = 0;
-
-        /* Check for no patterns case */
+    if (FPGA_OFFLOADED_PM && p->dpdk_v.mbuf != NULL) {
         if (p->fpga_prefilter_pids_cnt == 0) {
-            /* No pattern matches - skip MPM search entirely */
-            SCLogDebug("FPGA prefilter [payload]: skipping MPM - no pattern matches from sender");
+            // no match in the FPGA offloaded patterns, skipping
             return;
         }
+        assert(p->fpga_prefilter_pids_ptr != NULL);
 
-        /* Check for overflow marker - need to fall back to full MPM search */
-        if (p->fpga_prefilter_pids_cnt == 1 && p->fpga_prefilter_pids[0] == UINT32_MAX) {
-            SCLogDebug("FPGA prefilter [payload]: overflow marker - falling back to full MPM");
-            goto full_mpm_search;
+        if (p->fpga_prefilter_pids_ptr[0] == UINT32_MAX) {
+            goto full_scan; // overflow case
         }
 
-        /* Process precomputed pattern IDs */
-        bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
-
-        for (uint8_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
-            uint32_t pid = p->fpga_prefilter_pids[i];
-
-            /* Check if this pattern ID is for payload prefilter (PREFILTER_PKT_PAYLOAD_FN bit set) */
-            if (pid != 0 && (pid & PREFILTER_PKT_PAYLOAD_FN)) {
-                uint32_t adjusted_pid = pid & ~PREFILTER_PKT_PAYLOAD_FN;
-
-                /* Check direction flag */
-                bool pat_toserver = (adjusted_pid & PREFILTER_PKT_TOSERVER_DIR) != 0;
-                if (!SGH_REVERSE_MATCHING_ENABLED || pat_toserver == pkt_toserver) {
-                    /* Only consider patterns from same direction as the packet */
-                    adjusted_pid &= ~PREFILTER_PKT_TOSERVER_DIR;
-                    patids[patids_cnt++] = adjusted_pid;
+        uint32_t *patids_ptr = p->fpga_prefilter_pids_ptr;
+        if (FPGA_OFFLOADED_PM_MAX_SIZE == 0) {
+            // flag-only mode (1-bit): at least one pattern matched (cnt > 0).
+            // Check if any is a payload pattern (PREFILTER_PKT_PAYLOAD_FN set).
+            bool has_payload_match = false;
+            for (uint32_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
+                if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN)) {
+                    has_payload_match = true;
+                    break;
                 }
             }
-        }
+            if (!has_payload_match) {
+                return;
+            }
+            // at least one payload pattern matched, fall through to full scan
+        } else if (p->fpga_prefilter_pids_cnt <= FPGA_OFFLOADED_PM_MAX_SIZE) {
+            static uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
+            uint32_t patids_cnt = 0; // real, direction-relevant pattern IDs count
 
-        if (patids_cnt > 0) {
-            /* Pass pattern IDs to search function using special encoding:
-             * payload pointer contains pattern IDs, payload_len encodes count */
-            SCLogDebug("FPGA prefilter [payload]: using %u precomputed pattern IDs (first=0x%08x)",
-                    patids_cnt, patids[0]);
-            (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+            bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+            for (uint32_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
+                // to determine if the PID is valid for this prefilter or PktStream
+                if (patids_ptr[i] && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN)) {
+                    uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_PAYLOAD_FN;
+                    bool pat_toserver = (adjusted_pid & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
+
+                    if (SGH_REVERSE_MATCHING_ENABLED == false || pat_toserver == pkt_toserver) {
+                        // only consider patterns from same direction as the packet or if it is not enabled
+                        adjusted_pid &= ~PREFILTER_PKT_TOSERVER_DIR; // reset the bit, even if reverse matching is disabled
+                        patids[patids_cnt++] = adjusted_pid;
+                    }
+                }
+            }
+
+            if (patids_cnt > 0) {
+                (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     (uint8_t *)patids, UINT32_MAX - patids_cnt);
-        } else {
-            SCLogDebug("FPGA prefilter [payload]: no payload patterns for this direction, skipping");
+            }
+            return;
         }
-        return;
     }
 
-full_mpm_search:
+full_scan:
     (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
             &det_ctx->mtc, &det_ctx->pmq,
             p->payload, p->payload_len);
@@ -262,6 +269,11 @@ int PrefilterPktPayloadRegister(DetectEngineCtx *de_ctx,
         FatalError("Could not find dpdk.fpga-offload-patid-capacity in config file. Specify if you want to enable it.");
     }
     FPGA_OFFLOADED_PM_MAX_SIZE = (uint8_t)fpga_offload_max_patid_capacity;
+
+    if (FPGA_OFFLOADED_PM && FPGA_OFFLOADED_PM_MAX_SIZE > MATCHED_SIDS_ARR_LEN_THRESH) {
+        FatalError("dpdk.fpga-offload-patid-capacity value %d exceeds max threshold %d",
+            FPGA_OFFLOADED_PM_MAX_SIZE, MATCHED_SIDS_ARR_LEN_THRESH);
+    }
 
     int fpga_offload_pktstream_mpm = false;
     if (FPGA_OFFLOADED_PM && ConfGetBool("dpdk.fpga-offload-pktstream-mpm", &fpga_offload_pktstream_mpm) == 0) {

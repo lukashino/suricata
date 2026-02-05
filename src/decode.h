@@ -458,7 +458,7 @@ struct PacketL4 {
 
 // Maximum number of pattern IDs that can be stored from FPGA prefilter
 // This should match the sender's max-mpm-pattern-ids configuration
-#define MATCHED_SIDS_ARR_LEN_THRESH 64
+#define MATCHED_SIDS_ARR_LEN_THRESH 16
 /* the pattern ID is valid in PrefilterPktPayload function */
 #define PREFILTER_PKT_PAYLOAD_FN BIT_U32(31)
 // when set, it is the results of toserver MPM, otherwise toclient MPM
@@ -584,14 +584,10 @@ typedef struct Packet_
     uint8_t *payload;
     uint16_t payload_len;
 
-    /* Precomputed pattern IDs from FPGA/sender (for evaluator mode).
-     * These are extracted from the custom header prepended by the sender. */
-    uint32_t fpga_prefilter_pids[MATCHED_SIDS_ARR_LEN_THRESH];
+    /* Pointer to precomputed pattern IDs from FPGA/sender (for evaluator mode).
+     * Points into the original mbuf data (before adjustment). Valid until packet release. */
+    uint32_t *fpga_prefilter_pids_ptr;
     uint8_t fpga_prefilter_pids_cnt;
-    /** Set to true if precomputed pattern IDs are available from FPGA/sender.
-     *  If true and fpga_prefilter_pids[0] == UINT32_MAX, it indicates overflow
-     *  and full MPM search should be performed. */
-    bool has_precomputed_patterns;
 
     /* IPS action to take */
     uint8_t action;

@@ -461,7 +461,7 @@ static inline Packet *PacketInitFromMbuf(DPDKThreadVars *ptv, struct rte_mbuf *m
 }
 
 /**
- * \brief Parse FPGA prefilter header from packet and extract pattern IDs
+ * \brief Parse FPGA prefilter header from packet and store pointer to pattern IDs
  *
  * The sender prepends a custom header before the Ethernet frame:
  * | RESERVED (1B) | PATIDs_LEN (2B) | PATID_SIZE (1B) | [PAT_ID (4B)]... | Original Ethernet Header
@@ -471,7 +471,7 @@ static inline Packet *PacketInitFromMbuf(DPDKThreadVars *ptv, struct rte_mbuf *m
  * PATID_SIZE: Always 4 - size of each pattern ID in bytes
  * PAT_ID[]: Little-endian uint32_t pattern IDs with flags in upper bits
  *
- * \param p Packet to populate with pattern IDs
+ * \param p Packet to populate with pointer to pattern IDs
  * \param mbuf The mbuf containing the packet data
  * \return Number of bytes to skip (header size), or 0 if no header present
  */
@@ -481,7 +481,7 @@ static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf
     uint8_t *pkt_data = rte_pktmbuf_mtod(mbuf, uint8_t *);
 
     /* Initialize to no precomputed patterns */
-    p->has_precomputed_patterns = false;
+    p->fpga_prefilter_pids_ptr = NULL;
     p->fpga_prefilter_pids_cnt = 0;
 
     /* Need at least 4 bytes for the header */
@@ -500,46 +500,22 @@ static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf
 
     /* Validate header size doesn't exceed packet length */
     if (header_size > pkt_len) {
-        SCLogWarning("FPGA prefilter header size (%u) exceeds packet length (%u)",
+        FatalError("FPGA prefilter header size (%u) exceeds packet length (%u)",
                 header_size, pkt_len);
         return 0;
     }
 
-    uint32_t num_patterns = patids_len / 4;
-    p->has_precomputed_patterns = true;
+    uint8_t num_patterns = patids_len / 4;
 
-    /* Handle no patterns case */
-    if (num_patterns == 0) {
-        p->fpga_prefilter_pids_cnt = 0;
-        SCLogDebug("FPGA prefilter: header found, 0 pattern IDs (no matches from sender)");
-        return header_size;
+    if (num_patterns != 0) {
+        /* Store pointer to pattern IDs (points into mbuf, valid until mbuf is freed).
+         * The pointer remains valid even after rte_pktmbuf_adj since that only
+         * moves the data offset, doesn't free memory. */
+        p->fpga_prefilter_pids_ptr = (uint32_t *)(pkt_data + 4);
+        p->fpga_prefilter_pids_cnt = num_patterns;
     }
 
-    /* Get pointer to pattern IDs (little-endian uint32_t array) */
-    uint32_t *pattern_ids = (uint32_t *)(pkt_data + 4);
-
-    /* Check for overflow marker: single pattern ID = UINT32_MAX */
-    if (num_patterns == 1 && pattern_ids[0] == UINT32_MAX) {
-        /* Store the overflow marker - detection code will fall back to full MPM */
-        p->fpga_prefilter_pids[0] = UINT32_MAX;
-        p->fpga_prefilter_pids_cnt = 1;
-        SCLogDebug("FPGA prefilter: header found with OVERFLOW marker (too many patterns)");
-        return header_size;
-    }
-
-    /* Copy pattern IDs to packet structure */
-    uint8_t copy_count = (num_patterns > MATCHED_SIDS_ARR_LEN_THRESH)
-                                 ? MATCHED_SIDS_ARR_LEN_THRESH
-                                 : (uint8_t)num_patterns;
-
-    for (uint8_t i = 0; i < copy_count; i++) {
-        p->fpga_prefilter_pids[i] = pattern_ids[i];
-    }
-    p->fpga_prefilter_pids_cnt = copy_count;
-
-    SCLogDebug("FPGA prefilter: header found with %u pattern IDs: [0]=0x%08x%s",
-            copy_count, pattern_ids[0],
-            copy_count > 1 ? " ..." : "");
+    SCLogDebug("FPGA prefilter: header found with %u pattern IDs", num_patterns);
 
     return header_size;
 }
