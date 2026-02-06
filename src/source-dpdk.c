@@ -357,6 +357,12 @@ static void DPDKReleasePacket(Packet *p)
                      p->matched_pids_cnt, prepend_size);
     }
 
+    printf("\n");
+    for (uint32_t i = 0; i < prepend_size; i++) {
+        printf("%02x ", prepend_ptr[i]);
+    }
+    printf("\n");
+
 
     /* Need to be in copy mode and need to detect early release
        where Ethernet header could not be set (and pseudo packet)

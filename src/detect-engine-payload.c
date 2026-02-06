@@ -141,7 +141,23 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                 }
             }
             PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
-            SCLogNotice("PrefilterPktStream: %s matched %u bufferlength %u", p->flags & PKT_PROFILE ? "rvrs_direction" : "orig_direction", det_ctx->pmq.rule_id_array_cnt - pre_matches, p->payload_len);
+
+            char direction_str[16];
+            if (p->flowflags & FLOW_PKT_TOSERVER) {
+                if (p->flags & PKT_PROFILE) {
+                    snprintf(direction_str, sizeof(direction_str), "to_client");
+                } else {
+                    snprintf(direction_str, sizeof(direction_str), "to_server");
+                }
+            } else {
+                if (p->flags & PKT_PROFILE) {
+                    snprintf(direction_str, sizeof(direction_str), "to_server");
+                } else {
+                    snprintf(direction_str, sizeof(direction_str), "to_client");
+                }
+            }
+
+            SCLogNotice("PrefilterPktStream: %s (%s) matched %u bufferlength %u", p->flags & PKT_PROFILE ? "rvrs_direction" : "orig_direction", direction_str, det_ctx->pmq.rule_id_array_cnt - pre_matches, p->payload_len);
         }
     }
 }
@@ -194,8 +210,23 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
         }
     }
 
+    char direction_str[16];
+    if (p->flowflags & FLOW_PKT_TOSERVER) {
+        if (p->flags & PKT_PROFILE) {
+            snprintf(direction_str, sizeof(direction_str), "to_client");
+        } else {
+            snprintf(direction_str, sizeof(direction_str), "to_server");
+        }
+    } else {
+        if (p->flags & PKT_PROFILE) {
+            snprintf(direction_str, sizeof(direction_str), "to_server");
+        } else {
+            snprintf(direction_str, sizeof(direction_str), "to_client");
+        }
+    }
+
     PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
-    SCLogNotice("PrefilterPktPayload: %s matched %u bufferlength %u", p->flags & PKT_PROFILE ? "rvrs_direction" : "orig_direction", det_ctx->pmq.rule_id_array_cnt - pre_matches, p->payload_len);
+    SCLogNotice("PrefilterPktPayload: %s (%s) matched %u bufferlength %u", p->flags & PKT_PROFILE ? "rvrs_direction" : "orig_direction", direction_str, det_ctx->pmq.rule_id_array_cnt - pre_matches, p->payload_len);
 }
 
 int PrefilterPktPayloadRegister(DetectEngineCtx *de_ctx,
