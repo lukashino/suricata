@@ -120,7 +120,7 @@ static void DPDKDerefConfig(void *conf);
 #define DPDK_CONFIG_DEFAULT_VLAN_STRIP                  0
 #define DPDK_CONFIG_DEFAULT_COPY_MODE                   "none"
 #define DPDK_CONFIG_DEFAULT_COPY_INTERFACE              "none"
-#define DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS         12
+#define DPDK_CONFIG_DEFAULT_MAX_MPM_PATTERN_IDS         MATCHED_PIDS_ARR_LEN_THRESH
 
 DPDKIfaceConfigAttributes dpdk_yaml = {
     .threads = "threads",

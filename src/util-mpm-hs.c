@@ -896,24 +896,26 @@ static int SCHSMatchEvent(unsigned int id, unsigned long long from,
     const PatternDatabase *pd = cctx->ctx->pattern_db;
     const SCHSPattern *pat = pd->parray[id];
 
-    bool duplicate = false;
-    for (uint32_t i = 0; i < cctx->pids_count; i++) {
-        if (cctx->pids[i] == id) {
-            duplicate = true;
-            break;
+    if (cctx->pids[0] != UINT32_MAX) {
+        bool duplicate = false;
+        for (uint32_t i = 0; i < cctx->pids_count; i++) {
+            if (cctx->pids[i] == id) {
+                duplicate = true;
+                break;
+            }
         }
-    }
-
-    if (!duplicate) {
-        if (cctx->pids_count + 1 > g_max_mpm_pattern_ids) {
-            cctx->pids[0] = UINT32_MAX;
-            cctx->pids_count = 1;
-        }
-        if (cctx->pids[0] != UINT32_MAX) {
-            cctx->pids[cctx->pids_count++] = id;
-        }
-    }
     
+        if (!duplicate) {
+            if (cctx->pids_count + 1 > g_max_mpm_pattern_ids) {
+                cctx->pids[0] = UINT32_MAX;
+                cctx->pids_count = 1;
+            }
+            if (cctx->pids[0] != UINT32_MAX) {
+                cctx->pids[cctx->pids_count++] = id;
+                SCLogNotice("Matched pattern id %u (pattern: %s)", id, pat->original_pat);
+            }
+        }
+    }
 
     SCLogDebug("Hyperscan Match %" PRIu32 ": id=%" PRIu32 " @ %" PRIuMAX
                " (pat id=%" PRIu32 ")",

@@ -95,7 +95,7 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
 #include <numa.h>
 
 /* Global runtime limit for pattern IDs - defaults to 12 (can be configured up to MATCHED_PIDS_ARR_LEN_THRESH) */
-uint32_t g_max_mpm_pattern_ids = 12;
+uint32_t g_max_mpm_pattern_ids = MATCHED_PIDS_ARR_LEN_THRESH;
 
 #define BURST_SIZE 32
 // interrupt mode constants
@@ -326,7 +326,11 @@ static void DPDKReleasePacket(Packet *p)
     /* Calculate space needed for pattern ID header:
      * 1 byte RESERVED (0xff) + 2 bytes PATIDs_LEN + 1 byte PATID_SIZE + N*4 bytes pattern IDs
      */
-    uint16_t pattern_ids_bytes = p->matched_pids_cnt * sizeof(uint32_t);
+    uint16_t pattern_ids_cnt = p->matched_pids_cnt;
+    if (p->matched_pids[0] == UINT32_MAX) {
+        pattern_ids_cnt = 1;
+    }
+    uint16_t pattern_ids_bytes = pattern_ids_cnt * sizeof(uint32_t);
     uint16_t header_size = 4; /* RESERVED + PATIDs_LEN + PATID_SIZE */
     uint16_t prepend_size = header_size + pattern_ids_bytes;
 
@@ -336,14 +340,14 @@ static void DPDKReleasePacket(Packet *p)
     if (prepend_ptr != NULL) {
         /* Successfully prepended - write the header */
         prepend_ptr[0] = 0xff; /* RESERVED marker */
-        /* PATIDs_LEN: 2 bytes, big-endian for network order */
-        prepend_ptr[1] = (pattern_ids_bytes >> 8) & 0xff;
-        prepend_ptr[2] = pattern_ids_bytes & 0xff;
+        /* PATIDs_LEN: 2 bytes */
+        uint16_t *patids_len_ptr = (uint16_t *)(prepend_ptr + 1);
+        *patids_len_ptr = pattern_ids_bytes;
         prepend_ptr[3] = sizeof(uint32_t); /* PATID_SIZE = 4 bytes */
 
         /* Write pattern IDs after the header */
         uint32_t *pattern_ids_ptr = (uint32_t *)(prepend_ptr + header_size);
-        for (uint32_t i = 0; i < p->matched_pids_cnt; i++) {
+        for (uint32_t i = 0; i < pattern_ids_cnt; i++) {
             pattern_ids_ptr[i] = p->matched_pids[i];
         }
     } else {

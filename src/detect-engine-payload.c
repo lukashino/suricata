@@ -132,6 +132,10 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                         } else {
                             p->matched_pids[p->matched_pids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
                         }
+                        // reverse the direction if PKT_PROFILE is set, because it means the packet is reversed
+                        if (p->flags & PKT_PROFILE) {
+                            p->matched_pids[p->matched_pids_cnt] ^= PREFILTER_PKT_TOSERVER_DIR;
+                        }
                         p->matched_pids_cnt++;
                     }
                 }
@@ -181,6 +185,10 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
                 p->matched_pids[p->matched_pids_cnt] |= PREFILTER_PKT_TOSERVER_DIR;
             } else {
                 p->matched_pids[p->matched_pids_cnt] &= ~ PREFILTER_PKT_TOSERVER_DIR;
+            }
+            // reverse the direction if PKT_PROFILE is set, because it means the packet is reversed
+            if (p->flags & PKT_PROFILE) {
+                p->matched_pids[p->matched_pids_cnt] ^= PREFILTER_PKT_TOSERVER_DIR;
             }
             p->matched_pids_cnt++;
         }
