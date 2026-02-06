@@ -87,6 +87,25 @@ static int StreamMpmFunc(
     return 0;
 }
 
+static inline void DebugPrintPacket(const Packet *p)
+{
+    char srcip[46], dstip[46];
+    
+    if (PacketIsIPv4(p)) {
+        PrintInet(AF_INET, (const void *)GET_IPV4_SRC_ADDR_PTR(p), srcip, sizeof(srcip));
+        PrintInet(AF_INET, (const void *)GET_IPV4_DST_ADDR_PTR(p), dstip, sizeof(dstip));
+    } else if (PacketIsIPv6(p)) {
+        PrintInet(AF_INET6, (const void *)GET_IPV6_SRC_ADDR(p), srcip, sizeof(srcip));
+        PrintInet(AF_INET6, (const void *)GET_IPV6_DST_ADDR(p), dstip, sizeof(dstip));
+    } else {
+        SCLogDebug("Packet: non-IP");
+        return;
+    }
+    
+    // const char *proto = p->proto ? "TCP" : PKT_IS_UDP(p) ? "UDP" : "?";
+    SCLogNotice("Packet: %u %s:%u -> %s:%u len=%u", p->proto, srcip, p->sp, dstip, p->dp, GET_PKT_LEN(p));
+}
+
 static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
         Packet *p, const void *pectx)
 {
