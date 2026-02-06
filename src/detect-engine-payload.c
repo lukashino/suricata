@@ -51,6 +51,7 @@
 #include "util-mpm-ac.h"
 
 bool FPGA_OFFLOADED_PM = false;
+bool FPGA_VERIFY_OFFLOADED_PM = false;
 bool FPGA_OFFLOADED_PM_PKTSTREAM_MPM = false;
 // determines on how much pattern IDs we can transfer from FPGA to Suricata
 // some special handlng is involved - if:
@@ -172,6 +173,109 @@ stream_full_scan:
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
             PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
+
+            if (FPGA_VERIFY_OFFLOADED_PM && FPGA_OFFLOADED_PM_PKTSTREAM_MPM && p->dpdk_v.mbuf != NULL) {
+                PrefilterRuleStore pmq_mpm, pmq_fpga;
+                PmqSetup(&pmq_mpm);
+                PmqSetup(&pmq_fpga);
+
+                // software MPM matching
+                (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+                    &det_ctx->mtc, &pmq_mpm,
+                    p->payload, p->payload_len);
+
+                if (pmq_mpm.rule_id_array_cnt == 0 && p->fpga_prefilter_pids_cnt == 0) {
+                    PmqFree(&pmq_mpm);
+                    PmqFree(&pmq_fpga);
+                    return;
+                } else if (pmq_mpm.rule_id_array_cnt != 0 && (p->fpga_prefilter_pids_ptr == NULL || p->fpga_prefilter_pids_cnt == 0)) {
+                    FatalError("FPGA_VERIFY_OFFLOADED_PM mismatch: software MPM matched %" PRIu32
+                        " patterns but FPGA offloaded patterns matched %" PRIu32 " patterns",
+                        pmq_mpm.rule_id_array_cnt, p->fpga_prefilter_pids_cnt);
+                }
+
+                if (p->fpga_prefilter_pids_ptr[0] == UINT32_MAX) {
+                    PmqFree(&pmq_mpm);
+                    PmqFree(&pmq_fpga);
+                    return;
+                }
+
+
+                uint32_t *patids_ptr = p->fpga_prefilter_pids_ptr;
+                uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = { 0 };
+                uint32_t patids_cnt = 0;
+                bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+                for (uint32_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
+                    // to determine if the PID is valid for this prefilter or PktStream
+                    if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN) == 0) {
+                        // the top bit (PREFILTER_PKT_PAYLOAD_FN) is not set to indicate that this is a stream pattern
+                        bool pat_toserver = (patids_ptr[i] & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
+                        if (pat_toserver == pkt_toserver) {
+                            // only consider patterns from same direction as the packet
+                            uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_TOSERVER_DIR;
+                            patids[patids_cnt++] = adjusted_pid;
+                        }
+                    }
+                }
+
+                if (patids_cnt > 0) {
+                    (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+                        &det_ctx->mtc, &pmq_fpga,
+                        (uint8_t *)patids, UINT32_MAX - patids_cnt);
+                }
+
+                // both PMQ should be made unique, implement directly
+                for (int i = 0; i < pmq_mpm.rule_id_array_cnt; i++) {
+                    for (int j = i + 1; j < pmq_mpm.rule_id_array_cnt; j++) {
+                        if (pmq_mpm.rule_id_array[i] == pmq_mpm.rule_id_array[j]) {
+                            // remove duplicate
+                            for (int k = j; k < pmq_mpm.rule_id_array_cnt - 1; k++) {
+                                pmq_mpm.rule_id_array[k] = pmq_mpm.rule_id_array[k + 1];
+                            }
+                            pmq_mpm.rule_id_array_cnt--;
+                            j--;
+                        }
+                    }
+                }
+
+                for (int i = 0; i < pmq_fpga.rule_id_array_cnt; i++) {
+                    for (int j = i + 1; j < pmq_fpga.rule_id_array_cnt; j++) {
+                        if (pmq_fpga.rule_id_array[i] == pmq_fpga.rule_id_array[j]) {
+                            // remove duplicate
+                            for (int k = j; k < pmq_fpga.rule_id_array_cnt - 1; k++) {
+                                pmq_fpga.rule_id_array[k] = pmq_fpga.rule_id_array[k + 1];
+                            }
+                            pmq_fpga.rule_id_array_cnt--;
+                            j--;
+                        }
+                    }
+                }
+
+                // compare counts first
+                if (pmq_mpm.rule_id_array_cnt != pmq_fpga.rule_id_array_cnt) {
+                    FatalError("FPGA_VERIFY_OFFLOADED_PM mismatch: software MPM matched %" PRIu32
+                        " patterns but FPGA offloaded patterns matched %" PRIu32 " patterns",
+                        pmq_mpm.rule_id_array_cnt, pmq_fpga.rule_id_array_cnt);
+                }
+
+                for (int i = 0; i < pmq_mpm.rule_id_array_cnt; i++) {
+                    bool found = false;
+                    for (int j = 0; j < pmq_fpga.rule_id_array_cnt; j++) {
+                        if (pmq_mpm.rule_id_array[i] == pmq_fpga.rule_id_array[j]) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        FatalError("FPGA_VERIFY_OFFLOADED_PM mismatch: pattern id %" PRIu32
+                        " matched in software MPM but not in FPGA offloaded patterns",
+                        pmq_mpm.rule_id_array[i]);
+                    }
+                }
+
+                PmqFree(&pmq_mpm);
+                PmqFree(&pmq_fpga);
+            }
         }
     }
 }
@@ -252,6 +356,111 @@ full_scan:
             p->payload, p->payload_len);
 
     PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
+
+    if (FPGA_VERIFY_OFFLOADED_PM && FPGA_OFFLOADED_PM_PKTSTREAM_MPM && p->dpdk_v.mbuf != NULL) {
+        PrefilterRuleStore pmq_mpm, pmq_fpga;
+        PmqSetup(&pmq_mpm);
+        PmqSetup(&pmq_fpga);
+
+        // software MPM matching
+        (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+            &det_ctx->mtc, &pmq_mpm,
+            p->payload, p->payload_len);
+
+
+        uint32_t *patids_ptr = p->fpga_prefilter_pids_ptr;
+        uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = { 0 };
+        uint32_t patids_cnt = 0;
+        bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
+
+        if (pmq_mpm.rule_id_array_cnt == 0 && p->fpga_prefilter_pids_cnt == 0) {
+            PmqFree(&pmq_mpm);
+            PmqFree(&pmq_fpga);
+            return;
+        } else if (pmq_mpm.rule_id_array_cnt != 0 && (p->fpga_prefilter_pids_ptr == NULL || p->fpga_prefilter_pids_cnt == 0)) {
+            FatalError("FPGA_VERIFY_OFFLOADED_PM mismatch: software MPM matched %" PRIu32
+                " patterns but FPGA offloaded patterns matched %" PRIu32 " patterns",
+                pmq_mpm.rule_id_array_cnt, p->fpga_prefilter_pids_cnt);
+        }
+
+        if (p->fpga_prefilter_pids_ptr[0] == UINT32_MAX) {
+            PmqFree(&pmq_mpm);
+            PmqFree(&pmq_fpga);
+            return;
+        }
+
+        for (uint32_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
+            // to determine if the PID is valid for this prefilter or PktStream
+            if (patids_ptr[i] != 0 && (patids_ptr[i] & PREFILTER_PKT_PAYLOAD_FN)) {
+                // the top bit (PREFILTER_PKT_PAYLOAD_FN) is set to indicate that this is a packet payload pattern
+                uint32_t adjusted_pid = patids_ptr[i] & ~PREFILTER_PKT_PAYLOAD_FN;
+                bool pat_toserver = (patids_ptr[i] & PREFILTER_PKT_TOSERVER_DIR) == PREFILTER_PKT_TOSERVER_DIR; // pattern a result of to_server direction mpm sgh
+                if (pat_toserver == pkt_toserver) {
+                    // only consider patterns from same direction as the packet
+                    adjusted_pid &= ~PREFILTER_PKT_TOSERVER_DIR;
+                    patids[patids_cnt++] = adjusted_pid;
+                }
+            }
+        }
+
+        if (patids_cnt > 0) {
+            (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
+                &det_ctx->mtc, &pmq_fpga,
+                (uint8_t *)patids, UINT32_MAX - patids_cnt);
+        }
+
+        // both PMQ should be made unique, implement directly
+        for (int i = 0; i < pmq_mpm.rule_id_array_cnt; i++) {
+            for (int j = i + 1; j < pmq_mpm.rule_id_array_cnt; j++) {
+                if (pmq_mpm.rule_id_array[i] == pmq_mpm.rule_id_array[j]) {
+                    // remove duplicate
+                    for (int k = j; k < pmq_mpm.rule_id_array_cnt - 1; k++) {
+                        pmq_mpm.rule_id_array[k] = pmq_mpm.rule_id_array[k + 1];
+                    }
+                    pmq_mpm.rule_id_array_cnt--;
+                    j--;
+                }
+            }
+        }
+
+        for (int i = 0; i < pmq_fpga.rule_id_array_cnt; i++) {
+            for (int j = i + 1; j < pmq_fpga.rule_id_array_cnt; j++) {
+                if (pmq_fpga.rule_id_array[i] == pmq_fpga.rule_id_array[j]) {
+                    // remove duplicate
+                    for (int k = j; k < pmq_fpga.rule_id_array_cnt - 1; k++) {
+                        pmq_fpga.rule_id_array[k] = pmq_fpga.rule_id_array[k + 1];
+                    }
+                    pmq_fpga.rule_id_array_cnt--;
+                    j--;
+                }
+            }
+        }
+
+        // compare counts first
+        if (pmq_mpm.rule_id_array_cnt != pmq_fpga.rule_id_array_cnt) {
+            FatalError("FPGA_VERIFY_OFFLOADED_PM mismatch: software MPM matched %" PRIu32
+                " patterns but FPGA offloaded patterns matched %" PRIu32 " patterns",
+                pmq_mpm.rule_id_array_cnt, pmq_fpga.rule_id_array_cnt);
+        }
+
+        for (int i = 0; i < pmq_mpm.rule_id_array_cnt; i++) {
+            bool found = false;
+            for (int j = 0; j < pmq_fpga.rule_id_array_cnt; j++) {
+                if (pmq_mpm.rule_id_array[i] == pmq_fpga.rule_id_array[j]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                FatalError("FPGA_VERIFY_OFFLOADED_PM mismatch: pattern id %" PRIu32
+                " matched in software MPM but not in FPGA offloaded patterns",
+                pmq_mpm.rule_id_array[i]);
+            }
+        }
+
+        PmqFree(&pmq_mpm);
+        PmqFree(&pmq_fpga);
+    }
 }
 
 int PrefilterPktPayloadRegister(DetectEngineCtx *de_ctx,
@@ -264,28 +473,40 @@ int PrefilterPktPayloadRegister(DetectEngineCtx *de_ctx,
 
     FPGA_OFFLOADED_PM = (bool)fpga_offload_enabled;
 
+    int fpga_verify_offload_enabled;
+    if (ConfGetBool("dpdk.fpga-verify-offloaded", &fpga_verify_offload_enabled) == 0) {
+        FatalError("Could not find dpdk.fpga-verify-offloaded in config file. Specify if you want to enable it.");
+    }
+
+    FPGA_VERIFY_OFFLOADED_PM = (bool)fpga_verify_offload_enabled;
+
     intmax_t fpga_offload_max_patid_capacity = MATCHED_SIDS_ARR_LEN_THRESH;
-    if (FPGA_OFFLOADED_PM && ConfGetInt("dpdk.fpga-offload-patid-capacity", &fpga_offload_max_patid_capacity) == 0) {
+    if ((FPGA_OFFLOADED_PM || FPGA_VERIFY_OFFLOADED_PM) && ConfGetInt("dpdk.fpga-offload-patid-capacity", &fpga_offload_max_patid_capacity) == 0) {
         FatalError("Could not find dpdk.fpga-offload-patid-capacity in config file. Specify if you want to enable it.");
     }
     FPGA_OFFLOADED_PM_MAX_SIZE = (uint8_t)fpga_offload_max_patid_capacity;
 
-    if (FPGA_OFFLOADED_PM && FPGA_OFFLOADED_PM_MAX_SIZE > MATCHED_SIDS_ARR_LEN_THRESH) {
+    if ((FPGA_OFFLOADED_PM || FPGA_VERIFY_OFFLOADED_PM) && FPGA_OFFLOADED_PM_MAX_SIZE > MATCHED_SIDS_ARR_LEN_THRESH) {
         FatalError("dpdk.fpga-offload-patid-capacity value %d exceeds max threshold %d",
             FPGA_OFFLOADED_PM_MAX_SIZE, MATCHED_SIDS_ARR_LEN_THRESH);
     }
 
     int fpga_offload_pktstream_mpm = false;
-    if (FPGA_OFFLOADED_PM && ConfGetBool("dpdk.fpga-offload-pktstream-mpm", &fpga_offload_pktstream_mpm) == 0) {
+    if ((FPGA_OFFLOADED_PM || FPGA_VERIFY_OFFLOADED_PM) && ConfGetBool("dpdk.fpga-offload-pktstream-mpm", &fpga_offload_pktstream_mpm) == 0) {
         FatalError("Could not find dpdk.fpga-offload-pktstream-mpm in config file. Specify if you want to enable it.");
     }
     FPGA_OFFLOADED_PM_PKTSTREAM_MPM = (bool)fpga_offload_pktstream_mpm;
 
     int detect_sgh_reverse_matching;
-    if (FPGA_OFFLOADED_PM && ConfGetBool("detect.sgh-reverse-matching", &detect_sgh_reverse_matching) == 0) {
+    if ((FPGA_OFFLOADED_PM || FPGA_VERIFY_OFFLOADED_PM) && ConfGetBool("detect.sgh-reverse-matching", &detect_sgh_reverse_matching) == 0) {
         FatalError("Could not find detect.sgh-reverse-matching in config file. Specify if you want to enable it.");
     }
     SGH_REVERSE_MATCHING_ENABLED = (bool)detect_sgh_reverse_matching;
+
+    if (FPGA_VERIFY_OFFLOADED_PM && (!SGH_REVERSE_MATCHING_ENABLED || FPGA_OFFLOADED_PM)) {
+        FatalError("dpdk.fpga-verify-offloaded cannot be enabled when dpdk.fpga-offloaded is enabled or when detect.sgh-reverse-matching is disabled");
+    }
+
 
     return PrefilterAppendPayloadEngine(de_ctx, sgh,
             PrefilterPktPayload, mpm_ctx, NULL, "payload");

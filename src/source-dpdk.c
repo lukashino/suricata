@@ -494,8 +494,9 @@ static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf
         return 0;
     }
 
-    /* Parse PATIDs_LEN (big-endian) */
-    uint16_t patids_len = ((uint16_t)pkt_data[1] << 8) | pkt_data[2];
+    /* Parse PATIDs_LEN */
+    uint16_t *patids_len_ptr = (uint16_t *)(pkt_data + 1);
+    uint16_t patids_len = *patids_len_ptr;
     uint16_t header_size = 4 + patids_len;
 
     /* Validate header size doesn't exceed packet length */
@@ -516,6 +517,9 @@ static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf
     }
 
     SCLogDebug("FPGA prefilter: header found with %u pattern IDs", num_patterns);
+    for (int i = 0; i < num_patterns; i++) {
+        SCLogDebug("Pattern ID %u (raw %u) %s direction, %s context", ~0xC0000000 & p->fpga_prefilter_pids_ptr[i], p->fpga_prefilter_pids_ptr[i], p->fpga_prefilter_pids_ptr[i] & BIT_U32(30) ? "server": "client", p->fpga_prefilter_pids_ptr[i] & BIT_U32(31) ? "payload": "stream");
+    }
 
     return header_size;
 }

@@ -898,6 +898,7 @@ static int SCHSMatchEvent(unsigned int id, unsigned long long from,
                " (pat id=%" PRIu32 ")",
                cctx->match_count, (uint32_t)id, (uintmax_t)to, pat->id);
 
+    SCLogDebug("Matched pattern id %u (pattern: %s)", id, pat->original_pat);
     PrefilterAddSids(pmq, pat->sids, pat->sids_size);
 
     cctx->match_count++;
@@ -932,7 +933,7 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         uint32_t pids_cnt = UINT32_MAX - buflen;
         for (uint32_t i = 0; i < pids_cnt; i++) {
             if (pids[i] >= mpm_ctx->pattern_cnt) {
-                // SCLogError("Invalid pattern id %" PRIu32 " in packet", pids[i]);
+                FatalError("Invalid pattern id %" PRIu32 " in packet", pids[i]);
                 continue;
             }
             const SCHSPattern *pat = pd->parray[pids[i]];
