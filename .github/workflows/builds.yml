@@ -3361,7 +3361,7 @@ jobs:
             ./autogen.sh
             ./configure --enable-warnings --enable-unittests
             make -j$(sysctl -n hw.ncpu)
-            ./src/suricata -u -l /tmp/ut -U "ThreadingAffinityTest|PortTestMatchReal"
+            ./src/suricata -u -l /tmp/ -U "ThreadingAffinityTest|PortTestMatchReal"
 
   windows-msys2-mingw64-npcap:
     name: Windows MSYS2 MINGW64 (NPcap)
