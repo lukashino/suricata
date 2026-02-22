@@ -263,6 +263,9 @@ int AffinityBuildCpusetWithCallback(
             }
             b = a;
         }
+        if (b > max) {
+            b = max;
+        }
         for (i = a; i<= b; i++) {
             Callback(i, data);
         }
