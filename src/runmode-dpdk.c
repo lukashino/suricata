@@ -383,16 +383,6 @@ static void ConfigSetIface(DPDKIfaceConfig *iconf, const char *entry_str)
 static int32_t remaining_auto_cpus = -1; // -1 means not initialized
 
 /**
- * \brief Reset the remaining auto-assigned threads count so next call of
- * AutoRemainingThreadsInit() will recalculate the number of remaining
- * auto-assigned threads.
- */
-static void AutoRemainingThreadsReset(void)
-{
-    remaining_auto_cpus = -1;
-}
-
-/**
  * \brief Initialize the number of remaining auto-assigned threads
  */
 static void AutoRemainingThreadsInit(void)
@@ -2010,6 +2000,16 @@ int RunModeIdsDpdkWorkers(void)
 }
 
 #if defined(HAVE_DPDK) && defined(UNITTESTS)
+
+/**
+ * \brief Reset the remaining auto-assigned threads count so next call of
+ * AutoRemainingThreadsInit() will recalculate the number of remaining
+ * auto-assigned threads.
+ */
+static void AutoRemainingThreadsReset(void)
+{
+    remaining_auto_cpus = -1;
+}
 
 static void DPDKRunmodeSetThreadsInit(const char *input, size_t input_len)
 {
