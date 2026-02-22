@@ -3348,7 +3348,7 @@ jobs:
             pkg install -y \
               autoconf \
               automake \
-              cbindgen \
+              rust-cbindgen \
               jansson \
               libpcap \
               libtool \
