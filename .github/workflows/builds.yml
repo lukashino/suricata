@@ -1823,6 +1823,11 @@ jobs:
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
         env:
           LLVM_PROFILE_FILE: "/tmp/dpdk-ips.profraw"
+      # Bond IDS config - expected mempool: (1*16+1*16)*2members=64, per-queue=(64+0)/1-1=63
+      - run: |
+          ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-bond.yaml" "63"
+        env:
+          LLVM_PROFILE_FILE: "/tmp/dpdk-bond.profraw"
       # AF_PACKET tests
       - run: |
           ./.github/workflows/live/afp-ids.sh "2" "autofp"
@@ -2178,6 +2183,9 @@ jobs:
       # IPS config
       - run: |
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
+      # Bond IDS config - expected mempool: (1*16+1*16)*2members=64, per-queue=(64+0)/1-1=63
+      - run: |
+          ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-bond.yaml" "63"
       # AF_PACKET tests
       - run: |
           ./.github/workflows/live/afp-ids.sh "2" "autofp"
@@ -2835,6 +2843,9 @@ jobs:
       # IPS config
       - run: |
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
+      # Bond IDS config - expected mempool: (1*16+1*16)*2members=64, per-queue=(64+0)/1-1=63
+      - run: |
+          ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-bond.yaml" "63"
 
   debian-12:
     name: Debian 12 (xdp)
