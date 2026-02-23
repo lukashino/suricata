@@ -3,24 +3,62 @@
 # Script to test live IDS capabilities for DPDK using DPDK's null interface.
 # Connects over unix socket. Issues a reload. Then shuts suricata down.
 #
-# Usage: dpdk.sh <yaml> [expected_mempool_size]
-#   yaml                  - path to the Suricata YAML config
-#   expected_mempool_size - optional: expected per-queue mempool size to verify
-#                           in the "creating ... packet mempools of size ..." log line
+# Usage: dpdk.sh <yaml> [--expected-mempool-size <size>]
+#   yaml                    - path to the Suricata YAML config
+#   --expected-mempool-size - optional: expected per-queue mempool size to verify
+#                             in the "creating ... packet mempools of size ..." log line
 
 #set -e
 set -x
 
-if [ $# -lt "1" ] || [ $# -gt "2" ]; then
-    echo "ERROR call with 1-2 args: path to yaml to use [expected_mempool_size]"
-    exit 1;
-fi
+YAML=""
+EXPECTED_MP_SIZE=""
 
-YAML=$1
-EXPECTED_MP_SIZE=${2:-}
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --expected-mempool-size)
+            EXPECTED_MP_SIZE="$2"
+            shift 2
+            ;;
+        *)
+            if [ -z "$YAML" ]; then
+                YAML="$1"
+            else
+                echo "ERROR unexpected argument: $1"
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$YAML" ]; then
+    echo "ERROR call with: path-to-yaml [--expected-mempool-size <size>]"
+    exit 1
+fi
 
 # dump some info
 uname -a
+
+# For bonding configs: DPDK <= 22.07 uses "slave=" while >= 22.11 uses "member="
+# in the vdev bonding arguments. Patch the YAML at runtime to match installed DPDK.
+DPDK_YAML="$YAML"
+if grep -q "net_bonding" "$YAML"; then
+    DPDK_VER=$(pkg-config --modversion libdpdk 2>/dev/null || echo "0.0")
+    DPDK_MAJOR=$(echo "$DPDK_VER" | cut -d. -f1)
+    DPDK_MINOR=$(echo "$DPDK_VER" | cut -d. -f2)
+    echo "Detected DPDK version: $DPDK_VER (major=$DPDK_MAJOR minor=$DPDK_MINOR)"
+
+    # Use a temporary patched YAML so we don't modify the original
+    DPDK_YAML=$(mktemp /tmp/dpdk-bond-XXXXXX.yaml)
+    if [ "$DPDK_MAJOR" -lt 22 ] || { [ "$DPDK_MAJOR" -eq 22 ] && [ "$DPDK_MINOR" -lt 11 ]; }; then
+        echo "DPDK < 22.11: using slave= syntax for bonding"
+        sed 's/member=/slave=/g' "$YAML" > "$DPDK_YAML"
+    else
+        echo "DPDK >= 22.11: using member= syntax for bonding"
+        sed 's/slave=/member=/g' "$YAML" > "$DPDK_YAML"
+    fi
+fi
 
 # remove eve.json from previous run
 if [ -f eve.json ]; then
@@ -45,9 +83,9 @@ RES=0
 cp .github/workflows/live/icmp.rules suricata.rules
 
 # Start Suricata, SIGINT after 120 secords. Will close it earlier through
-# the unix socket. Redirect output to log file for optional mempool checks.
+# the unix socket. Redirect output to log file for mempool checks.
 timeout --kill-after=240 --preserve-status 120 \
-    ./src/suricata -c $YAML -l ./ --dpdk -v --set default-rule-path=. > "$SURILOG" 2>&1 &
+    ./src/suricata -c "$DPDK_YAML" -l ./ --dpdk -vvvv --set default-rule-path=. > "$SURILOG" 2>&1 &
 SURIPID=$!
 
 sleep 15
@@ -81,6 +119,11 @@ wait $SURIPID
 
 # dump suricata log for debugging
 cat "$SURILOG"
+
+# clean up temporary YAML if we created one
+if [ "$DPDK_YAML" != "$YAML" ]; then
+    rm -f "$DPDK_YAML"
+fi
 
 # optional: verify expected per-queue mempool size
 if [ -n "$EXPECTED_MP_SIZE" ]; then
