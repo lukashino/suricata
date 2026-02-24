@@ -1823,7 +1823,7 @@ jobs:
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
         env:
           LLVM_PROFILE_FILE: "/tmp/dpdk-ips.profraw"
-      # DPDK mempool/cache configuration checks (IDS + bond)
+      # DPDK configuration checks
       - run: ./.github/workflows/live/dpdk-testsuite.sh
         env:
           LLVM_PROFILE_FILE: "/tmp/dpdk-testsuite.profraw"
@@ -2182,7 +2182,7 @@ jobs:
       # IPS config
       - run: |
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
-      # DPDK mempool/cache configuration checks (IDS + bond)
+      # DPDK configuration checks
       - run: ./.github/workflows/live/dpdk-testsuite.sh
       # AF_PACKET tests
       - run: |
@@ -2841,7 +2841,7 @@ jobs:
       # IPS config
       - run: |
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
-      # DPDK mempool/cache configuration checks (IDS + bond)
+      # DPDK configuration checks
       - run: ./.github/workflows/live/dpdk-testsuite.sh
 
   # debian-12:
