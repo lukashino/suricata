@@ -22,7 +22,7 @@ dpdk:
   interfaces:
     - interface: net_bonding0
       threads: 1
-      mempool-size: auto
+      mempool-size: 1023
       mempool-cache-size: auto
       rx-descriptors: 16
       tx-descriptors: 16

@@ -31,7 +31,7 @@
 
 set -o pipefail
 
-# ── Argument parsing ────────────────────────────────────────────────
+# Argument parsing
 YAML=""
 EXPECT="start"   # "start" or "fail"
 declare -a CFG_SETS=()
@@ -62,7 +62,7 @@ if [ -z "$YAML" ]; then
     exit 1
 fi
 
-# ── DPDK version compatibility (member= / slave=) ──────────────────
+# DPDK version compatibility (member= / slave=)
 DPDK_YAML="$YAML"
 TMPFILES=()
 if grep -q "net_bonding" "$YAML"; then
@@ -73,14 +73,14 @@ if grep -q "net_bonding" "$YAML"; then
     DPDK_YAML=$(mktemp /tmp/dpdk-checklog-XXXXXX.yaml)
     TMPFILES+=("$DPDK_YAML")
 
-    if [ "$DPDK_MAJOR" -lt 22 ] || { [ "$DPDK_MAJOR" -eq 22 ] && [ "$DPDK_MINOR" -lt 11 ]; }; then
+    if [ "$DPDK_MAJOR" -lt 23 ] || { [ "$DPDK_MAJOR" -eq 23 ] && [ "$DPDK_MINOR" -lt 11 ]; }; then
         sed 's/member=/slave=/g' "$YAML" > "$DPDK_YAML"
     else
-        cp "$YAML" "$DPDK_YAML"
+        sed 's/slave=/member=/g' "$YAML" > "$DPDK_YAML"
     fi
 fi
 
-# ── Resolve --cfg-set to Suricata --set arguments ──────────────────
+# Resolve --cfg-set to Suricata --set arguments
 # Build a map: interface-name -> YAML index (0-based).
 # Parses lines like "    - interface: net_null0" from the YAML.
 declare -A IFACE_INDEX=()
@@ -106,7 +106,7 @@ for entry in "${CFG_SETS[@]}"; do
     SURI_SET_ARGS+=(--set "dpdk.interfaces.${suri_idx}.${key_value}")
 done
 
-# ── Run Suricata ────────────────────────────────────────────────────
+# Run Suricata
 SURILOG=$(mktemp /tmp/dpdk-checklog-log-XXXXXX.log)
 TMPFILES+=("$SURILOG")
 trap 'rm -f "${TMPFILES[@]}"' EXIT
@@ -132,17 +132,16 @@ while [ "$ELAPSED" -lt "$TIMEOUT_SEC" ]; do
         break
     fi
     sleep 0.2
-    ELAPSED=$((ELAPSED + 1))  # approximate, ~5 iterations per second
+    ELAPSED=$((ELAPSED + 1))
 done
 
 # Clean up: kill Suricata if still running (engine started or timeout).
 if kill -0 "$SURIPID" 2>/dev/null; then
-    # sudo kill -9 $(pgrep -f suricata) 2>/dev/null || true
     kill "$SURIPID" 2>/dev/null
     wait "$SURIPID" 2>/dev/null || true
 fi
 
-# ── Evaluate results ───────────────────────────────────────────────
+# Evaluate results
 RES=0
 
 echo "=========================================="

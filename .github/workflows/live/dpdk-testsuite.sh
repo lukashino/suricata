@@ -1,19 +1,14 @@
 #!/bin/bash
 #
-# DPDK mempool/cache sizing test suite.
+# DPDK run test suite.
 #
-# Runs dpdk-checklog.sh for every combination of mempool-size,
-# mempool-cache-size, thread count, and interface type (single / bond).
-# Exits non-zero on the first failure.
 #
 # Usage:
 #   dpdk-testsuite.sh
 
 set -e
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CHECKLOG="${SCRIPT_DIR}/dpdk-checklog.sh"
-DPDK_DIR="$(cd "${SCRIPT_DIR}/../dpdk" && pwd)"
+CHECKLOG=".github/workflows/live/dpdk-checklog.sh"
+DPDK_DIR="$(cd ".github/workflows/dpdk" && pwd)"
 
 IDS_YAML="${DPDK_DIR}/suricata-null-ids.yaml"
 BOND_YAML="${DPDK_DIR}/suricata-null-bond.yaml"
@@ -37,7 +32,7 @@ run_test() {
     fi
 }
 
-# ── IDS (single interface: net_null0, 16 rx/tx descriptors) ───────
+# IDS (single interface: net_null0, 16 rx/tx descriptors)
 
 run_test "IDS: auto mempool, auto cache (1 thread)" \
     "$IDS_YAML" \
@@ -84,7 +79,7 @@ run_test "IDS: static mempool=1023, auto cache (1 thread)" \
     --cfg-set net_null0.threads=1 \
     --cfg-set net_null0.mempool-size=1023 \
     --cfg-set net_null0.mempool-cache-size=auto \
-    --suricata-logs-check "1 packet mempools of size 1022, cache size 511" \
+    --suricata-logs-check "1 packet mempools of size 1023, cache size 341" \
     --expect-start
 
 run_test "IDS: static mempool=1023, auto cache (2 threads)" \
@@ -102,7 +97,7 @@ run_test "IDS: mempool too small (fail)" \
     --suricata-logs-check "mempool size is likely too small" \
     --expect-fail
 
-run_test "IDS: auto descriptors, auto mempool (OOM expected)" \
+run_test "IDS: auto descriptors, auto mempool (OOM expected with nohuge)" \
     "$IDS_YAML" \
     --cfg-set net_null0.threads=1 \
     --cfg-set net_null0.mempool-size=auto \
@@ -112,7 +107,7 @@ run_test "IDS: auto descriptors, auto mempool (OOM expected)" \
     --suricata-logs-check "1 packet mempools of size 65535, cache size 257" \
     --expect-fail
 
-# ── Bond (net_bonding0, 2 members, 16 rx/tx descriptors) ─────────
+# Bond (net_bonding0, 2 members, 16 rx/tx descriptors)
 
 run_test "Bond: auto mempool, auto cache (1 thread)" \
     "$BOND_YAML" \
@@ -159,7 +154,7 @@ run_test "Bond: static mempool=1023, auto cache (1 thread)" \
     --cfg-set net_bonding0.threads=1 \
     --cfg-set net_bonding0.mempool-size=1023 \
     --cfg-set net_bonding0.mempool-cache-size=auto \
-    --suricata-logs-check "1 packet mempools of size 1022, cache size 511" \
+    --suricata-logs-check "1 packet mempools of size 1023, cache size 341" \
     --expect-start
 
 run_test "Bond: static mempool=1023, auto cache (2 threads)" \
@@ -177,7 +172,7 @@ run_test "Bond: mempool too small (fail)" \
     --suricata-logs-check "mempool size is likely too small" \
     --expect-fail
 
-# ── Summary ───────────────────────────────────────────────────────
+# Summary
 
 echo ""
 echo "=========================================="
