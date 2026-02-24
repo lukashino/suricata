@@ -1823,6 +1823,10 @@ jobs:
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
         env:
           LLVM_PROFILE_FILE: "/tmp/dpdk-ips.profraw"
+      # DPDK configuration checks
+      - run: ./.github/workflows/live/dpdk-testsuite.sh
+        env:
+          LLVM_PROFILE_FILE: "/tmp/dpdk-testsuite.profraw"
       # AF_PACKET tests
       - run: |
           ./.github/workflows/live/afp-ids.sh "2" "autofp"
@@ -2178,6 +2182,8 @@ jobs:
       # IPS config
       - run: |
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
+      # DPDK configuration checks
+      - run: ./.github/workflows/live/dpdk-testsuite.sh
       # AF_PACKET tests
       - run: |
           ./.github/workflows/live/afp-ids.sh "2" "autofp"
@@ -2835,6 +2841,8 @@ jobs:
       # IPS config
       - run: |
           ./.github/workflows/live/dpdk.sh ".github/workflows/dpdk/suricata-null-ips.yaml"
+      # DPDK configuration checks
+      - run: ./.github/workflows/live/dpdk-testsuite.sh
 
   debian-12:
     name: Debian 12 (xdp)
