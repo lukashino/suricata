@@ -545,7 +545,7 @@ static void MempoolSizeDeviceAdjust(
 {
     if (dev_info != NULL) {
         if (strcmp(dev_info->driver_name, "net_bonding") == 0) {
-            BondingMempoolSizeAdjust(port_id, mp_sz);
+            BondingMempoolSizeAdjust(port_id, dev_info, mp_sz);
         }
     }
 }
