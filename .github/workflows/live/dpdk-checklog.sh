@@ -2,34 +2,47 @@
 #
 # DPDK configuration check script.
 #
-# Starts Suricata with a DPDK config, optionally overriding per-interface
-# settings, and verifies expected log output. Supports both positive tests
-# (Suricata starts) and negative tests (Suricata fails with expected error).
-#
-# Usage:
-#   dpdk-checklog.sh <yaml> [OPTIONS]
-#
-# Options:
-#   --cfg-set <iface>.<key>=<value>   Override a DPDK interface setting.
-#                                     Resolved to --set dpdk.interfaces.<N>.<key>=<value>
-#                                     where <N> is the YAML index of <iface>.
-#   --suricata-logs-check <regex>     Verify regex is found in Suricata log (repeatable).
-#   --expect-start                    Expect Suricata to start successfully (default).
-#   --expect-fail                     Expect Suricata to fail during startup.
-#
-# Examples:
-#   dpdk-checklog.sh suricata-null-ids.yaml \
-#       --cfg-set net_null0.mempool-size=auto \
-#       --cfg-set net_null0.mempool-cache-size=auto \
-#       --suricata-logs-check "mempools of size 31, cache size 1" \
-#       --expect-start
-#
-#   dpdk-checklog.sh suricata-null-ids.yaml \
-#       --cfg-set net_null0.mempool-size=15 \
-#       --suricata-logs-check "mempool size is likely too small" \
-#       --expect-fail
 
 set -o pipefail
+
+usage() {
+    cat <<'EOF'
+Start Suricata with a DPDK config, optionally overriding per-interface
+settings, and verify expected log output. Supports both positive tests
+(Suricata starts) and negative tests (Suricata fails with expected error).
+
+Usage:
+  dpdk-checklog.sh [OPTIONS] <yaml>
+
+Options:
+  --interface-cfg-set <iface>.<key>=<value>
+      Override a DPDK interface setting (repeatable).
+      Resolved to: --set dpdk.interfaces.<N>.<key>=<value>
+      where <N> is the YAML index of <iface>.
+
+  --suricata-log-check-grep <regex>
+      Verify regex is found in the Suricata log (repeatable).
+
+  --expect-start    Expect Suricata to start successfully (default).
+  --expect-fail     Expect Suricata to fail during startup.
+
+  -h, --help        Show this help message.
+
+Examples:
+  dpdk-checklog.sh \
+      --interface-cfg-set net_null0.mempool-size=auto \
+      --interface-cfg-set net_null0.mempool-cache-size=auto \
+      --suricata-log-check-grep "mempools of size 31, cache size 1" \
+      --expect-start \
+      suricata-null-ids.yaml
+
+  dpdk-checklog.sh \
+      --interface-cfg-set net_null0.mempool-size=15 \
+      --suricata-log-check-grep "mempool size is likely too small" \
+      --expect-fail \
+      suricata-null-ids.yaml
+EOF
+}
 
 # Argument parsing
 YAML=""
@@ -39,14 +52,16 @@ declare -a LOG_CHECKS=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --cfg-set)
+        --interface-cfg-set)
             CFG_SETS+=("$2"); shift 2 ;;
-        --suricata-logs-check)
+        --suricata-log-check-grep)
             LOG_CHECKS+=("$2"); shift 2 ;;
         --expect-start)
             EXPECT="start"; shift ;;
         --expect-fail)
             EXPECT="fail"; shift ;;
+        -h|--help)
+            usage; exit 0 ;;
         -*)
             echo "ERROR: unknown option: $1"; exit 1 ;;
         *)
@@ -58,7 +73,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$YAML" ]; then
-    echo "ERROR: call with: dpdk-checklog.sh <yaml> [OPTIONS]"
+    usage
     exit 1
 fi
 
@@ -80,7 +95,7 @@ if grep -q "net_bonding" "$YAML"; then
     fi
 fi
 
-# Resolve --cfg-set to Suricata --set arguments
+# Resolve --interface-cfg-set to Suricata --set arguments
 # Build a map: interface-name -> YAML index (0-based).
 # Parses lines like "    - interface: net_null0" from the YAML.
 declare -A IFACE_INDEX=()
