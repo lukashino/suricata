@@ -64,13 +64,14 @@ fi
 
 # ── DPDK version compatibility (member= / slave=) ──────────────────
 DPDK_YAML="$YAML"
+TMPFILES=()
 if grep -q "net_bonding" "$YAML"; then
     DPDK_VER=$(pkg-config --modversion libdpdk 2>/dev/null || echo "0.0")
     DPDK_MAJOR=$(echo "$DPDK_VER" | cut -d. -f1)
     DPDK_MINOR=$(echo "$DPDK_VER" | cut -d. -f2)
 
     DPDK_YAML=$(mktemp /tmp/dpdk-checklog-XXXXXX.yaml)
-    trap "rm -f '$DPDK_YAML'" EXIT
+    TMPFILES+=("$DPDK_YAML")
 
     if [ "$DPDK_MAJOR" -lt 22 ] || { [ "$DPDK_MAJOR" -eq 22 ] && [ "$DPDK_MINOR" -lt 11 ]; }; then
         sed 's/member=/slave=/g' "$YAML" > "$DPDK_YAML"
@@ -107,7 +108,8 @@ done
 
 # ── Run Suricata ────────────────────────────────────────────────────
 SURILOG=$(mktemp /tmp/dpdk-checklog-log-XXXXXX.log)
-trap "rm -f '$DPDK_YAML' '$SURILOG'" EXIT
+TMPFILES+=("$SURILOG")
+trap 'rm -f "${TMPFILES[@]}"' EXIT
 
 TIMEOUT_SEC=20
 
