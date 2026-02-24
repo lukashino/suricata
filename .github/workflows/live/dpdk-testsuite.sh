@@ -102,7 +102,7 @@ run_test "IDS: auto descriptors, auto mempool (OOM expected with nohuge)" \
     --interface-cfg-set net_null0.rx-descriptors=auto \
     --interface-cfg-set net_null0.tx-descriptors=auto \
     --suricata-log-check-grep "1 packet mempools of size 65535, cache size 257" \
-    --suricata-log-check-grep "Cannot allocate memory" \
+    --suricata-log-check-grep "rte_pktmbuf_pool_create failed" \
     --expect-fail \
     "$IDS_YAML"
 
