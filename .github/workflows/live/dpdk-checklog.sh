@@ -111,19 +111,39 @@ SURILOG=$(mktemp /tmp/dpdk-checklog-log-XXXXXX.log)
 TMPFILES+=("$SURILOG")
 trap 'rm -f "${TMPFILES[@]}"' EXIT
 
-TIMEOUT_SEC=20
+TIMEOUT_SEC=30
 
-timeout --preserve-status "$TIMEOUT_SEC" \
-    ./src/suricata -c "$DPDK_YAML" -S /dev/null -l ./ --dpdk \
-    "${SURI_SET_ARGS[@]}" > "$SURILOG" 2>&1
-SURI_EXIT=$?
+./src/suricata -c "$DPDK_YAML" -S /dev/null -l ./ --dpdk \
+    "${SURI_SET_ARGS[@]}" > "$SURILOG" 2>&1 &
+SURIPID=$!
+
+# Poll: wait for "Engine started" (success) or process exit (failure).
+ENGINE_STARTED=false
+SURI_EXIT=0
+ELAPSED=0
+while [ "$ELAPSED" -lt "$TIMEOUT_SEC" ]; do
+    if grep -q "Engine started" "$SURILOG" 2>/dev/null; then
+        ENGINE_STARTED=true
+        break
+    fi
+    if ! kill -0 "$SURIPID" 2>/dev/null; then
+        wait "$SURIPID"
+        SURI_EXIT=$?
+        break
+    fi
+    sleep 0.2
+    ELAPSED=$((ELAPSED + 1))  # approximate, ~5 iterations per second
+done
+
+# Clean up: kill Suricata if still running (engine started or timeout).
+if kill -0 "$SURIPID" 2>/dev/null; then
+    # sudo kill -9 $(pgrep -f suricata) 2>/dev/null || true
+    kill "$SURIPID" 2>/dev/null
+    wait "$SURIPID" 2>/dev/null || true
+fi
 
 # ── Evaluate results ───────────────────────────────────────────────
 RES=0
-ENGINE_STARTED=false
-if grep -q "Engine started" "$SURILOG"; then
-    ENGINE_STARTED=true
-fi
 
 echo "=========================================="
 echo "  DPDK checklog: $(basename "$YAML")"

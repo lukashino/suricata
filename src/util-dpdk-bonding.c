@@ -108,7 +108,7 @@ static uint16_t BondingMemberDevCountFromDevargs(const struct rte_eth_dev_info *
     if (dev_info->device == NULL)
         return 0;
 
-#if RTE_VERSION >= RTE_VERSION_NUM(24, 11, 0, 0) // TODO: verify guards. 
+#if RTE_VERSION >= RTE_VERSION_NUM(22, 11, 0, 0)
     const struct rte_devargs *da = rte_dev_devargs(dev_info->device);
 #else
     const struct rte_devargs *da = dev_info->device->devargs;

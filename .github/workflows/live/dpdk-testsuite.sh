@@ -25,9 +25,12 @@ run_test() {
     local description="$1"; shift
     echo ""
     echo "=== TEST: ${description} ==="
+    local t0=$SECONDS
     if "$CHECKLOG" "$@"; then
+        echo "  (${description}: $((SECONDS - t0))s)"
         PASS=$((PASS + 1))
     else
+        echo "  (${description}: $((SECONDS - t0))s)"
         FAIL=$((FAIL + 1))
         echo "^^^ FAILED: ${description}"
         exit 1
