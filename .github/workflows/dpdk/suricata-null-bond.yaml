@@ -15,18 +15,17 @@ dpdk:
   eal-params:
     proc-type: primary
     vdev: ["net_null0", "net_null1", "net_bonding0,member=net_null0,member=net_null1,mode=0"]
-    # no-huge:
+    no-huge:
     no-pci:
     m: 256
-    # log-level: "*:notice"
 
   interfaces:
     - interface: net_bonding0
-      threads: 2
+      threads: 1
       mempool-size: auto
       mempool-cache-size: auto
-      rx-descriptors: auto
-      tx-descriptors: auto
+      rx-descriptors: 16
+      tx-descriptors: 16
       copy-mode: none
       copy-iface: none
 
