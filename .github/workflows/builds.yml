@@ -3254,6 +3254,101 @@ jobs:
       - run: suricata-update -V
       - run: suricatasc -h
 
+  debian-13-hs-cache-cross-lib:
+    name: Debian 13 (Hyperscan/Vectorscan cross-library cache test)
+    runs-on: ubuntu-latest
+    container: debian:13
+    needs: [prepare-deps]
+    steps:
+      - name: Cache cargo registry
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry
+
+      - name: Determine number of CPUs
+        run: echo CPUS=$(nproc --all) >> $GITHUB_ENV
+
+      - name: Install dependencies (with Hyperscan)
+        run: |
+          apt update
+          apt -y install \
+              autoconf \
+              automake \
+              build-essential \
+              cargo \
+              git \
+              hwloc \
+              libhwloc-dev \
+              libcap-ng-dev \
+              libcap-ng0 \
+              libjansson-dev \
+              libjansson4 \
+              liblz4-dev \
+              liblzma-dev \
+              libmagic-dev \
+              libnet1-dev \
+              libpcap-dev \
+              libpcre2-dev \
+              libssl-dev \
+              libtool \
+              libyaml-0-2 \
+              libyaml-dev \
+              libhyperscan-dev \
+              make \
+              pkg-config \
+              python3 \
+              python3-yaml \
+              rustc \
+              zlib1g \
+              zlib1g-dev
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - run: git config --global --add safe.directory /__w/suricata/suricata
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: prep
+          path: prep
+      - uses: ./.github/actions/install-cbindgen
+      - run: tar xf prep/suricata-update.tar.gz
+
+      # Phase 1: Build with Hyperscan
+      - run: ./autogen.sh
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-warnings
+      - run: make -j ${{ env.CPUS }}
+      - name: Verify Hyperscan support
+        run: ./src/suricata --build-info | grep -E "Hyperscan support:\s+yes"
+
+      # Phase 2: Create and load caches with Hyperscan
+      - name: "Cross-lib: setup"
+        run: bash .github/workflows/hs-cache/hs-cache-cross-lib-test.sh setup
+      - name: "Cross-lib: create caches (Hyperscan)"
+        run: bash .github/workflows/hs-cache/hs-cache-cross-lib-test.sh hs-create
+      - name: "Cross-lib: reload caches (Hyperscan)"
+        run: bash .github/workflows/hs-cache/hs-cache-cross-lib-test.sh hs-load
+
+      # Phase 3: Swap Hyperscan -> Vectorscan
+      - name: Swap Hyperscan for Vectorscan
+        run: |
+          echo "# Removing Hyperscan..."
+          apt -y remove libhyperscan-dev libhyperscan5
+          echo "# Installing Vectorscan..."
+          apt -y install libvectorscan-dev
+          echo "# Swap complete. Installed HS-compat library:"
+          dpkg -l | grep -E 'lib(hyperscan|vectorscan)' || true
+
+      # Phase 4: Rebuild with Vectorscan
+      - run: make clean
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-warnings
+      - run: make -j ${{ env.CPUS }}
+      - name: Verify Hyperscan support (via Vectorscan)
+        run: ./src/suricata --build-info | grep -E "Hyperscan support:\s+yes"
+
+      # Phase 5: Test cross-library cache compatibility, then reload
+      - name: "Cross-lib: crossload (Vectorscan reads Hyperscan caches)"
+        run: bash .github/workflows/hs-cache/hs-cache-cross-lib-test.sh crossload
+      - name: "Cross-lib: reload (Vectorscan caches)"
+        run: bash .github/workflows/hs-cache/hs-cache-cross-lib-test.sh reload
+
   ubuntu-22-04-dist:
     name: Ubuntu 22.04 Dist Builder
     runs-on: ubuntu-latest
