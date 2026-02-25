@@ -1118,6 +1118,70 @@ jobs:
       - run: suricata-update -V
       - run: suricatasc -h
 
+  fedora-43-hs-cache:
+    name: Fedora 43 (Hyperscan cache tests)
+    runs-on: ubuntu-latest
+    container: fedora:43
+    needs: [prepare-deps, prepare-cbindgen]
+    steps:
+
+      - name: Cache cargo registry
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry
+
+      - name: Determine number of CPUs
+        run: echo CPUS=$(nproc --all) >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          dnf -y install \
+                autoconf \
+                automake \
+                awk \
+                cargo \
+                cbindgen \
+                diffutils \
+                file-devel \
+                gcc \
+                gcc-c++ \
+                git \
+                hwloc \
+                hwloc-devel \
+                jansson-devel \
+                libtool \
+                libyaml-devel \
+                libnfnetlink-devel \
+                libnetfilter_queue-devel \
+                libnet-devel \
+                libcap-ng-devel \
+                libevent-devel \
+                libpcap-devel \
+                lz4-devel \
+                make \
+                pcre2-devel \
+                pkgconfig \
+                python3-yaml \
+                vectorscan-devel \
+                which \
+                zlib-devel
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - run: git config --global --add safe.directory /__w/suricata/suricata
+      - uses: ./.github/actions/install-cbindgen
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: prep
+          path: prep
+      - run: tar xf prep/suricata-update.tar.gz
+      - run: ./autogen.sh
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-warnings
+      - run: make -j ${{ env.CPUS }}
+      - name: Verify Hyperscan support
+        run: ./src/suricata --build-info | grep -E "Hyperscan support:\s+yes"
+      - name: Run Hyperscan cache tests
+        run: bash .github/workflows/hs-cache/hs-cache-tests.sh
+
   # This job builds and tests Suricata as a non-root user as some
   # issues only show up when not running as root, and by default all
   # jobs in GitHub actions are run as root inside the container.
@@ -1409,6 +1473,69 @@ jobs:
       - run: make install
       - run: make install-headers
       - run: make install-library
+
+  ubuntu-24-04-hs-cache:
+    name: Ubuntu 24.04 (Hyperscan cache tests)
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    needs: [prepare-deps]
+    steps:
+      - name: Cache ~/.cargo
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry
+
+      - name: Determine number of CPUs
+        run: echo CPUS=$(nproc --all) >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          apt update
+          apt -y install \
+                autoconf \
+                automake \
+                build-essential \
+                cargo \
+                cbindgen \
+                git \
+                hwloc \
+                libhwloc-dev \
+                libcap-ng-dev \
+                libevent-dev \
+                libevent-pthreads-2.1-7 \
+                libhyperscan-dev \
+                libjansson-dev \
+                libmagic-dev \
+                libnet1-dev \
+                libnetfilter-queue-dev \
+                libnetfilter-queue1 \
+                libnfnetlink-dev \
+                libnfnetlink0 \
+                libnuma-dev \
+                libpcap-dev \
+                libpcre2-dev \
+                libtool \
+                libyaml-dev \
+                make \
+                python3-yaml \
+                rustc \
+                zlib1g \
+                zlib1g-dev
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - run: git config --global --add safe.directory /__w/suricata/suricata
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: prep
+          path: prep
+      - run: tar xf prep/suricata-update.tar.gz
+      - run: ./autogen.sh
+      - run: CFLAGS="${DEFAULT_CFLAGS}" ./configure --enable-warnings
+      - run: make -j ${{ env.CPUS }}
+      - name: Verify Hyperscan support
+        run: ./src/suricata --build-info | grep -E "Hyperscan support:\s+yes"
+      - name: Run Hyperscan cache tests
+        run: bash .github/workflows/hs-cache/hs-cache-tests.sh
 
   ubuntu-24-04-rust-vars:
     name: Ubuntu 24.04 (RUSTC+CARGO vars)
