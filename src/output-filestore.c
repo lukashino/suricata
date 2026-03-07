@@ -361,7 +361,7 @@ static bool InitFilestoreDirectory(const char *dir)
     }
 
     for (int i = 0; i <= dir_count; i++) {
-        char hex[3];
+        char hex[4];
         snprintf(hex, sizeof(hex), "%02x", i);
         char leaf[PATH_MAX];
         if (PathMerge(leaf, sizeof(leaf), dir, hex) < 0) {

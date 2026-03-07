@@ -154,13 +154,18 @@ static int UnixNew(UnixCommand * this)
         }
     }
 
+    if (strlen(sockettarget) >= sizeof(addr.sun_path)) {
+        SCLogError("unix socket path too long (len %zu, max %zu): '%s'", strlen(sockettarget),
+                sizeof(addr.sun_path) - 1, sockettarget);
+        return 0;
+    }
+
     /* Remove socket file */
     (void) unlink(sockettarget);
 
     /* set address */
     addr.sun_family = AF_UNIX;
     strlcpy(addr.sun_path, sockettarget, sizeof(addr.sun_path));
-    addr.sun_path[sizeof(addr.sun_path) - 1] = 0;
     len = (socklen_t)(strlen(addr.sun_path) + sizeof(addr.sun_family) + 1);
 
     /* create socket */

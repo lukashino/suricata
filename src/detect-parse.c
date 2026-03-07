@@ -1348,7 +1348,13 @@ static int SigParseProtoHookApp(Signature *s, const char *proto_hook, const char
     }
 
     char generic_hook_name[64];
-    snprintf(generic_hook_name, sizeof(generic_hook_name), "%s:generic", proto_hook);
+    size_t proto_hook_len = strlen(proto_hook);
+    if (proto_hook_len + sizeof(":generic") > sizeof(generic_hook_name)) {
+        SCLogError("protocol hook name too long: '%s'", proto_hook);
+        return -1;
+    }
+    memcpy(generic_hook_name, proto_hook, proto_hook_len);
+    memcpy(generic_hook_name + proto_hook_len, ":generic", sizeof(":generic"));
     int list = DetectBufferTypeGetByName(generic_hook_name);
     if (list < 0) {
         SCLogError("no list registered as %s for hook %s", generic_hook_name, proto_hook);
@@ -1562,6 +1568,10 @@ static uint8_t ActionStringToFlags(const char *action)
 static int SigParseAction(Signature *s, const char *action_in)
 {
     char action[32];
+    if (strlen(action_in) >= sizeof(action)) {
+        SCLogError("invalid action specification, too long '%s'", action_in);
+        return -1;
+    }
     strlcpy(action, action_in, sizeof(action));
     const char *a = action;
     const char *o = NULL;
