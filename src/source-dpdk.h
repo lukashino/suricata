@@ -82,6 +82,9 @@ typedef struct DPDKIfaceConfig_ {
     SC_ATOMIC_DECLARE(uint16_t, inconsistent_numa_cnt);
     DPDKWorkerSync *workers_sync;
     void (*DerefFunc)(void *);
+    /* PCAP file mode - for offline testing with net_pcap driver */
+    bool pcap_file_mode_enabled;
+    char driver_name[64];
 
     struct rte_flow *flow[100];
 #endif

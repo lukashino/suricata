@@ -102,6 +102,8 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
 #define MINIMUM_SLEEP_TIME_US        1U
 #define STANDARD_SLEEP_TIME_US       100U
 #define MAX_EPOLL_TIMEOUT_MS         500U
+// PCAP file mode constants
+#define PCAP_FILE_ZERO_POLL_THRESHOLD 100U
 static rte_spinlock_t intr_lock[RTE_MAX_ETHPORTS];
 
 /**
@@ -137,6 +139,9 @@ typedef struct DPDKThreadVars_ {
     int32_t port_socket_id;
     struct rte_mbuf *received_mbufs[BURST_SIZE];
     DPDKWorkerSync *workers_sync;
+    /* PCAP file mode - for offline testing */
+    bool pcap_file_mode_enabled;
+    uint32_t pcap_file_mode_zero_poll_count;
 } DPDKThreadVars;
 
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *, const void *, void **);
@@ -377,17 +382,33 @@ static inline void LoopHandleTimeoutOnIdle(ThreadVars *tv)
 /**
  * \brief Decides if it should retry the packet poll or continue with the packet processing
  * \return true if the poll should be retried, false otherwise
+ *         returns -1 if PCAP file mode EOF detected
  */
-static inline bool RXPacketCountHeuristic(ThreadVars *tv, DPDKThreadVars *ptv, uint16_t nb_rx)
+static inline int RXPacketCountHeuristic(ThreadVars *tv, DPDKThreadVars *ptv, uint16_t nb_rx)
 {
     static thread_local uint32_t zero_pkt_polls_cnt = 0;
 
     if (nb_rx > 0) {
         zero_pkt_polls_cnt = 0;
+        ptv->pcap_file_mode_zero_poll_count = 0;
         return false;
     }
 
     LoopHandleTimeoutOnIdle(tv);
+
+    // Handle PCAP file mode - detect EOF condition
+    if (ptv->pcap_file_mode_enabled) {
+        ptv->pcap_file_mode_zero_poll_count++;
+        if (ptv->pcap_file_mode_zero_poll_count >= PCAP_FILE_ZERO_POLL_THRESHOLD) {
+            SCLogInfo("PCAP file mode: EOF detected (no packets received after %u polls) - "
+                      "stopping interface %u queue %u",
+                    PCAP_FILE_ZERO_POLL_THRESHOLD, ptv->port_id, ptv->queue_id);
+            return -1; // Signal EOF
+        }
+        // For PCAP file mode, continue polling even without interrupt mode
+        return true;
+    }
+
     if (!ptv->intr_enabled)
         return true;
 
@@ -583,7 +604,13 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
 
         uint16_t nb_rx =
                 rte_eth_rx_burst(ptv->port_id, ptv->queue_id, ptv->received_mbufs, BURST_SIZE);
-        if (RXPacketCountHeuristic(tv, ptv, nb_rx)) {
+        int heuristic_result = RXPacketCountHeuristic(tv, ptv, nb_rx);
+        if (heuristic_result < 0) {
+            // PCAP file EOF detected - exit gracefully
+            SCLogInfo("PCAP file mode: Stopping receive loop for port %u queue %u", ptv->port_id,
+                    ptv->queue_id);
+            break;
+        } else if (heuristic_result > 0) {
             continue;
         }
 
@@ -657,6 +684,10 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     ptv->port_id = dpdk_config->port_id;
     ptv->out_port_id = dpdk_config->out_port_id;
     ptv->port_socket_id = dpdk_config->socket_id;
+
+    // Initialize PCAP file mode settings
+    ptv->pcap_file_mode_enabled = dpdk_config->pcap_file_mode_enabled;
+    ptv->pcap_file_mode_zero_poll_count = 0;
 
     thread_numa = GetNumaNode();
     if (thread_numa >= 0 && ptv->port_socket_id != SOCKET_ID_ANY &&

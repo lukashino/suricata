@@ -239,3 +239,125 @@ Encapsulation stripping
 Suricata supports stripping the hardware-offloaded encapsulation stripping on
 the supported NICs. Currently, VLAN encapsulation stripping is supported.
 VLAN encapsulation stripping can be enabled with `vlan-strip-offload`.
+
+.. _dpdk-pcap-file-mode:
+
+PCAP File Mode (Offline Testing)
+---------------------------------
+
+Suricata supports reading PCAP files through the DPDK ``net_pcap`` driver for
+offline testing of the DPDK capture method. This allows users to test and
+validate DPDK-based detection without requiring physical network interfaces.
+
+When using the ``net_pcap`` driver, Suricata can automatically detect when
+the PCAP file has been fully read (characterized by receiving no packets) and
+gracefully stop processing that interface. This eliminates the need for timeout
+workarounds that were previously required.
+
+Configuration
+^^^^^^^^^^^^^
+
+To use PCAP file mode, configure DPDK with a ``net_pcap`` virtual device in the
+EAL parameters and reference it in the interfaces list:
+
+.. code-block:: yaml
+
+  dpdk:
+    eal-params:
+      proc-type: primary
+      vdev: 'net_pcap0,rx_pcap=/path/to/capture.pcap'
+      no-huge:
+      m: 256
+
+    interfaces:
+      - interface: net_pcap0
+        threads: 1
+        mempool-size: 511
+        mempool-cache-size: auto
+        rx-descriptors: 16
+        tx-descriptors: 16
+        copy-mode: none
+        # Optional: explicitly enable/disable PCAP file mode auto-exit
+        # pcap-file-mode: true  # default: auto-detected for net_pcap driver
+
+By default, Suricata automatically detects the ``net_pcap`` driver and enables
+PCAP file mode. The interface will stop after approximately 100 consecutive polls
+that return zero packets, which indicates the end of the PCAP file.
+
+The ``pcap-file-mode`` configuration option can be explicitly set to ``true`` or
+``false`` to override the auto-detection behavior if needed.
+
+Multiple PCAP Files
+^^^^^^^^^^^^^^^^^^^
+
+Suricata supports reading multiple PCAP files simultaneously by configuring
+multiple ``net_pcap`` virtual devices. Each interface will independently detect
+its own EOF condition and stop accordingly:
+
+.. code-block:: yaml
+
+  dpdk:
+    eal-params:
+      proc-type: primary
+      vdev: ['net_pcap0,rx_pcap=/path/to/capture1.pcap',
+             'net_pcap1,rx_pcap=/path/to/capture2.pcap']
+      no-huge:
+      m: 512
+
+    interfaces:
+      - interface: net_pcap0
+        threads: 1
+        mempool-size: 511
+        mempool-cache-size: auto
+        rx-descriptors: 16
+        tx-descriptors: 16
+        copy-mode: none
+
+      - interface: net_pcap1
+        threads: 1
+        mempool-size: 511
+        mempool-cache-size: auto
+        rx-descriptors: 16
+        tx-descriptors: 16
+        copy-mode: none
+
+.. note:: When using multiple PCAP files, each interface exits independently
+  when its PCAP file is exhausted. Suricata continues running until all
+  interfaces have completed or the process is explicitly stopped. Flow records
+  and other state information are preserved until Suricata shuts down completely.
+
+Limitations and Considerations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Per-Interface Exit**: The auto-exit feature operates on a per-interface basis.
+  When using multiple interfaces, Suricata will not automatically exit when the
+  first PCAP file is exhausted. This behavior preserves flow tables and other
+  state information that may be needed for processing subsequent packets from
+  other interfaces.
+
+* **Streaming PCAP Files**: The current implementation is designed for finite
+  PCAP files. If you plan to use streaming PCAP files (files that are continuously
+  appended to), you should explicitly disable PCAP file mode by setting
+  ``pcap-file-mode: false`` to prevent premature interface shutdown.
+
+* **Zero-Packet Threshold**: The interface stops after detecting approximately
+  100 consecutive polls with zero packets. This threshold provides a balance
+  between quick detection of EOF and avoiding false positives from temporary
+  gaps in packet flow.
+
+Example Use Cases
+^^^^^^^^^^^^^^^^^
+
+PCAP file mode is particularly useful for:
+
+* **Regression Testing**: Automated testing of detection rules against known
+  PCAP files without manual intervention.
+
+* **Performance Benchmarking**: Measuring DPDK performance with controlled,
+  reproducible packet traces.
+
+* **Rule Development**: Quickly iterating on detection rules using sample
+  traffic captures.
+
+* **CI/CD Integration**: Automated testing in continuous integration pipelines
+  without requiring physical network interfaces or timeouts.
