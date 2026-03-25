@@ -2571,6 +2571,35 @@ static DetectEngineCtx *DetectEngineCtxInitReal(
     }
     de_ctx->failure_fatal = (failure_fatal == 1);
 
+    int sgh_rev_matching = 0;
+    if (ConfGetBool("detect.sgh-reverse-matching", (int *)&sgh_rev_matching) != 1) {
+        SCLogDebug("ConfGetBool could not load the value.");
+    }
+    if (sgh_rev_matching == 1) {
+        SCLogNotice("SGH reverse matching enabled - both direction of toserver and toclient inspected");
+        de_ctx->flags |= DE_REVERSE_SGH_MATCHING;
+    }
+
+    intmax_t max_pat_len = 0;
+    if (ConfGetInt("detect.max-mpm-payload-pattern-length", &max_pat_len) == 1) {
+        if (max_pat_len > 0 && max_pat_len <= UINT16_MAX) {
+            g_max_mpm_payload_pat_len = (uint16_t)max_pat_len;
+            SCLogNotice("MPM payload pattern truncation enabled: max length = %u",
+                        g_max_mpm_payload_pat_len);
+        } else if (max_pat_len < 0) {
+            SCLogWarning("detect.max-mpm-payload-pattern-length must be >= 0, ignoring");
+        }
+    }
+
+    int collect_stats = 1;
+    if (ConfGetBool("detect.collect-mpm-truncation-stats", &collect_stats) == 1) {
+        g_collect_mpm_truncation_stats = (bool)collect_stats;
+    }
+    if (g_max_mpm_payload_pat_len > 0) {
+        SCLogNotice("MPM truncation stats collection: %s",
+                g_collect_mpm_truncation_stats ? "enabled" : "disabled");
+    }
+
     de_ctx->mpm_matcher = PatternMatchDefaultMatcher();
     de_ctx->spm_matcher = SinglePatternMatchDefaultMatcher();
     SCLogConfig("pattern matchers: MPM: %s, SPM: %s",
@@ -3322,6 +3351,28 @@ static TmEcode ThreadCtxDoInit (DetectEngineCtx *de_ctx, DetectEngineThreadCtx *
 {
     PatternMatchThreadPrepare(&det_ctx->mtc, de_ctx->mpm_matcher);
 
+    /* Allocate matched pattern bitset for truncation experiment */
+    if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats &&
+            de_ctx->mpm_ctx_factory_container != NULL) {
+        uint32_t max_pat_cnt = 0;
+        for (MpmCtxFactoryItem *item = de_ctx->mpm_ctx_factory_container->items;
+                item != NULL; item = item->next) {
+            if (item->mpm_ctx_ts && item->mpm_ctx_ts->pattern_cnt > max_pat_cnt)
+                max_pat_cnt = item->mpm_ctx_ts->pattern_cnt;
+            if (item->mpm_ctx_tc && item->mpm_ctx_tc->pattern_cnt > max_pat_cnt)
+                max_pat_cnt = item->mpm_ctx_tc->pattern_cnt;
+        }
+        if (max_pat_cnt > 0) {
+            uint32_t bitset_size = (max_pat_cnt + 7) / 8;
+            det_ctx->mpm_matched_pat_bitset = SCCalloc(1, bitset_size);
+            if (det_ctx->mpm_matched_pat_bitset != NULL) {
+                det_ctx->mpm_matched_pat_bitset_size = bitset_size;
+                det_ctx->mtc.matched_pat_bitset = det_ctx->mpm_matched_pat_bitset;
+                det_ctx->mtc.matched_pat_bitset_size = bitset_size;
+            }
+        }
+    }
+
     PmqSetup(&det_ctx->pmq);
 
     det_ctx->spm_thread_ctx = SpmMakeThreadCtx(de_ctx->spm_global_thread_ctx);
@@ -3552,6 +3603,38 @@ DetectEngineThreadCtx *DetectEngineThreadCtxInitForReload(
     return det_ctx;
 }
 
+/** Log MPM truncation stats for one set of tp_short/tp_long/fp_long[8] arrays.
+ *  Prints total line + non-zero per-bucket lines. Returns true if total > 0. */
+static bool LogMpmStatsBuckets(const DetectEngineThreadCtx *det_ctx,
+        const char *ctx_name,
+        const uint64_t tp_short[8], const uint64_t tp_long[8], const uint64_t fp_long[8])
+{
+    static const char *bucket_names[8] = {
+        "none", "nocase", "depth", "depth+nocase",
+        "offset", "offset+nocase", "offset+depth", "offset+depth+nocase"
+    };
+    uint64_t sum_tp_short = 0, sum_tp_long = 0, sum_fp_long = 0;
+    for (int i = 0; i < 8; i++) {
+        sum_tp_short += tp_short[i];
+        sum_tp_long  += tp_long[i];
+        sum_fp_long  += fp_long[i];
+    }
+    if (sum_tp_short == 0 && sum_tp_long == 0 && sum_fp_long == 0)
+        return false;
+    SCLogNotice("MPM-STATS thread=%p ctx=%s total: TP-short=%"PRIu64
+            " TP-long=%"PRIu64" FP-long=%"PRIu64,
+            det_ctx, ctx_name, sum_tp_short, sum_tp_long, sum_fp_long);
+    for (int i = 0; i < 8; i++) {
+        if (tp_short[i] || tp_long[i] || fp_long[i]) {
+            SCLogNotice("MPM-STATS thread=%p ctx=%s bucket[%d]=%s: TP-short=%"PRIu64
+                    " TP-long=%"PRIu64" FP-long=%"PRIu64,
+                    det_ctx, ctx_name, i, bucket_names[i],
+                    tp_short[i], tp_long[i], fp_long[i]);
+        }
+    }
+    return true;
+}
+
 static void DetectEngineThreadCtxFree(DetectEngineThreadCtx *det_ctx)
 {
 #if  DEBUG
@@ -3601,6 +3684,52 @@ static void DetectEngineThreadCtxFree(DetectEngineThreadCtx *det_ctx)
 
     if (det_ctx->byte_values != NULL)
         SCFree(det_ctx->byte_values);
+
+    /* Log and free MPM truncation experiment stats */
+    if (det_ctx->mpm_matched_pat_bitset != NULL) {
+        static const char *ctx_names[MPM_STATS_CTX_COUNT] = {
+            "stream", "stream-fallback", "payload", "stream-fpga", "payload-fpga"
+        };
+
+        /* Level 1: per-context */
+        for (int c = 0; c < MPM_STATS_CTX_COUNT; c++) {
+            LogMpmStatsBuckets(det_ctx, ctx_names[c],
+                    det_ctx->mpm_tp_short[c], det_ctx->mpm_tp_long[c],
+                    det_ctx->mpm_fp_long[c]);
+        }
+
+        /* Level 2: aggregated payload+stream-fallback */
+        {
+            uint64_t agg_tp_short[8] = {0}, agg_tp_long[8] = {0}, agg_fp_long[8] = {0};
+            for (int i = 0; i < 8; i++) {
+                agg_tp_short[i] = det_ctx->mpm_tp_short[MPM_STATS_CTX_PAYLOAD][i]
+                                + det_ctx->mpm_tp_short[MPM_STATS_CTX_STREAM_FALLBACK][i];
+                agg_tp_long[i]  = det_ctx->mpm_tp_long[MPM_STATS_CTX_PAYLOAD][i]
+                                + det_ctx->mpm_tp_long[MPM_STATS_CTX_STREAM_FALLBACK][i];
+                agg_fp_long[i]  = det_ctx->mpm_fp_long[MPM_STATS_CTX_PAYLOAD][i]
+                                + det_ctx->mpm_fp_long[MPM_STATS_CTX_STREAM_FALLBACK][i];
+            }
+            LogMpmStatsBuckets(det_ctx, "payload+stream-fallback",
+                    agg_tp_short, agg_tp_long, agg_fp_long);
+        }
+
+        /* Level 3: global total */
+        {
+            uint64_t tot_tp_short[8] = {0}, tot_tp_long[8] = {0}, tot_fp_long[8] = {0};
+            for (int c = 0; c < MPM_STATS_CTX_COUNT; c++) {
+                for (int i = 0; i < 8; i++) {
+                    tot_tp_short[i] += det_ctx->mpm_tp_short[c][i];
+                    tot_tp_long[i]  += det_ctx->mpm_tp_long[c][i];
+                    tot_fp_long[i]  += det_ctx->mpm_fp_long[c][i];
+                }
+            }
+            LogMpmStatsBuckets(det_ctx, "total",
+                    tot_tp_short, tot_tp_long, tot_fp_long);
+        }
+
+        SCFree(det_ctx->mpm_matched_pat_bitset);
+        det_ctx->mpm_matched_pat_bitset = NULL;
+    }
 
     /* Decoded base64 data. */
     if (det_ctx->base64_decoded != NULL) {

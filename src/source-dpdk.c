@@ -467,7 +467,7 @@ static inline Packet *PacketInitFromMbuf(DPDKThreadVars *ptv, struct rte_mbuf *m
  * | RESERVED (1B) | PATIDs_LEN (2B) | PATID_SIZE (1B) | [PAT_ID (4B)]... | Original Ethernet Header
  *
  * RESERVED: Always 0xff - marker to identify packets with pattern IDs
- * PATIDs_LEN: Big-endian, total size in bytes of the pattern IDs array
+ * PATIDs_LEN: Native-endian (little-endian on x86), total size in bytes of the pattern IDs array
  * PATID_SIZE: Always 4 - size of each pattern ID in bytes
  * PAT_ID[]: Little-endian uint32_t pattern IDs with flags in upper bits
  *
@@ -494,9 +494,9 @@ static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf
         return 0;
     }
 
-    /* Parse PATIDs_LEN */
-    uint16_t *patids_len_ptr = (uint16_t *)(pkt_data + 1);
-    uint16_t patids_len = *patids_len_ptr;
+    /* Parse PATIDs_LEN - use memcpy to avoid unaligned access at odd offset */
+    uint16_t patids_len;
+    memcpy(&patids_len, pkt_data + 1, sizeof(uint16_t));
     uint16_t header_size = 4 + patids_len;
 
     /* Validate header size doesn't exceed packet length */
@@ -506,7 +506,7 @@ static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf
         return 0;
     }
 
-    uint8_t num_patterns = patids_len / 4;
+    uint16_t num_patterns = patids_len / 4;
 
     if (num_patterns != 0) {
         /* Store pointer to pattern IDs (points into mbuf, valid until mbuf is freed).
@@ -631,6 +631,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
                 /* Adjust mbuf to skip the FPGA prefilter header */
                 if (rte_pktmbuf_adj(p->dpdk_v.mbuf, header_skip) == NULL) {
                     SCLogWarning("Failed to adjust mbuf by %u bytes", header_skip);
+                    p->fpga_prefilter_pids_ptr = NULL;
+                    p->fpga_prefilter_pids_cnt = 0;
                     rte_pktmbuf_free(p->dpdk_v.mbuf);
                     p->dpdk_v.mbuf = NULL;
                     TmqhOutputPacketpool(ptv->tv, p);

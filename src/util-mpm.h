@@ -49,6 +49,10 @@ typedef struct MpmThreadCtx_ {
     uint32_t memory_cnt;
     uint32_t memory_size;
 
+    /** Bitset tracking which pattern indices matched during last Search call.
+     *  Used by truncation experiment for TP/FP verification. NULL if disabled. */
+    uint8_t *matched_pat_bitset;
+    uint32_t matched_pat_bitset_size; /**< size in bytes */
 } MpmThreadCtx;
 
 typedef struct MpmPattern_ {

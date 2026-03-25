@@ -49,6 +49,14 @@
 #include "util-validate.h"
 #include "util-profiling.h"
 #include "util-mpm-ac.h"
+#include "util-mpm-hs.h"
+
+/** Global max MPM payload pattern length for truncation experiment.
+ *  0 = disabled (no truncation). When >0, patterns longer than this value
+ *  are truncated to their first g_max_mpm_payload_pat_len bytes in the
+ *  Hyperscan database. Full patterns are kept for SPM verification. */
+uint16_t g_max_mpm_payload_pat_len = 0;
+bool g_collect_mpm_truncation_stats = true;
 
 bool FPGA_OFFLOADED_PM = false;
 bool FPGA_VERIFY_OFFLOADED_PM = false;
@@ -83,6 +91,18 @@ static int StreamMpmFunc(
         (void)mpm_table[smd->mpm_ctx->mpm_type].Search(
                 smd->mpm_ctx, &smd->det_ctx->mtc, &smd->det_ctx->pmq, data, data_len);
         PREFILTER_PROFILING_ADD_BYTES(smd->det_ctx, data_len);
+#ifdef BUILD_HYPERSCAN
+        if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats &&
+                smd->det_ctx->mtc.matched_pat_bitset != NULL) {
+            SCHSVerifyTruncatedMatches(smd->mpm_ctx,
+                    smd->det_ctx->mtc.matched_pat_bitset,
+                    smd->det_ctx->mtc.matched_pat_bitset_size,
+                    data, data_len,
+                    smd->det_ctx->mpm_tp_short[MPM_STATS_CTX_STREAM],
+                    smd->det_ctx->mpm_tp_long[MPM_STATS_CTX_STREAM],
+                    smd->det_ctx->mpm_fp_long[MPM_STATS_CTX_STREAM], "stream");
+        }
+#endif
     }
     return 0;
 }
@@ -161,7 +181,7 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                     }
                     // at least one stream pattern matched, fall through to full scan
                 } else if (p->fpga_prefilter_pids_cnt <= FPGA_OFFLOADED_PM_MAX_SIZE) {
-                    static uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = { 0 };
+                    uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = { 0 };
                     uint32_t patids_cnt = 0;
                     bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
                     for (uint32_t i = 0; i < p->fpga_prefilter_pids_cnt; i++) {
@@ -182,6 +202,16 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
                         (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                             &det_ctx->mtc, &det_ctx->pmq,
                             (uint8_t *)patids, UINT32_MAX - patids_cnt);
+#ifdef BUILD_HYPERSCAN
+                        if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats) {
+                            SCHSVerifyTruncatedMatchesByIds(mpm_ctx,
+                                    patids, patids_cnt,
+                                    p->payload, p->payload_len,
+                                    det_ctx->mpm_tp_short[MPM_STATS_CTX_STREAM_FPGA],
+                                    det_ctx->mpm_tp_long[MPM_STATS_CTX_STREAM_FPGA],
+                                    det_ctx->mpm_fp_long[MPM_STATS_CTX_STREAM_FPGA], "stream-fpga");
+                        }
+#endif
                     }
                     return;
                 }
@@ -192,6 +222,18 @@ stream_full_scan:
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
             PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
+#ifdef BUILD_HYPERSCAN
+            if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats &&
+                    det_ctx->mtc.matched_pat_bitset != NULL) {
+                SCHSVerifyTruncatedMatches(mpm_ctx,
+                        det_ctx->mtc.matched_pat_bitset,
+                        det_ctx->mtc.matched_pat_bitset_size,
+                        p->payload, p->payload_len,
+                        det_ctx->mpm_tp_short[MPM_STATS_CTX_STREAM_FALLBACK],
+                        det_ctx->mpm_tp_long[MPM_STATS_CTX_STREAM_FALLBACK],
+                        det_ctx->mpm_fp_long[MPM_STATS_CTX_STREAM_FALLBACK], "stream-fallback");
+            }
+#endif
 
             if (FPGA_VERIFY_OFFLOADED_PM && FPGA_OFFLOADED_PM_PKTSTREAM_MPM && p->dpdk_v.mbuf != NULL) {
                 PrefilterRuleStore pmq_mpm, pmq_fpga;
@@ -342,7 +384,7 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
             }
             // at least one payload pattern matched, fall through to full scan
         } else if (p->fpga_prefilter_pids_cnt <= FPGA_OFFLOADED_PM_MAX_SIZE) {
-            static uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
+            uint32_t patids[MATCHED_SIDS_ARR_LEN_THRESH] = {0};
             uint32_t patids_cnt = 0; // real, direction-relevant pattern IDs count
 
             bool pkt_toserver = (p->flowflags & FLOW_PKT_TOSERVER) == FLOW_PKT_TOSERVER;
@@ -364,6 +406,16 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
                 (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     (uint8_t *)patids, UINT32_MAX - patids_cnt);
+#ifdef BUILD_HYPERSCAN
+                if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats) {
+                    SCHSVerifyTruncatedMatchesByIds(mpm_ctx,
+                            patids, patids_cnt,
+                            p->payload, p->payload_len,
+                            det_ctx->mpm_tp_short[MPM_STATS_CTX_PAYLOAD_FPGA],
+                            det_ctx->mpm_tp_long[MPM_STATS_CTX_PAYLOAD_FPGA],
+                            det_ctx->mpm_fp_long[MPM_STATS_CTX_PAYLOAD_FPGA], "payload-fpga");
+                }
+#endif
             }
             return;
         }
@@ -375,8 +427,20 @@ full_scan:
             p->payload, p->payload_len);
 
     PREFILTER_PROFILING_ADD_BYTES(det_ctx, p->payload_len);
+#ifdef BUILD_HYPERSCAN
+    if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats &&
+            det_ctx->mtc.matched_pat_bitset != NULL) {
+        SCHSVerifyTruncatedMatches(mpm_ctx,
+                det_ctx->mtc.matched_pat_bitset,
+                det_ctx->mtc.matched_pat_bitset_size,
+                p->payload, p->payload_len,
+                det_ctx->mpm_tp_short[MPM_STATS_CTX_PAYLOAD],
+                det_ctx->mpm_tp_long[MPM_STATS_CTX_PAYLOAD],
+                det_ctx->mpm_fp_long[MPM_STATS_CTX_PAYLOAD], "payload");
+    }
+#endif
 
-    if (FPGA_VERIFY_OFFLOADED_PM && FPGA_OFFLOADED_PM_PKTSTREAM_MPM && p->dpdk_v.mbuf != NULL) {
+    if (FPGA_VERIFY_OFFLOADED_PM && p->dpdk_v.mbuf != NULL) {
         PrefilterRuleStore pmq_mpm, pmq_fpga;
         PmqSetup(&pmq_mpm);
         PmqSetup(&pmq_fpga);

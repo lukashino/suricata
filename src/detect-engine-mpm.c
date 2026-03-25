@@ -53,6 +53,7 @@
 #include "detect-content.h"
 
 #include "detect-engine-payload.h"
+#include "util-mpm-hs.h"
 
 #include "stream.h"
 
@@ -785,6 +786,36 @@ int DetectMpmPrepareBuiltinMpms(DetectEngineCtx *de_ctx)
 }
 
 /**
+ * \brief Build truncation maps for all MpmCtxs in the factory container.
+ *
+ * Must be called after all MpmCtxs are prepared (parray populated) and
+ * before signature init_data is freed.
+ */
+void BuildAllTruncationMaps(DetectEngineCtx *de_ctx)
+{
+#ifdef BUILD_HYPERSCAN
+    if (!g_collect_mpm_truncation_stats)
+        return;
+
+    if (de_ctx->mpm_ctx_factory_container == NULL)
+        return;
+
+    for (MpmCtxFactoryItem *item = de_ctx->mpm_ctx_factory_container->items;
+            item != NULL; item = item->next) {
+        if (item->mpm_ctx_ts != NULL) {
+            SCHSBuildTruncationMap(item->mpm_ctx_ts, de_ctx);
+        }
+        if (item->mpm_ctx_tc != NULL) {
+            SCHSBuildTruncationMap(item->mpm_ctx_tc, de_ctx);
+        }
+    }
+
+    SCLogNotice("Truncation maps built for all MpmCtxs (threshold=%u)",
+                g_max_mpm_payload_pat_len);
+#endif
+}
+
+/**
  *  \brief check if a signature has patterns that are to be inspected
  *         against a packets payload (as opposed to the stream payload)
  *
@@ -952,11 +983,58 @@ uint32_t PatternStrength(uint8_t *pat, uint16_t patlen)
     return s;
 }
 
+/** \brief Build hex string representation of pattern bytes: "0x48 0x65 0x6C" */
+static void BuildPatternHexString(const uint8_t *pat, uint16_t len,
+                                   char *buf, size_t buflen)
+{
+    size_t pos = 0;
+    for (uint16_t i = 0; i < len && pos + 5 < buflen; i++) {
+        if (i > 0 && pos + 6 < buflen) {
+            buf[pos++] = ' ';
+        }
+        pos += snprintf(buf + pos, buflen - pos, "0x%02X", pat[i]);
+    }
+    if (pos == 0)
+        snprintf(buf, buflen, "(empty)");
+}
+
+/** \brief Build SGH identifier string: "tcp.to_server.ctx3" or "tcp.payload.to_server.ctx3" */
+static void BuildSghIdentifier(const MpmStore *ms, char *buf, size_t buflen)
+{
+    const char *proto = "unknown";
+    const char *dir = "unknown";
+    const char *ctx_type = "";
+
+    switch (ms->buffer) {
+        case MPMB_TCP_PKT_TS:
+            proto = "tcp"; dir = "to_server"; ctx_type = "payload"; break;
+        case MPMB_TCP_PKT_TC:
+            proto = "tcp"; dir = "to_client"; ctx_type = "payload"; break;
+        case MPMB_TCP_STREAM_TS:
+            proto = "tcp"; dir = "to_server"; ctx_type = "stream"; break;
+        case MPMB_TCP_STREAM_TC:
+            proto = "tcp"; dir = "to_client"; ctx_type = "stream"; break;
+        case MPMB_UDP_TS:
+            proto = "udp"; dir = "to_server"; ctx_type = "payload"; break;
+        case MPMB_UDP_TC:
+            proto = "udp"; dir = "to_client"; ctx_type = "payload"; break;
+        case MPMB_OTHERIP:
+            proto = "otherip"; dir = "any"; ctx_type = "payload"; break;
+        default:
+            proto = "app"; dir = "any"; ctx_type = "app"; break;
+    }
+
+    snprintf(buf, buflen, "%s.%s.%s.ctx%d", proto, ctx_type, dir, ms->sgh_mpm_context);
+}
+
 static void PopulateMpmHelperAddPattern(MpmCtx *mpm_ctx, const DetectContentData *cd,
-        const Signature *s, const uint8_t flags, const int chop)
+        const Signature *s, const uint8_t flags, const int chop,
+        enum MpmBuiltinBuffers buffer)
 {
     uint16_t pat_offset = cd->offset;
     uint16_t pat_depth = cd->depth;
+    const uint8_t *pat_content = cd->content;
+    uint16_t pat_len = cd->content_len;
 
     /* recompute offset/depth to cope with chop */
     if (chop && (pat_depth || pat_offset)) {
@@ -966,6 +1044,10 @@ static void PopulateMpmHelperAddPattern(MpmCtx *mpm_ctx, const DetectContentData
             pat_depth += cd->fp_chop_offset + cd->fp_chop_len;
         }
     }
+    if (chop) {
+        pat_content = cd->content + cd->fp_chop_offset;
+        pat_len = cd->fp_chop_len;
+    }
 
     /* We have to effectively "wild card" values that will be coming from
      * byte_extract variables
@@ -974,30 +1056,26 @@ static void PopulateMpmHelperAddPattern(MpmCtx *mpm_ctx, const DetectContentData
         pat_depth = pat_offset = 0;
     }
 
+    /* Apply global max pattern length truncation for packet-level buffers.
+     * Stream + payload contexts are truncated; app-layer (MPMB_MAX) is not.
+     * Chop patterns are excluded: the chopped region is already a user-selected
+     * subset, and truncating it further would break verification logic. */
+    if (g_max_mpm_payload_pat_len > 0 && !chop && buffer != MPMB_MAX &&
+            pat_len > g_max_mpm_payload_pat_len) {
+        pat_len = g_max_mpm_payload_pat_len;
+        /* Keep offset/depth unchanged:
+         * - offset stays the same (we keep the prefix starting at same position)
+         * - depth stays the same (Hyperscan max_offset = offset + depth, unchanged) */
+    }
+
     if (cd->flags & DETECT_CONTENT_NOCASE) {
-        if (chop) {
-            MpmAddPatternCI(mpm_ctx,
-                            cd->content + cd->fp_chop_offset, cd->fp_chop_len,
-                            pat_offset, pat_depth,
-                            cd->id, s->num, flags|MPM_PATTERN_CTX_OWNS_ID);
-        } else {
-            MpmAddPatternCI(mpm_ctx,
-                            cd->content, cd->content_len,
-                            pat_offset, pat_depth,
-                            cd->id, s->num, flags|MPM_PATTERN_CTX_OWNS_ID);
-        }
+        MpmAddPatternCI(mpm_ctx, pat_content, pat_len,
+                        pat_offset, pat_depth,
+                        cd->id, s->num, flags | MPM_PATTERN_CTX_OWNS_ID);
     } else {
-        if (chop) {
-            MpmAddPatternCS(mpm_ctx,
-                            cd->content + cd->fp_chop_offset, cd->fp_chop_len,
-                            pat_offset, pat_depth,
-                            cd->id, s->num, flags|MPM_PATTERN_CTX_OWNS_ID);
-        } else {
-            MpmAddPatternCS(mpm_ctx,
-                            cd->content, cd->content_len,
-                            pat_offset, pat_depth,
-                            cd->id, s->num, flags|MPM_PATTERN_CTX_OWNS_ID);
-        }
+        MpmAddPatternCS(mpm_ctx, pat_content, pat_len,
+                        pat_offset, pat_depth,
+                        cd->id, s->num, flags | MPM_PATTERN_CTX_OWNS_ID);
     }
 }
 
@@ -1592,6 +1670,11 @@ static void MpmStoreSetup(const DetectEngineCtx *de_ctx, MpmStore *ms)
 
             const DetectContentData *cd = (DetectContentData *)s->init_data->mpm_sm->ctx;
 
+            /* NOTE: rules with fast_pattern:chop skip truncation (see
+             * PopulateMpmHelperAddPattern). The chopped region is already a
+             * user-selected subset of the content, so further truncation
+             * would break the verification logic. */
+
             int skip = 0;
             /* negated logic: if mpm match can't be used to be sure about this
              * pattern, we have to inspect the rule fully regardless of mpm
@@ -1610,7 +1693,27 @@ static void MpmStoreSetup(const DetectEngineCtx *de_ctx, MpmStore *ms)
                 if ((cd->flags & DETECT_CONTENT_ENDS_WITH) && mpm_supports_endswith)
                     flags = MPM_PATTERN_FLAG_ENDSWITH;
                 PopulateMpmHelperAddPattern(ms->mpm_ctx, cd, s, flags,
-                        (cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) != 0);
+                        (cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) != 0,
+                        ms->buffer);
+
+                /* Log pattern being added to this SGH */
+                char sgh_str[128];
+                BuildSghIdentifier(ms, sgh_str, sizeof(sgh_str));
+                char pat_hex[1024];
+                BuildPatternHexString(cd->content, cd->content_len, pat_hex, sizeof(pat_hex));
+                uint16_t effective_len = cd->content_len;
+                if (g_max_mpm_payload_pat_len > 0 && ms->buffer != MPMB_MAX &&
+                        effective_len > g_max_mpm_payload_pat_len) {
+                    effective_len = g_max_mpm_payload_pat_len;
+                }
+                SCLogInfo("SGH \"%s\" SID %u adding pattern %s len=%u (mpm_len=%u) "
+                          "offset=%u depth=%u %s%s",
+                          sgh_str, s->id, pat_hex,
+                          (unsigned)cd->content_len, (unsigned)effective_len,
+                          (unsigned)cd->offset, (unsigned)cd->depth,
+                          (cd->flags & DETECT_CONTENT_NOCASE) ? "case-insensitive"
+                                                              : "case-sensitive",
+                          (effective_len < cd->content_len) ? " [TRUNCATED]" : "");
             }
         }
     }

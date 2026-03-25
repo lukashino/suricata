@@ -1733,6 +1733,14 @@ decoder:
 # default limit.  When a value is not specified, there are no limits on the recursion.
 detect:
   sgh-reverse-matching: yes
+  # MPM pattern truncation experiment: truncate payload/stream fast patterns
+  # longer than this value. 0 = disabled (default). >0 = max length in bytes.
+  max-mpm-payload-pattern-length: 0
+  # Collect TP/FP classification stats for truncated patterns. When disabled,
+  # patterns are still truncated but the per-match verification overhead
+  # (SearchFullPattern, truncation maps, bitset allocation) is skipped.
+  # Disable for speed-oriented evaluation runs. Default: yes.
+  #collect-mpm-truncation-stats: yes
   profile: medium
   custom-values:
     toclient-groups: 3

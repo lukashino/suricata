@@ -49,6 +49,23 @@ typedef struct SCHSPattern_ {
     struct SCHSPattern_ *next;
 } SCHSPattern;
 
+/** Stores original (pre-truncation) pattern data for TP/FP classification */
+typedef struct OriginalPatternInfo_ {
+    uint8_t *original_pat;    /**< full original pattern bytes (allocated copy) */
+    uint16_t original_len;    /**< full original length before truncation */
+    uint8_t flags;            /**< MPM_PATTERN_FLAG_NOCASE etc. */
+    uint16_t offset;          /**< original offset constraint */
+    uint16_t depth;           /**< original depth constraint */
+} OriginalPatternInfo;
+
+/** For each pattern index in the (possibly truncated) database, maps to the
+ *  original patterns that were registered before truncation. */
+typedef struct TruncatedPatternMap_ {
+    OriginalPatternInfo *originals;  /**< array of original patterns */
+    uint32_t count;                  /**< number of originals */
+    bool was_truncated;              /**< true if ANY original was longer than threshold */
+} TruncatedPatternMap;
+
 typedef struct SCHSCtx_ {
     /* hash used during ctx initialization */
     SCHSPattern **init_hash;
@@ -72,5 +89,20 @@ typedef struct SCHSThreadCtx_ {
 void MpmHSRegister(void);
 
 void MpmHSGlobalCleanup(void);
+
+struct DetectEngineCtx_;
+void SCHSBuildTruncationMap(MpmCtx *mpm_ctx, const struct DetectEngineCtx_ *de_ctx);
+
+void SCHSVerifyTruncatedMatches(const MpmCtx *mpm_ctx,
+        const uint8_t *matched_pat_bitset, uint32_t bitset_size,
+        const uint8_t *buf, uint32_t buflen,
+        uint64_t *tp_short, uint64_t *tp_long, uint64_t *fp_long,
+        const char *ctx_type);
+
+void SCHSVerifyTruncatedMatchesByIds(const MpmCtx *mpm_ctx,
+        const uint32_t *pat_ids, uint32_t pat_ids_cnt,
+        const uint8_t *buf, uint32_t buflen,
+        uint64_t *tp_short, uint64_t *tp_long, uint64_t *fp_long,
+        const char *ctx_type);
 
 #endif /* SURICATA_UTIL_MPM_HS__H */
