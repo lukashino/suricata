@@ -1735,6 +1735,20 @@ decoder:
 detect:
   sgh-reverse-matching: yes
   save-mpm-stream-results: yes
+  # Maximum MPM fast pattern length for FPGA pattern truncation experiment.
+  # When > 0, fast patterns longer than this are truncated to their first N
+  # bytes in the Hyperscan MPM database. Full patterns are preserved for SPM
+  # verification, so detection results (alerts) remain identical.
+  # Statistics logged as "MPM-STATS" and "MPM-MATCH" lines in suricata.log.
+  # Values: 0 = disabled (default), 1-N = max pattern length in bytes.
+  # IMPORTANT: incompatible with rules using fast_pattern:chop.
+  # Both prep and eval instances must use the same value.
+  max-mpm-payload-pattern-length: 0
+  # Collect TP/FP classification stats for truncated patterns. When disabled,
+  # patterns are still truncated but the per-match verification overhead
+  # (SearchFullPattern, truncation maps, bitset allocation) is skipped.
+  # Disable for speed-oriented evaluation runs. Default: yes.
+  #collect-mpm-truncation-stats: yes
   profile: medium
   custom-values:
     toclient-groups: 3

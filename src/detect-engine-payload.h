@@ -24,6 +24,14 @@
 #ifndef SURICATA_DETECT_ENGINE_PAYLOAD_H
 #define SURICATA_DETECT_ENGINE_PAYLOAD_H
 
+/** Global max MPM payload pattern length for truncation experiment.
+ *  0 = disabled (no truncation). >0 = truncate patterns to this length. */
+extern uint16_t g_max_mpm_payload_pat_len;
+
+/** When false, skip TP/FP stats collection (truncation maps, bitset, verify calls).
+ *  Patterns are still truncated; only the overhead of classifying matches is removed. */
+extern bool g_collect_mpm_truncation_stats;
+
 int PrefilterPktPayloadRegister(DetectEngineCtx *de_ctx,
         SigGroupHead *sgh, MpmCtx *mpm_ctx);
 int PrefilterPktStreamRegister(DetectEngineCtx *de_ctx,

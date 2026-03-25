@@ -2154,6 +2154,11 @@ int SigGroupBuild(DetectEngineCtx *de_ctx)
         FatalError("initializing the detection engine failed");
     }
 
+    /* Build truncation maps for MPM pattern length experiment.
+     * Must happen AFTER all MpmCtxs are prepared (parray populated)
+     * and BEFORE SigMatchPrepare frees init_data. */
+    BuildAllTruncationMaps(de_ctx);
+
     if (SigMatchPrepare(de_ctx) != 0) {
         FatalError("initializing the detection engine failed");
     }

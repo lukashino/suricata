@@ -31,6 +31,8 @@
 #include "detect-parse.h"
 #include "detect-engine.h"
 #include "detect-engine-build.h"
+#include "detect-content.h"
+#include "detect-engine-payload.h"
 
 #include "conf.h"
 #include "util-debug.h"
@@ -452,6 +454,10 @@ typedef struct PatternDatabase_ {
 
     /* Reference count: number of MPM contexts using this pattern database. */
     uint32_t ref_cnt;
+
+    /** Truncation map for MPM pattern length experiment.
+     *  Array of size pattern_cnt. NULL if truncation is disabled. */
+    TruncatedPatternMap *truncation_map;
 } PatternDatabase;
 
 static uint32_t SCHSPatternHash(const SCHSPattern *p, uint32_t hash)
@@ -539,6 +545,19 @@ static void PatternDatabaseFree(PatternDatabase *pd)
         SCFree(pd->parray);
     }
 
+    if (pd->truncation_map != NULL) {
+        for (uint32_t i = 0; i < pd->pattern_cnt; i++) {
+            TruncatedPatternMap *tmap = &pd->truncation_map[i];
+            if (tmap->originals != NULL) {
+                for (uint32_t j = 0; j < tmap->count; j++) {
+                    SCFree(tmap->originals[j].original_pat);
+                }
+                SCFree(tmap->originals);
+            }
+        }
+        SCFree(pd->truncation_map);
+    }
+
     hs_free_database(pd->hs_db);
 
     SCFree(pd);
@@ -568,6 +587,201 @@ static PatternDatabase *PatternDatabaseAlloc(uint32_t pattern_cnt)
     }
 
     return pd;
+}
+
+/**
+ * \brief Build the truncation map for a given MpmCtx.
+ *
+ * Walks parray[], uses sids[] to find original signatures, and records
+ * original pattern info for TP/FP classification.
+ *
+ * Must be called AFTER SCHSPreparePatterns (parray populated) and BEFORE
+ * init_data is freed on signatures.
+ */
+void SCHSBuildTruncationMap(MpmCtx *mpm_ctx, const DetectEngineCtx *de_ctx)
+{
+    if (mpm_ctx == NULL || mpm_ctx->ctx == NULL)
+        return;
+
+    SCHSCtx *ctx = (SCHSCtx *)mpm_ctx->ctx;
+    PatternDatabase *pd = ctx->pattern_db;
+    if (pd == NULL || pd->pattern_cnt == 0)
+        return;
+
+    /* Skip if already built (shared PatternDatabase via ref counting) */
+    if (pd->truncation_map != NULL)
+        return;
+
+    pd->truncation_map = SCCalloc(pd->pattern_cnt, sizeof(TruncatedPatternMap));
+    if (pd->truncation_map == NULL)
+        return;
+
+    for (uint32_t i = 0; i < pd->pattern_cnt; i++) {
+        SCHSPattern *pat = pd->parray[i];
+        if (pat == NULL)
+            continue;
+
+        TruncatedPatternMap *tmap = &pd->truncation_map[i];
+
+        /* Pre-allocate originals array sized to sids_size (upper bound) */
+        tmap->originals = SCCalloc(pat->sids_size, sizeof(OriginalPatternInfo));
+        if (tmap->originals == NULL)
+            continue;
+
+        tmap->count = 0;
+        tmap->was_truncated = false;
+
+        for (uint32_t s_idx = 0; s_idx < pat->sids_size; s_idx++) {
+            SigIntId sid = pat->sids[s_idx];
+            if (sid >= de_ctx->signum)
+                continue;
+            const Signature *sig = de_ctx->sig_array[sid];
+            if (sig == NULL || sig->init_data == NULL || sig->init_data->mpm_sm == NULL)
+                continue;
+
+            const DetectContentData *cd =
+                    (const DetectContentData *)sig->init_data->mpm_sm->ctx;
+
+            /* Check for duplicate original patterns already added */
+            bool dup = false;
+            for (uint32_t d = 0; d < tmap->count; d++) {
+                if (tmap->originals[d].original_len == cd->content_len &&
+                        tmap->originals[d].flags == (cd->flags & DETECT_CONTENT_NOCASE ? MPM_PATTERN_FLAG_NOCASE : 0) &&
+                        tmap->originals[d].offset == cd->offset &&
+                        tmap->originals[d].depth == cd->depth &&
+                        SCMemcmp(tmap->originals[d].original_pat, cd->content,
+                                cd->content_len) == 0) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (dup)
+                continue;
+
+            OriginalPatternInfo *orig = &tmap->originals[tmap->count];
+            orig->original_pat = SCMalloc(cd->content_len);
+            if (orig->original_pat == NULL)
+                continue;
+            memcpy(orig->original_pat, cd->content, cd->content_len);
+            orig->original_len = cd->content_len;
+            orig->flags = (cd->flags & DETECT_CONTENT_NOCASE) ? MPM_PATTERN_FLAG_NOCASE : 0;
+            orig->offset = cd->offset;
+            orig->depth = cd->depth;
+
+            if (g_max_mpm_payload_pat_len > 0 &&
+                    cd->content_len > g_max_mpm_payload_pat_len) {
+                tmap->was_truncated = true;
+            }
+
+            tmap->count++;
+        }
+    }
+}
+
+/** Naive substring search with offset/depth/nocase support.
+ *  Returns true if the full original pattern is found in buf. */
+static bool SearchFullPattern(const uint8_t *buf, uint32_t buflen,
+                              const OriginalPatternInfo *orig)
+{
+    if (orig->original_len == 0 || buflen == 0)
+        return false;
+
+    uint32_t start = orig->offset;
+    uint32_t end = buflen;
+    /* Hyperscan uses max_offset = offset + depth, so match must end within
+     * offset + depth bytes from the start of the buffer. */
+    if (orig->depth > 0) {
+        uint32_t max_end = orig->offset + orig->depth;
+        if (max_end < end)
+            end = max_end;
+    }
+
+    if (start + orig->original_len > end)
+        return false;
+
+    bool nocase = (orig->flags & MPM_PATTERN_FLAG_NOCASE) != 0;
+
+    for (uint32_t i = start; i + orig->original_len <= end; i++) {
+        bool match = true;
+        for (uint16_t j = 0; j < orig->original_len; j++) {
+            uint8_t b = buf[i + j];
+            uint8_t p = orig->original_pat[j];
+            if (nocase) {
+                b = u8_tolower(b);
+                p = u8_tolower(p);
+            }
+            if (b != p) {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+            return true;
+    }
+    return false;
+}
+
+/** Return attribute bucket index 0-7 based on nocase/depth/offset flags.
+ *  Encoding: bit0=nocase, bit1=depth, bit2=offset */
+static int GetPatternAttributeBucket(const OriginalPatternInfo *orig)
+{
+    int bucket = 0;
+    if (orig->flags & MPM_PATTERN_FLAG_NOCASE) bucket |= 1;
+    if (orig->depth > 0) bucket |= 2;
+    if (orig->offset > 0) bucket |= 4;
+    return bucket;
+}
+
+void SCHSVerifyTruncatedMatches(const MpmCtx *mpm_ctx,
+        const uint8_t *matched_pat_bitset, uint32_t bitset_size,
+        const uint8_t *buf, uint32_t buflen,
+        uint64_t *tp_short, uint64_t *tp_long, uint64_t *fp_long,
+        const char *ctx_type)
+{
+    if (mpm_ctx == NULL || mpm_ctx->ctx == NULL)
+        return;
+
+    SCHSCtx *ctx = (SCHSCtx *)mpm_ctx->ctx;
+    const PatternDatabase *pd = ctx->pattern_db;
+    if (pd == NULL || pd->truncation_map == NULL)
+        return;
+
+    for (uint32_t i = 0; i < pd->pattern_cnt; i++) {
+        if (matched_pat_bitset == NULL)
+            break;
+        if (i / 8 >= bitset_size)
+            break;
+        if (!(matched_pat_bitset[i / 8] & (1 << (i % 8))))
+            continue;
+
+        const TruncatedPatternMap *tmap = &pd->truncation_map[i];
+        if (tmap->count == 0)
+            continue;
+
+        for (uint32_t j = 0; j < tmap->count; j++) {
+            int bucket = GetPatternAttributeBucket(&tmap->originals[j]);
+            bool this_truncated = (g_max_mpm_payload_pat_len > 0 &&
+                    tmap->originals[j].original_len > g_max_mpm_payload_pat_len);
+            if (!this_truncated) {
+                /* Pattern was short enough, no truncation - always a true positive */
+                tp_short[bucket]++;
+                SCLogInfo("MPM-MATCH type=TP-short ctx=%s pat_idx=%u orig_len=%u bucket=%d",
+                        ctx_type, i, tmap->originals[j].original_len, bucket);
+            } else {
+                /* Pattern was truncated - verify full pattern against buffer */
+                bool full_match = SearchFullPattern(buf, buflen, &tmap->originals[j]);
+                if (full_match) {
+                    tp_long[bucket]++;
+                    SCLogInfo("MPM-MATCH type=TP-long ctx=%s pat_idx=%u orig_len=%u bucket=%d",
+                            ctx_type, i, tmap->originals[j].original_len, bucket);
+                } else {
+                    fp_long[bucket]++;
+                    SCLogInfo("MPM-MATCH type=FP-long ctx=%s pat_idx=%u orig_len=%u bucket=%d",
+                            ctx_type, i, tmap->originals[j].original_len, bucket);
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -884,6 +1098,10 @@ typedef struct SCHSCallbackCtx_ {
     uint32_t match_count;
     uint32_t pids[MATCHED_PIDS_ARR_LEN_THRESH];
     uint32_t pids_count;
+    /** Bitset tracking which pattern indices matched (for truncation verification).
+     *  Points to det_ctx->mpm_matched_pat_bitset. NULL if not needed. */
+    uint8_t *matched_pat_bitset;
+    uint32_t matched_pat_bitset_size;
 } SCHSCallbackCtx;
 
 /* Hyperscan MPM match event handler */
@@ -912,9 +1130,14 @@ static int SCHSMatchEvent(unsigned int id, unsigned long long from,
             }
             if (cctx->pids[0] != UINT32_MAX) {
                 cctx->pids[cctx->pids_count++] = id;
-                SCLogNotice("Matched pattern id %u (pattern: %s)", id, pat->original_pat);
+                SCLogDebug("Matched pattern id %u (len=%u)", id, pat->len);
             }
         }
+    }
+
+    /* Record matched pattern index in bitset for truncation verification */
+    if (cctx->matched_pat_bitset != NULL && id / 8 < cctx->matched_pat_bitset_size) {
+        cctx->matched_pat_bitset[id / 8] |= (1 << (id % 8));
     }
 
     SCLogDebug("Hyperscan Match %" PRIu32 ": id=%" PRIu32 " @ %" PRIuMAX
@@ -951,7 +1174,19 @@ uint32_t SCHSSearch(const MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         return 0;
     }
 
-    SCHSCallbackCtx cctx = {.ctx = ctx, .pmq = pmq, .match_count = 0, .pids_count = 0};
+    SCHSCallbackCtx cctx = {
+        .ctx = ctx, .pmq = pmq, .match_count = 0, .pids_count = 0,
+        .matched_pat_bitset = mpm_thread_ctx->matched_pat_bitset,
+        .matched_pat_bitset_size = mpm_thread_ctx->matched_pat_bitset_size,
+    };
+
+    /* Clear matched pattern bitset before search */
+    if (cctx.matched_pat_bitset != NULL) {
+        uint32_t clear_bytes = (pd->pattern_cnt + 7) / 8;
+        if (clear_bytes > cctx.matched_pat_bitset_size)
+            clear_bytes = cctx.matched_pat_bitset_size;
+        memset(cctx.matched_pat_bitset, 0, clear_bytes);
+    }
 
     /* scratch should have been cloned from g_scratch_proto at thread init. */
     hs_scratch_t *scratch = hs_thread_ctx->scratch;

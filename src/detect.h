@@ -1104,6 +1104,16 @@ typedef struct RuleMatchCandidateTx {
     const Signature *s;     /**< ptr to sig */
 } RuleMatchCandidateTx;
 
+/** MPM truncation stats context identifiers. */
+enum MpmStatsCtx {
+    MPM_STATS_CTX_STREAM = 0,
+    MPM_STATS_CTX_STREAM_FALLBACK,
+    MPM_STATS_CTX_PAYLOAD,
+    MPM_STATS_CTX_STREAM_FPGA,
+    MPM_STATS_CTX_PAYLOAD_FPGA,
+    MPM_STATS_CTX_COUNT
+};
+
 /**
   * Detection engine thread data.
   */
@@ -1250,6 +1260,19 @@ typedef struct DetectEngineThreadCtx_ {
 
     /** stat of lua memory limit errors. */
     uint16_t lua_memory_limit_errors;
+
+    /** MPM truncation experiment: per-context, per-attribute counters.
+     *  Attribute buckets (bit0=nocase, bit1=depth, bit2=offset):
+     *  0=none 1=nocase 2=depth 3=depth+nocase 4=offset
+     *  5=offset+nocase 6=offset+depth 7=offset+depth+nocase */
+    uint64_t mpm_tp_short[MPM_STATS_CTX_COUNT][8]; /**< TP: patterns with len <= threshold */
+    uint64_t mpm_tp_long[MPM_STATS_CTX_COUNT][8];  /**< TP: truncated, full also matches */
+    uint64_t mpm_fp_long[MPM_STATS_CTX_COUNT][8];  /**< FP: truncated, only prefix matches */
+
+    /** Bitset tracking which Hyperscan pattern indices matched in current search.
+     *  Allocated per-thread, sized for the largest PatternDatabase. */
+    uint8_t *mpm_matched_pat_bitset;
+    uint32_t mpm_matched_pat_bitset_size; /**< size in bytes */
 
 #ifdef DEBUG
     uint64_t pkt_stream_add_cnt;

@@ -340,15 +340,15 @@ static void DPDKReleasePacket(Packet *p)
     if (prepend_ptr != NULL) {
         /* Successfully prepended - write the header */
         prepend_ptr[0] = 0xff; /* RESERVED marker */
-        /* PATIDs_LEN: 2 bytes */
-        uint16_t *patids_len_ptr = (uint16_t *)(prepend_ptr + 1);
-        *patids_len_ptr = pattern_ids_bytes;
+        /* PATIDs_LEN: 2 bytes, use memcpy to avoid unaligned access */
+        memcpy(prepend_ptr + 1, &pattern_ids_bytes, sizeof(uint16_t));
         prepend_ptr[3] = sizeof(uint32_t); /* PATID_SIZE = 4 bytes */
 
-        /* Write pattern IDs after the header */
-        uint32_t *pattern_ids_ptr = (uint32_t *)(prepend_ptr + header_size);
+        /* Write pattern IDs after the header.
+         * header_size is 4, so prepend_ptr + 4 is 4-byte aligned if prepend_ptr is aligned. */
         for (uint32_t i = 0; i < pattern_ids_cnt; i++) {
-            pattern_ids_ptr[i] = p->matched_pids[i];
+            memcpy(prepend_ptr + header_size + i * sizeof(uint32_t),
+                    &p->matched_pids[i], sizeof(uint32_t));
         }
     } else {
         /* Not enough headroom - log warning and continue without pattern IDs */
@@ -357,11 +357,11 @@ static void DPDKReleasePacket(Packet *p)
                      p->matched_pids_cnt, prepend_size);
     }
 
-    printf("\n");
-    for (uint32_t i = 0; i < prepend_size; i++) {
-        printf("%02x ", prepend_ptr[i]);
-    }
-    printf("\n");
+//printf("\n");
+//    for (uint32_t i = 0; i < prepend_size; i++) {
+//        printf("%02x ", prepend_ptr[i]);
+//    }
+//    printf("\n");
 
 
     /* Need to be in copy mode and need to detect early release

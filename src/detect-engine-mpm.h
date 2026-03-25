@@ -131,4 +131,6 @@ struct MpmListIdDataArgs {
 
 void EngineAnalysisAddAllRulePatterns(DetectEngineCtx *de_ctx, const Signature *s);
 
+void BuildAllTruncationMaps(DetectEngineCtx *de_ctx);
+
 #endif /* SURICATA_DETECT_ENGINE_MPM_H */

@@ -49,6 +49,14 @@
 #include "util-validate.h"
 #include "util-profiling.h"
 #include "util-mpm-ac.h"
+#include "util-mpm-hs.h"
+
+/** Global max MPM payload pattern length for truncation experiment.
+ *  0 = disabled (no truncation). When >0, patterns longer than this value
+ *  are truncated to their first g_max_mpm_payload_pat_len bytes in the
+ *  Hyperscan database. Full patterns are kept for SPM verification. */
+uint16_t g_max_mpm_payload_pat_len = 0;
+bool g_collect_mpm_truncation_stats = true;
 
 struct StreamMpmData {
     DetectEngineThreadCtx *det_ctx;
@@ -68,6 +76,18 @@ static int StreamMpmFunc(
         (void)mpm_table[smd->mpm_ctx->mpm_type].Search(
                 smd->mpm_ctx, &smd->det_ctx->mtc, &smd->det_ctx->pmq, data, data_len);
         PREFILTER_PROFILING_ADD_BYTES(smd->det_ctx, data_len);
+#ifdef BUILD_HYPERSCAN
+        if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats &&
+                smd->det_ctx->mtc.matched_pat_bitset != NULL) {
+            SCHSVerifyTruncatedMatches(smd->mpm_ctx,
+                    smd->det_ctx->mtc.matched_pat_bitset,
+                    smd->det_ctx->mtc.matched_pat_bitset_size,
+                    data, data_len,
+                    smd->det_ctx->mpm_tp_short[MPM_STATS_CTX_STREAM],
+                    smd->det_ctx->mpm_tp_long[MPM_STATS_CTX_STREAM],
+                    smd->det_ctx->mpm_fp_long[MPM_STATS_CTX_STREAM], "stream");
+        }
+#endif
         SCLogNotice("StreamMpmFunc: matched %u bufferlength %u", smd->det_ctx->pmq.rule_id_array_cnt - pre_matches, data_len);
     }
     return 0;
@@ -112,6 +132,18 @@ static void PrefilterPktStream(DetectEngineThreadCtx *det_ctx,
             (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
                     &det_ctx->mtc, &det_ctx->pmq,
                     p->payload, p->payload_len);
+#ifdef BUILD_HYPERSCAN
+            if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats &&
+                    det_ctx->mtc.matched_pat_bitset != NULL) {
+                SCHSVerifyTruncatedMatches(mpm_ctx,
+                        det_ctx->mtc.matched_pat_bitset,
+                        det_ctx->mtc.matched_pat_bitset_size,
+                        p->payload, p->payload_len,
+                        det_ctx->mpm_tp_short[MPM_STATS_CTX_STREAM_FALLBACK],
+                        det_ctx->mpm_tp_long[MPM_STATS_CTX_STREAM_FALLBACK],
+                        det_ctx->mpm_fp_long[MPM_STATS_CTX_STREAM_FALLBACK], "stream-fallback");
+            }
+#endif
 
             if (det_ctx->mtc.save_stream_mpm_results) {
                 if (p->matched_pids_cnt + det_ctx->mtc.pids_count > g_max_mpm_pattern_ids ||
@@ -184,6 +216,18 @@ static void PrefilterPktPayload(DetectEngineThreadCtx *det_ctx,
     (void)mpm_table[mpm_ctx->mpm_type].Search(mpm_ctx,
             &det_ctx->mtc, &det_ctx->pmq,
             p->payload, p->payload_len);
+#ifdef BUILD_HYPERSCAN
+    if (g_max_mpm_payload_pat_len > 0 && g_collect_mpm_truncation_stats &&
+            det_ctx->mtc.matched_pat_bitset != NULL) {
+        SCHSVerifyTruncatedMatches(mpm_ctx,
+                det_ctx->mtc.matched_pat_bitset,
+                det_ctx->mtc.matched_pat_bitset_size,
+                p->payload, p->payload_len,
+                det_ctx->mpm_tp_short[MPM_STATS_CTX_PAYLOAD],
+                det_ctx->mpm_tp_long[MPM_STATS_CTX_PAYLOAD],
+                det_ctx->mpm_fp_long[MPM_STATS_CTX_PAYLOAD], "payload");
+    }
+#endif
 
     if (p->matched_pids_cnt + det_ctx->mtc.pids_count > g_max_mpm_pattern_ids || det_ctx->mtc.pids[0] == UINT32_MAX) {
         // det_ctx->mtc.pids[0] != UINT32_MAX is a special case in which I need to reset the packet's pids to UINT32_MAX

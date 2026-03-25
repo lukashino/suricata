@@ -1667,6 +1667,7 @@ detect:
   sgh-mpm-context: auto
   sgh-reverse-matching: yes
   save-mpm-stream-results: yes
+  max-mpm-payload-pattern-length: 10
   inspection-recursion-limit: 3000
   # If set to yes, the loading of signatures will be made after the capture
   # is started. This will limit the downtime in IPS mode.
