@@ -1471,6 +1471,10 @@ static int AFPGetDevFlags(int fd, const char *ifname)
     struct ifreq ifr;
 
     memset(&ifr, 0, sizeof(ifr));
+    if (strlen(ifname) >= sizeof(ifr.ifr_name)) {
+        SCLogError("%s: interface name too long for ioctl", ifname);
+        return -1;
+    }
     strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 
     if (ioctl(fd, SIOCGIFFLAGS, &ifr) == -1) {
@@ -1487,6 +1491,10 @@ static int AFPGetIfnumByDev(int fd, const char *ifname, int verbose)
     struct ifreq ifr;
 
     memset(&ifr, 0, sizeof(ifr));
+    if (strlen(ifname) >= sizeof(ifr.ifr_name)) {
+        SCLogError("%s: interface name too long for ioctl", ifname);
+        return -1;
+    }
     strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 
     if (ioctl(fd, SIOCGIFINDEX, &ifr) == -1) {
@@ -1503,6 +1511,10 @@ static int AFPGetDevLinktype(int fd, const char *ifname)
     struct ifreq ifr;
 
     memset(&ifr, 0, sizeof(ifr));
+    if (strlen(ifname) >= sizeof(ifr.ifr_name)) {
+        SCLogError("%s: interface name too long for ioctl", ifname);
+        return -1;
+    }
     strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 
     if (ioctl(fd, SIOCGIFHWADDR, &ifr) == -1) {

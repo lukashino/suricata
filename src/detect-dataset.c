@@ -283,14 +283,14 @@ static int DetectDatasetParse(const char *str, char *cmd, int cmd_len, char *nam
                 }
                 format_set = true;
             } else if (strcmp(key, "value_key") == 0) {
-                if (strlen(val) > value_key_size) {
-                    SCLogError("'key' value too long (limit is %zu)", value_key_size);
+                if (strlen(val) >= value_key_size) {
+                    SCLogError("'key' value too long (limit is %zu)", value_key_size - 1);
                     return -1;
                 }
                 strlcpy(value_key, val, value_key_size);
             } else if (strcmp(key, "array_key") == 0) {
-                if (strlen(val) > array_key_size) {
-                    SCLogError("'key' value too long (limit is %zu)", array_key_size);
+                if (strlen(val) >= array_key_size) {
+                    SCLogError("'key' value too long (limit is %zu)", array_key_size - 1);
                     return -1;
                 }
                 strlcpy(array_key, val, array_key_size);
@@ -302,8 +302,8 @@ static int DetectDatasetParse(const char *str, char *cmd, int cmd_len, char *nam
                         return -1;
                     }
                 }
-                if (strlen(val) > enrichment_key_size) {
-                    SCLogError("'key' value too long (limit is %zu)", enrichment_key_size);
+                if (strlen(val) >= enrichment_key_size) {
+                    SCLogError("'key' value too long (limit is %zu)", enrichment_key_size - 1);
                     return -1;
                 }
                 strlcpy(enrichment_key, val, enrichment_key_size);
