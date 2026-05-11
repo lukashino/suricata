@@ -62,8 +62,6 @@ typedef struct ThreadVars_ {
      *  this thread. It is passed directly to pthread_create(), hence the
      *  void pointers in and out. */
     void *(*tm_func)(void *);
-    void (*tm_spawn)(struct ThreadVars_ *);
-    void (*tm_join)(struct ThreadVars_ *);
 
     char name[16];
     char *printable_name;

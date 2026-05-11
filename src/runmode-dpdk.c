@@ -47,8 +47,10 @@
 #include "util-dpdk-ice.h"
 #include "util-dpdk-ixgbe.h"
 #include "util-dpdk-rss.h"
+#include "util-dpdk-threading.h"
 #include "util-time.h"
 #include "util-conf.h"
+#include "util-threading-backend.h"
 #include "suricata.h"
 #include "util-affinity.h"
 
@@ -529,6 +531,9 @@ static void InitEal(void)
     if (retval < 0) { // retval bound to the result of rte_eal_init
         FatalError("DPDK EAL initialization error: %s", rte_strerror(-retval));
     }
+
+    DpdkThreadingBackendRegister();
+    ThreadingBackendSelect("dpdk");
 }
 
 static void DPDKDerefConfig(void *conf)

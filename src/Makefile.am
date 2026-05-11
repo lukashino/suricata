@@ -605,6 +605,8 @@ noinst_HEADERS = \
 	util-syslog.h \
 	util-systemd.h \
 	util-thash.h \
+	util-threading-backend.h \
+	util-threading-pthread.h \
 	util-threshold-config.h \
 	util-time.h \
 	util-unittest-helper.h \
@@ -1189,6 +1191,8 @@ libsuricata_c_a_SOURCES = \
 	util-syslog.c \
 	util-systemd.c \
 	util-thash.c \
+	util-threading-backend.c \
+	util-threading-pthread.c \
 	util-threshold-config.c \
 	util-time.c \
 	util-unittest-helper.c \

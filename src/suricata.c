@@ -139,6 +139,7 @@
 #include "util-proto-name.h"
 #include "util-running-modes.h"
 #include "util-signal.h"
+#include "util-threading-backend.h"
 #include "util-time.h"
 #include "util-validate.h"
 #include "util-var-name.h"
@@ -2885,6 +2886,7 @@ int PostConfLoadedSetup(SCInstance *suri)
     /* hardcoded initialization code */
     SigTableSetup(); /* load the rule keywords */
     SigTableApplyStrictCommandLineOption(suri->strict_rule_parsing_string);
+    ThreadingBackendInit();
     TmqhSetup();
 
     TagInitCtx();

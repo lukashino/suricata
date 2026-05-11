@@ -1,4 +1,4 @@
-/* Copyright (C) 2024-2026 Open Information Security Foundation
+/* Copyright (C) 2026 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -20,13 +20,12 @@
  *
  * \author Lukas Sismis <lsismis@oisf.net>
  *
- * DPDK-based threading backend. Workers run on lcores via the EAL,
- * managers/command threads run as DPDK control threads.
+ * Pthread-based threading backend.
  */
 
-#ifndef SURICATA_UTIL_DPDK_THREADING_H
-#define SURICATA_UTIL_DPDK_THREADING_H
+#ifndef SURICATA_UTIL_THREADING_PTHREAD_H
+#define SURICATA_UTIL_THREADING_PTHREAD_H
 
-void DpdkThreadingBackendRegister(void);
+void PthreadThreadingBackendRegister(void);
 
-#endif /* SURICATA_UTIL_DPDK_THREADING_H */
+#endif /* SURICATA_UTIL_THREADING_PTHREAD_H */

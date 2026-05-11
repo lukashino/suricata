@@ -126,12 +126,6 @@ int RunModeSetLiveCaptureAutoFp(ConfigIfaceParserFunc ConfigParser,
             if (tm_module == NULL) {
                 FatalError("TmModuleGetByName failed for %s", recv_mod_name);
             }
-            if (tm_module->ThreadSpawn != NULL && tm_module->ThreadSpawn != tv_receive->tm_spawn) {
-                tv_receive->tm_spawn = tm_module->ThreadSpawn;
-            }
-            if (tm_module->ThreadJoin != NULL && tm_module->ThreadJoin != tv_receive->tm_join) {
-                tv_receive->tm_join = tm_module->ThreadJoin;
-            }
             TmSlotSetFuncAppend(tv_receive, tm_module, aconf);
 
             tm_module = TmModuleGetByName(decode_mod_name);
@@ -192,13 +186,6 @@ int RunModeSetLiveCaptureAutoFp(ConfigIfaceParserFunc ConfigParser,
                 TmModule *tm_module = TmModuleGetByName(recv_mod_name);
                 if (tm_module == NULL) {
                     FatalError("TmModuleGetByName failed for %s", recv_mod_name);
-                }
-                if (tm_module->ThreadSpawn != NULL &&
-                        tm_module->ThreadSpawn != tv_receive->tm_spawn) {
-                    tv_receive->tm_spawn = tm_module->ThreadSpawn;
-                }
-                if (tm_module->ThreadJoin != NULL && tm_module->ThreadJoin != tv_receive->tm_join) {
-                    tv_receive->tm_join = tm_module->ThreadJoin;
                 }
                 TmSlotSetFuncAppend(tv_receive, tm_module, aconf);
 
@@ -310,12 +297,6 @@ static int RunModeSetLiveCaptureWorkersForDevice(ConfigIfaceThreadsCountFunc Mod
         TmModule *tm_module = TmModuleGetByName(recv_mod_name);
         if (tm_module == NULL) {
             FatalError("TmModuleGetByName failed for %s", recv_mod_name);
-        }
-        if (tm_module->ThreadSpawn != NULL && tm_module->ThreadSpawn != tv->tm_spawn) {
-            tv->tm_spawn = tm_module->ThreadSpawn;
-        }
-        if (tm_module->ThreadJoin != NULL && tm_module->ThreadJoin != tv->tm_join) {
-            tv->tm_join = tm_module->ThreadJoin;
         }
         TmSlotSetFuncAppend(tv, tm_module, aconf);
 
@@ -437,12 +418,6 @@ int RunModeSetIPSAutoFp(ConfigIPSParserFunc ConfigParser,
         if (tm_module == NULL) {
             FatalError("TmModuleGetByName failed for %s", recv_mod_name);
         }
-        if (tm_module->ThreadSpawn != NULL && tm_module->ThreadSpawn != tv_receive->tm_spawn) {
-            tv_receive->tm_spawn = tm_module->ThreadSpawn;
-        }
-        if (tm_module->ThreadJoin != NULL && tm_module->ThreadJoin != tv_receive->tm_join) {
-            tv_receive->tm_join = tm_module->ThreadJoin;
-        }
         TmSlotSetFuncAppend(tv_receive, tm_module, (void *) ConfigParser(i));
 
         tm_module = TmModuleGetByName(decode_mod_name);
@@ -554,12 +529,6 @@ int RunModeSetIPSWorker(ConfigIPSParserFunc ConfigParser,
         TmModule *tm_module = TmModuleGetByName(recv_mod_name);
         if (tm_module == NULL) {
             FatalError("TmModuleGetByName failed for %s", recv_mod_name);
-        }
-        if (tm_module->ThreadSpawn != NULL && tm_module->ThreadSpawn != tv->tm_spawn) {
-            tv->tm_spawn = tm_module->ThreadSpawn;
-        }
-        if (tm_module->ThreadJoin != NULL && tm_module->ThreadJoin != tv->tm_join) {
-            tv->tm_join = tm_module->ThreadJoin;
         }
         TmSlotSetFuncAppend(tv, tm_module, (void *) ConfigParser(i));
 
