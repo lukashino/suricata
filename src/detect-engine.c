@@ -2581,25 +2581,32 @@ static DetectEngineCtx *DetectEngineCtxInitReal(
         de_ctx->flags |= DE_REVERSE_SGH_MATCHING;
     }
 
-    /* detect.results-format: REQUIRED. Selects portable vs extended packet
-     * embedding for MPM match results. No safe default. */
+    /* detect.results-format: REQUIRED in production runmodes.
+     * Skipped in unit-test mode where many test fixtures don't set the key
+     * and the DPDK output path is not exercised. */
     {
         const char *results_format_str = NULL;
-        if (ConfGet("detect.results-format", &results_format_str) != 1 ||
-                results_format_str == NULL) {
-            FatalError("detect.results-format is required and must be "
-                       "\"portable\" or \"extended\"");
-        }
-        if (strcmp(results_format_str, "portable") == 0) {
+        int have_key = (ConfGet("detect.results-format", &results_format_str) == 1
+                && results_format_str != NULL);
+        if (!have_key) {
+            if (SCRunmodeGet() == RUNMODE_UNITTEST) {
+                SCLogDebug("detect.results-format not set in unit-test mode; "
+                           "leaving g_results_format at default");
+            } else {
+                FatalError("detect.results-format is required and must be "
+                           "\"portable\" or \"extended\"");
+            }
+        } else if (strcmp(results_format_str, "portable") == 0) {
             g_results_format = RESULTS_FORMAT_PORTABLE;
+            SCLogConfig("detect.results-format = portable");
         } else if (strcmp(results_format_str, "extended") == 0) {
             g_results_format = RESULTS_FORMAT_EXTENDED;
+            SCLogConfig("detect.results-format = extended");
         } else {
             FatalError("detect.results-format has invalid value \"%s\"; "
                        "must be \"portable\" or \"extended\"",
                        results_format_str);
         }
-        SCLogConfig("detect.results-format = %s", results_format_str);
     }
 
     intmax_t max_pat_len = 0;

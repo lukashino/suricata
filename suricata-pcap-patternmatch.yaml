@@ -1660,6 +1660,7 @@ decoder:
 # If the argument specified is 0, the engine uses an internally defined
 # default limit.  When a value is not specified, there are no limits on the recursion.
 detect:
+  results-format: extended
   profile: medium
   custom-values:
     toclient-groups: 3
