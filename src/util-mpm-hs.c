@@ -938,10 +938,15 @@ int SCHSPreparePatterns(MpmCtx *mpm_ctx)
     pd->ref_cnt = 1;
     /* Portable results-format embeds pattern IDs in 14 bits per slot.
      * matched_pids stores the Hyperscan callback id, which is a 0-based
-     * index into pd->parray[] -- so its max value is pattern_cnt - 1. */
+     * index into pd->parray[] -- so its max value is pattern_cnt - 1.
+     *
+     * Note: this check only covers the Hyperscan MPM backend. Other backends
+     * (AC, AC-BS, AC-KS) populate matched_pids via the same path but are not
+     * gated here -- if portable mode is ever paired with a non-HS backend,
+     * a parallel check is needed at the pattern-id assignment site. */
     if (g_results_format == RESULTS_FORMAT_PORTABLE && pd->pattern_cnt > (1u << 14)) {
         FatalError("detect.results-format=portable requires every MPM pattern "
-                   "database to fit in 14 bits (< 16384 patterns). This "
+                   "database to fit in 14 bits (<= 16384 patterns). This "
                    "database has %u patterns. Reduce the rule set or use "
                    "results-format=extended.", pd->pattern_cnt);
     }
