@@ -41,6 +41,7 @@
 #include "tm-threads.h"
 #include "tmqh-packetpool.h"
 #include "util-privs.h"
+#include "util-results-format.h"
 #include "action-globals.h"
 
 #ifndef HAVE_DPDK
@@ -351,11 +352,29 @@ static void WriteExtendedPids(Packet *p)
     }
 }
 
+/**
+ * \brief Portable results format writer.
+ *
+ * Overwrites the 12-byte dst+src MAC area with up to 6 uint16_t pattern-id
+ * slots (little-endian). Packet layout (Ethertype, IP header, payload, ...)
+ * is byte-identical to input -- no header bytes are added. See
+ * util-results-format.h for the exact encoding.
+ */
+static void WritePortablePids(Packet *p)
+{
+    uint8_t *mac_area = rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *);
+    EncodePortablePids(mac_area, p->matched_pids, p->matched_pids_cnt);
+}
+
 static void DPDKReleasePacket(Packet *p)
 {
     int retval;
 
-    WriteExtendedPids(p);
+    if (g_results_format == RESULTS_FORMAT_PORTABLE) {
+        WritePortablePids(p);
+    } else {
+        WriteExtendedPids(p);
+    }
 
     /* Need to be in copy mode and need to detect early release
        where Ethernet header could not be set (and pseudo packet)
