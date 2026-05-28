@@ -74,6 +74,7 @@
 #include "util-classification-config.h"
 #include "util-threshold-config.h"
 #include "util-reference-config.h"
+#include "util-results-format.h"
 #include "util-profiling.h"
 #include "util-magic.h"
 #include "util-memcmp.h"
@@ -196,6 +197,7 @@ static void RegisterUnittests(void)
     SCLogRegisterTests();
     MagicRegisterTests();
     UtilMiscRegisterTests();
+    UtilResultsFormatRegisterTests();
     DetectAddressTests();
     DetectProtoTests();
     DetectPortTests();
