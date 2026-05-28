@@ -46,6 +46,7 @@
 #include "util-dpdk-ice.h"
 #include "util-dpdk-ixgbe.h"
 #include "util-dpdk-rss.h"
+#include "util-results-format.h"
 #include "util-time.h"
 #include "util-conf.h"
 #include "suricata.h"
@@ -854,7 +855,8 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     g_max_mpm_pattern_ids = iconf->max_mpm_pattern_ids;
     SCLogConfig("%s: max-mpm-pattern-ids set to %u (global limit updated)", iconf->iface, iconf->max_mpm_pattern_ids);
 
-    if (g_results_format == RESULTS_FORMAT_PORTABLE && iconf->max_mpm_pattern_ids > 6) {
+    if (g_results_format == RESULTS_FORMAT_PORTABLE &&
+            iconf->max_mpm_pattern_ids > PORTABLE_FORMAT_MAX_PIDS) {
         FatalError("%s: detect.results-format=portable but max-mpm-pattern-ids=%u "
                    "exceeds the 6-slot limit of the portable format. "
                    "Lower max-mpm-pattern-ids to <=6 or use results-format=extended.",

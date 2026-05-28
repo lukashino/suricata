@@ -44,6 +44,7 @@
 #include "util-hash.h"
 #include "util-hash-lookup3.h"
 #include "util-hyperscan.h"
+#include "util-results-format.h"
 
 #include "source-dpdk.h"
 
@@ -944,7 +945,8 @@ int SCHSPreparePatterns(MpmCtx *mpm_ctx)
      * (AC, AC-BS, AC-KS) populate matched_pids via the same path but are not
      * gated here -- if portable mode is ever paired with a non-HS backend,
      * a parallel check is needed at the pattern-id assignment site. */
-    if (g_results_format == RESULTS_FORMAT_PORTABLE && pd->pattern_cnt > (1u << 14)) {
+    if (g_results_format == RESULTS_FORMAT_PORTABLE &&
+            pd->pattern_cnt > (PORTABLE_FORMAT_PID_MASK + 1)) {
         FatalError("detect.results-format=portable requires every MPM pattern "
                    "database to fit in 14 bits (<= 16384 patterns). This "
                    "database has %u patterns. Reduce the rule set or use "
