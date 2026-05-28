@@ -45,6 +45,8 @@
 #include "util-hash-lookup3.h"
 #include "util-hyperscan.h"
 
+#include "source-dpdk.h"
+
 #ifdef BUILD_HYPERSCAN
 
 #include <hs.h>
@@ -934,6 +936,15 @@ int SCHSPreparePatterns(MpmCtx *mpm_ctx)
 
     /* Cache this database globally for later. */
     pd->ref_cnt = 1;
+    /* Portable results-format embeds pattern IDs in 14 bits per slot.
+     * matched_pids stores the Hyperscan callback id, which is a 0-based
+     * index into pd->parray[] -- so its max value is pattern_cnt - 1. */
+    if (g_results_format == RESULTS_FORMAT_PORTABLE && pd->pattern_cnt > (1u << 14)) {
+        FatalError("detect.results-format=portable requires every MPM pattern "
+                   "database to fit in 14 bits (< 16384 patterns). This "
+                   "database has %u patterns. Reduce the rule set or use "
+                   "results-format=extended.", pd->pattern_cnt);
+    }
     int r = HashTableAdd(g_db_table, pd, 1);
     SCMutexUnlock(&g_db_table_mutex);
     if (r < 0)
