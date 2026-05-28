@@ -9,38 +9,44 @@
 #include "util-results-format.h"
 #include "decode.h" /* for PREFILTER_PKT_* flag bits and PREFILTER_FLAGS_SPACE */
 
-void EncodePortablePids(uint8_t out[12], const uint32_t *pids, uint32_t pids_cnt)
+void EncodePortablePids(uint8_t out[PORTABLE_FORMAT_BYTES], const uint32_t *pids, uint32_t pids_cnt)
 {
-    memset(out, 0, 12);
+    memset(out, 0, PORTABLE_FORMAT_BYTES);
 
-    bool overflow = (pids_cnt > 6) || (pids_cnt > 0 && pids[0] == UINT32_MAX);
+    bool overflow = (pids_cnt > PORTABLE_FORMAT_MAX_PIDS) ||
+                    (pids_cnt > 0 && pids[0] == UINT32_MAX);
     if (!overflow) {
         for (uint32_t i = 0; i < pids_cnt; i++) {
             uint32_t pid = pids[i] & PREFILTER_FLAGS_SPACE;
-            if (pid >= (1u << 14)) {
+            if (pid >= (1u << PORTABLE_FORMAT_PID_BITS)) {
                 overflow = true;
                 break;
             }
         }
     }
     if (overflow) {
-        memset(out, 0xFF, 12);
+        memset(out, 0xFF, PORTABLE_FORMAT_BYTES);
         return;
     }
 
-    uint16_t *slots = (uint16_t *)out;
     for (uint32_t i = 0; i < pids_cnt; i++) {
         uint32_t v = pids[i];
-        uint16_t pid14 = (uint16_t)(v & 0x3FFF);
-        uint16_t flags = 0;
-        if (v & PREFILTER_PKT_PAYLOAD_FN)   flags |= 0x8000;
-        if (v & PREFILTER_PKT_TOSERVER_DIR) flags |= 0x4000;
-        slots[i] = pid14 | flags;
+        uint16_t slot = (uint16_t)(v & PORTABLE_FORMAT_PID_MASK);
+        if (v & PREFILTER_PKT_PAYLOAD_FN)   slot |= PORTABLE_FORMAT_FLAG_PAYLOAD;
+        if (v & PREFILTER_PKT_TOSERVER_DIR) slot |= PORTABLE_FORMAT_FLAG_TOSERVER;
+        /* Little-endian byte serialization — wire format is portable. */
+        out[i * 2 + 0] = (uint8_t)(slot & 0xFF);
+        out[i * 2 + 1] = (uint8_t)(slot >> 8);
     }
 }
 
 #ifdef UNITTESTS
 #include "util-unittest.h"
+
+static uint16_t SlotAt(const uint8_t out[12], uint32_t idx)
+{
+    return (uint16_t)out[idx * 2] | ((uint16_t)out[idx * 2 + 1] << 8);
+}
 
 /* Test 1: empty input -> all 12 bytes zero. */
 static int UtilResultsFormatTest01(void)
@@ -59,10 +65,9 @@ static int UtilResultsFormatTest02(void)
     uint8_t out[12];
     uint32_t pids[1] = { 0x1234 };
     EncodePortablePids(out, pids, 1);
-    uint16_t *slots = (uint16_t *)out;
-    FAIL_IF(slots[0] != 0x1234);
-    for (int i = 1; i < 6; i++)
-        FAIL_IF(slots[i] != 0x0000);
+    FAIL_IF(SlotAt(out, 0) != 0x1234);
+    for (uint32_t i = 1; i < 6; i++)
+        FAIL_IF(SlotAt(out, i) != 0x0000);
     PASS;
 }
 
@@ -72,8 +77,7 @@ static int UtilResultsFormatTest03(void)
     uint8_t out[12];
     uint32_t pids[1] = { 0x42 | PREFILTER_PKT_PAYLOAD_FN };
     EncodePortablePids(out, pids, 1);
-    uint16_t *slots = (uint16_t *)out;
-    FAIL_IF(slots[0] != (0x42 | 0x8000));
+    FAIL_IF(SlotAt(out, 0) != (0x42 | 0x8000));
     PASS;
 }
 
@@ -83,8 +87,7 @@ static int UtilResultsFormatTest04(void)
     uint8_t out[12];
     uint32_t pids[1] = { 0x42 | PREFILTER_PKT_TOSERVER_DIR };
     EncodePortablePids(out, pids, 1);
-    uint16_t *slots = (uint16_t *)out;
-    FAIL_IF(slots[0] != (0x42 | 0x4000));
+    FAIL_IF(SlotAt(out, 0) != (0x42 | 0x4000));
     PASS;
 }
 
@@ -94,8 +97,7 @@ static int UtilResultsFormatTest05(void)
     uint8_t out[12];
     uint32_t pids[1] = { 0x42 | PREFILTER_PKT_PAYLOAD_FN | PREFILTER_PKT_TOSERVER_DIR };
     EncodePortablePids(out, pids, 1);
-    uint16_t *slots = (uint16_t *)out;
-    FAIL_IF(slots[0] != (0x42 | 0xC000));
+    FAIL_IF(SlotAt(out, 0) != (0x42 | 0xC000));
     PASS;
 }
 
@@ -105,8 +107,7 @@ static int UtilResultsFormatTest06(void)
     uint8_t out[12];
     uint32_t pids[1] = { 0x3FFF };
     EncodePortablePids(out, pids, 1);
-    uint16_t *slots = (uint16_t *)out;
-    FAIL_IF(slots[0] != 0x3FFF);
+    FAIL_IF(SlotAt(out, 0) != 0x3FFF);
     PASS;
 }
 
@@ -128,9 +129,8 @@ static int UtilResultsFormatTest08(void)
     uint8_t out[12];
     uint32_t pids[6] = { 1, 2, 3, 4, 5, 6 };
     EncodePortablePids(out, pids, 6);
-    uint16_t *slots = (uint16_t *)out;
-    for (int i = 0; i < 6; i++)
-        FAIL_IF(slots[i] != (uint16_t)(i + 1));
+    for (uint32_t i = 0; i < 6; i++)
+        FAIL_IF(SlotAt(out, i) != (uint16_t)(i + 1));
     PASS;
 }
 
@@ -165,13 +165,12 @@ static int UtilResultsFormatTest11(void)
     memset(out, 0xAA, 12);
     uint32_t pids[4] = { 0x11, 0x22, 0x33, 0x44 };
     EncodePortablePids(out, pids, 4);
-    uint16_t *slots = (uint16_t *)out;
-    FAIL_IF(slots[0] != 0x11);
-    FAIL_IF(slots[1] != 0x22);
-    FAIL_IF(slots[2] != 0x33);
-    FAIL_IF(slots[3] != 0x44);
-    FAIL_IF(slots[4] != 0x0000);
-    FAIL_IF(slots[5] != 0x0000);
+    FAIL_IF(SlotAt(out, 0) != 0x11);
+    FAIL_IF(SlotAt(out, 1) != 0x22);
+    FAIL_IF(SlotAt(out, 2) != 0x33);
+    FAIL_IF(SlotAt(out, 3) != 0x44);
+    FAIL_IF(SlotAt(out, 4) != 0x0000);
+    FAIL_IF(SlotAt(out, 5) != 0x0000);
     PASS;
 }
 
