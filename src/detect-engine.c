@@ -24,6 +24,7 @@
 #include "suricata-common.h"
 #include "suricata.h"
 #include "detect.h"
+#include "source-dpdk.h"
 #include "flow.h"
 #include "flow-private.h"
 #include "flow-util.h"
@@ -2578,6 +2579,27 @@ static DetectEngineCtx *DetectEngineCtxInitReal(
     if (sgh_rev_matching == 1) {
         SCLogNotice("SGH reverse matching enabled - both direction of toserver and toclient inspected");
         de_ctx->flags |= DE_REVERSE_SGH_MATCHING;
+    }
+
+    /* detect.results-format: REQUIRED. Selects portable vs extended packet
+     * embedding for MPM match results. No safe default. */
+    {
+        const char *results_format_str = NULL;
+        if (ConfGet("detect.results-format", &results_format_str) != 1 ||
+                results_format_str == NULL) {
+            FatalError("detect.results-format is required and must be "
+                       "\"portable\" or \"extended\"");
+        }
+        if (strcmp(results_format_str, "portable") == 0) {
+            g_results_format = RESULTS_FORMAT_PORTABLE;
+        } else if (strcmp(results_format_str, "extended") == 0) {
+            g_results_format = RESULTS_FORMAT_EXTENDED;
+        } else {
+            FatalError("detect.results-format has invalid value \"%s\"; "
+                       "must be \"portable\" or \"extended\"",
+                       results_format_str);
+        }
+        SCLogConfig("detect.results-format = %s", results_format_str);
     }
 
     intmax_t max_pat_len = 0;

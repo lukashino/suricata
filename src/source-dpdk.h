@@ -32,6 +32,13 @@
 
 typedef enum { DPDK_COPY_MODE_NONE, DPDK_COPY_MODE_TAP, DPDK_COPY_MODE_IPS } DpdkCopyModeEnum;
 
+typedef enum {
+    RESULTS_FORMAT_PORTABLE = 0,
+    RESULTS_FORMAT_EXTENDED = 1,
+} ResultsFormat;
+
+extern ResultsFormat g_results_format;
+
 #define DPDK_BURST_TX_WAIT_US 1
 
 /* DPDK Flags */

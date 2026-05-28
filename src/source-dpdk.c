@@ -97,6 +97,10 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
 /* Global runtime limit for pattern IDs - defaults to 12 (can be configured up to MATCHED_PIDS_ARR_LEN_THRESH) */
 uint32_t g_max_mpm_pattern_ids = MATCHED_PIDS_ARR_LEN_THRESH;
 
+/* Set by detect.results-format YAML key during detect-engine init.
+ * No safe default: parsing fails loud if the key is missing/invalid. */
+ResultsFormat g_results_format = RESULTS_FORMAT_EXTENDED;
+
 #define BURST_SIZE 32
 // interrupt mode constants
 #define MIN_ZERO_POLL_COUNT          10U
