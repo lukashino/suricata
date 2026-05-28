@@ -54,6 +54,7 @@
 #include "detect-engine-state.h"
 #include "detect-engine-payload.h"
 #include "detect-fast-pattern.h"
+#include "source-dpdk.h"
 #include "detect-byte-extract.h"
 #include "detect-content.h"
 #include "detect-uricontent.h"
@@ -2578,6 +2579,33 @@ static DetectEngineCtx *DetectEngineCtxInitReal(
     if (sgh_rev_matching == 1) {
         SCLogNotice("SGH reverse matching enabled - both direction of toserver and toclient inspected");
         de_ctx->flags |= DE_REVERSE_SGH_MATCHING;
+    }
+
+    /* detect.results-format: REQUIRED in production runmodes.
+     * Skipped in unit-test mode where many fixtures do not set this key. */
+    {
+        const char *results_format_str = NULL;
+        const int have_key = (ConfGet("detect.results-format", &results_format_str) == 1 &&
+                results_format_str != NULL);
+        if (!have_key) {
+            if (SCRunmodeGet() == RUNMODE_UNITTEST) {
+                SCLogDebug("detect.results-format not set in unit-test mode; "
+                           "leaving g_results_format at default");
+            } else {
+                FatalError("detect.results-format is required and must be "
+                           "\"portable\" or \"extended\"");
+            }
+        } else if (strcmp(results_format_str, "portable") == 0) {
+            g_results_format = RESULTS_FORMAT_PORTABLE;
+            SCLogConfig("detect.results-format = portable");
+        } else if (strcmp(results_format_str, "extended") == 0) {
+            g_results_format = RESULTS_FORMAT_EXTENDED;
+            SCLogConfig("detect.results-format = extended");
+        } else {
+            FatalError("detect.results-format has invalid value \"%s\"; "
+                       "must be \"portable\" or \"extended\"",
+                    results_format_str);
+        }
     }
 
     intmax_t max_pat_len = 0;

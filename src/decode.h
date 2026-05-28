@@ -584,10 +584,11 @@ typedef struct Packet_
     uint8_t *payload;
     uint16_t payload_len;
 
-    /* Pointer to precomputed pattern IDs from FPGA/sender (for evaluator mode).
-     * Points into the original mbuf data (before adjustment). Valid until packet release. */
+    /* Pointer to precomputed pattern IDs from FPGA/sender (for evaluator mode). */
     uint32_t *fpga_prefilter_pids_ptr;
     uint16_t fpga_prefilter_pids_cnt;
+    /* Storage backing fpga_prefilter_pids_ptr for decoded wire-format values. */
+    uint32_t fpga_prefilter_pids_storage[MATCHED_SIDS_ARR_LEN_THRESH];
 
     /* IPS action to take */
     uint8_t action;

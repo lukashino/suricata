@@ -32,6 +32,22 @@
 
 typedef enum { DPDK_COPY_MODE_NONE, DPDK_COPY_MODE_TAP, DPDK_COPY_MODE_IPS } DpdkCopyModeEnum;
 
+typedef enum {
+    RESULTS_FORMAT_PORTABLE = 0,
+    RESULTS_FORMAT_EXTENDED = 1,
+} ResultsFormat;
+
+extern ResultsFormat g_results_format;
+
+/* Portable results-format layout constants.
+ * The 12-byte dst+src MAC area holds 6 little-endian uint16_t slots. */
+#define PORTABLE_FORMAT_MAX_PIDS      6u
+#define PORTABLE_FORMAT_PID_BITS      14u
+#define PORTABLE_FORMAT_PID_MASK      ((1u << PORTABLE_FORMAT_PID_BITS) - 1u)
+#define PORTABLE_FORMAT_BYTES         (PORTABLE_FORMAT_MAX_PIDS * 2u)
+#define PORTABLE_FORMAT_FLAG_PAYLOAD  0x8000u
+#define PORTABLE_FORMAT_FLAG_TOSERVER 0x4000u
+
 #define DPDK_BURST_TX_WAIT_US 1
 
 /* DPDK Flags */
@@ -99,5 +115,9 @@ typedef struct DPDKPacketVars_ {
 
 void TmModuleReceiveDPDKRegister(void);
 void TmModuleDecodeDPDKRegister(void);
+
+#ifdef UNITTESTS
+void SourceDpdkRegisterTests(void);
+#endif
 
 #endif /* SURICATA_SOURCE_DPDK_H */

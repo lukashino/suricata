@@ -1733,6 +1733,15 @@ decoder:
 # default limit.  When a value is not specified, there are no limits on the recursion.
 detect:
   sgh-reverse-matching: yes
+  # Required format of precomputed MPM results embedded in packets.
+  # This must match the PREPARE pipeline that produced the input traffic.
+  # Values:
+  #   portable: 6 uint16_t slots overwrite the 12-byte dst+src MAC area.
+  #             Keeps Ethertype/L3/L4/payload byte-identical.
+  #   extended: prepended variable-length header:
+  #             0xff | len(uint16 LE) | pid_size(=4) | pid[0..N-1](uint32 LE)
+  # No auto-detection is performed in evaluator mode.
+  results-format: portable
   # MPM pattern truncation experiment: truncate payload/stream fast patterns
   # longer than this value. 0 = disabled (default). >0 = max length in bytes.
   max-mpm-payload-pattern-length: 0

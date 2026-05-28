@@ -43,6 +43,196 @@
 #include "util-privs.h"
 #include "action-globals.h"
 
+/* Set by detect.results-format YAML key during detect-engine init.
+ * No safe default in production runmodes: missing/invalid config is fatal. */
+ResultsFormat g_results_format = RESULTS_FORMAT_EXTENDED;
+
+static inline uint16_t ReadU16LE(const uint8_t *ptr)
+{
+    return (uint16_t)ptr[0] | ((uint16_t)ptr[1] << 8);
+}
+
+static inline uint32_t ReadU32LE(const uint8_t *ptr)
+{
+    return (uint32_t)ptr[0] | ((uint32_t)ptr[1] << 8) | ((uint32_t)ptr[2] << 16) |
+           ((uint32_t)ptr[3] << 24);
+}
+
+static bool DecodePortablePrefilterPids(const uint8_t mac_area[PORTABLE_FORMAT_BYTES],
+        uint32_t out_pids[MATCHED_SIDS_ARR_LEN_THRESH], uint16_t *out_cnt)
+{
+    bool overflow = true;
+    for (uint32_t i = 0; i < PORTABLE_FORMAT_BYTES; i++) {
+        if (mac_area[i] != 0xFF) {
+            overflow = false;
+            break;
+        }
+    }
+    if (overflow) {
+        *out_cnt = 0;
+        return true;
+    }
+
+    uint16_t cnt = 0;
+    for (uint32_t i = 0; i < PORTABLE_FORMAT_MAX_PIDS; i++) {
+        const uint16_t slot = ReadU16LE(&mac_area[i * 2]);
+        if (slot == 0x0000) {
+            continue;
+        }
+
+        uint32_t pid = (uint32_t)(slot & PORTABLE_FORMAT_PID_MASK);
+        if (slot & PORTABLE_FORMAT_FLAG_PAYLOAD) {
+            pid |= PREFILTER_PKT_PAYLOAD_FN;
+        }
+        if (slot & PORTABLE_FORMAT_FLAG_TOSERVER) {
+            pid |= PREFILTER_PKT_TOSERVER_DIR;
+        }
+        if (cnt < MATCHED_SIDS_ARR_LEN_THRESH) {
+            out_pids[cnt++] = pid;
+        }
+    }
+
+    *out_cnt = cnt;
+    return false;
+}
+
+#ifdef UNITTESTS
+#include "util-unittest.h"
+
+static void EncodePortablePidsForTest(
+        uint8_t out[PORTABLE_FORMAT_BYTES], const uint32_t *pids, uint32_t pids_cnt)
+{
+    memset(out, 0, PORTABLE_FORMAT_BYTES);
+
+    bool overflow = (pids_cnt > PORTABLE_FORMAT_MAX_PIDS) ||
+                    (pids_cnt > 0 && pids[0] == UINT32_MAX);
+    if (!overflow) {
+        for (uint32_t i = 0; i < pids_cnt; i++) {
+            const uint32_t pid = pids[i] & PREFILTER_FLAGS_SPACE;
+            if (pid >= (1u << PORTABLE_FORMAT_PID_BITS)) {
+                overflow = true;
+                break;
+            }
+        }
+    }
+
+    if (overflow) {
+        memset(out, 0xFF, PORTABLE_FORMAT_BYTES);
+        return;
+    }
+
+    for (uint32_t i = 0; i < pids_cnt; i++) {
+        const uint32_t v = pids[i];
+        uint16_t slot = (uint16_t)(v & PORTABLE_FORMAT_PID_MASK);
+        if (v & PREFILTER_PKT_PAYLOAD_FN) {
+            slot |= PORTABLE_FORMAT_FLAG_PAYLOAD;
+        }
+        if (v & PREFILTER_PKT_TOSERVER_DIR) {
+            slot |= PORTABLE_FORMAT_FLAG_TOSERVER;
+        }
+        out[i * 2 + 0] = (uint8_t)(slot & 0xFF);
+        out[i * 2 + 1] = (uint8_t)(slot >> 8);
+    }
+}
+
+static int DecodePortableRoundTrip(const uint32_t *src, uint32_t src_cnt, bool expected_overflow,
+        const uint32_t *expected_pids, uint16_t expected_cnt)
+{
+    uint8_t bytes[PORTABLE_FORMAT_BYTES];
+    uint32_t decoded[MATCHED_SIDS_ARR_LEN_THRESH] = { 0 };
+    uint16_t decoded_cnt = 0;
+
+    EncodePortablePidsForTest(bytes, src, src_cnt);
+    const bool overflow = DecodePortablePrefilterPids(bytes, decoded, &decoded_cnt);
+    FAIL_IF(overflow != expected_overflow);
+    FAIL_IF(decoded_cnt != expected_cnt);
+    for (uint16_t i = 0; i < expected_cnt; i++) {
+        FAIL_IF(decoded[i] != expected_pids[i]);
+    }
+    PASS;
+}
+
+static int SourceDpdkPortableDecodeTest01(void)
+{
+    return DecodePortableRoundTrip(NULL, 0, false, NULL, 0);
+}
+
+static int SourceDpdkPortableDecodeTest02(void)
+{
+    const uint32_t src[] = { 0x1234 };
+    return DecodePortableRoundTrip(src, 1, false, src, 1);
+}
+
+static int SourceDpdkPortableDecodeTest03(void)
+{
+    const uint32_t src[] = { 0x42 | PREFILTER_PKT_PAYLOAD_FN };
+    return DecodePortableRoundTrip(src, 1, false, src, 1);
+}
+
+static int SourceDpdkPortableDecodeTest04(void)
+{
+    const uint32_t src[] = { 0x42 | PREFILTER_PKT_TOSERVER_DIR };
+    return DecodePortableRoundTrip(src, 1, false, src, 1);
+}
+
+static int SourceDpdkPortableDecodeTest05(void)
+{
+    const uint32_t src[] = { 0x42 | PREFILTER_PKT_PAYLOAD_FN | PREFILTER_PKT_TOSERVER_DIR };
+    return DecodePortableRoundTrip(src, 1, false, src, 1);
+}
+
+static int SourceDpdkPortableDecodeTest06(void)
+{
+    const uint32_t src[] = { 0x3FFF };
+    return DecodePortableRoundTrip(src, 1, false, src, 1);
+}
+
+static int SourceDpdkPortableDecodeTest07(void)
+{
+    const uint32_t src[] = { 0x4000 };
+    return DecodePortableRoundTrip(src, 1, true, NULL, 0);
+}
+
+static int SourceDpdkPortableDecodeTest08(void)
+{
+    const uint32_t src[] = { 1, 2, 3, 4, 5, 6 };
+    return DecodePortableRoundTrip(src, 6, false, src, 6);
+}
+
+static int SourceDpdkPortableDecodeTest09(void)
+{
+    const uint32_t src[] = { 1, 2, 3, 4, 5, 6, 7 };
+    return DecodePortableRoundTrip(src, 7, true, NULL, 0);
+}
+
+static int SourceDpdkPortableDecodeTest10(void)
+{
+    const uint32_t src[] = { UINT32_MAX };
+    return DecodePortableRoundTrip(src, 1, true, NULL, 0);
+}
+
+static int SourceDpdkPortableDecodeTest11(void)
+{
+    const uint32_t src[] = { 0x11, 0x22, 0x33, 0x44 };
+    return DecodePortableRoundTrip(src, 4, false, src, 4);
+}
+
+void SourceDpdkRegisterTests(void)
+{
+    UtRegisterTest("SourceDpdkPortableDecodeTest01", SourceDpdkPortableDecodeTest01);
+    UtRegisterTest("SourceDpdkPortableDecodeTest02", SourceDpdkPortableDecodeTest02);
+    UtRegisterTest("SourceDpdkPortableDecodeTest03", SourceDpdkPortableDecodeTest03);
+    UtRegisterTest("SourceDpdkPortableDecodeTest04", SourceDpdkPortableDecodeTest04);
+    UtRegisterTest("SourceDpdkPortableDecodeTest05", SourceDpdkPortableDecodeTest05);
+    UtRegisterTest("SourceDpdkPortableDecodeTest06", SourceDpdkPortableDecodeTest06);
+    UtRegisterTest("SourceDpdkPortableDecodeTest07", SourceDpdkPortableDecodeTest07);
+    UtRegisterTest("SourceDpdkPortableDecodeTest08", SourceDpdkPortableDecodeTest08);
+    UtRegisterTest("SourceDpdkPortableDecodeTest09", SourceDpdkPortableDecodeTest09);
+    UtRegisterTest("SourceDpdkPortableDecodeTest10", SourceDpdkPortableDecodeTest10);
+    UtRegisterTest("SourceDpdkPortableDecodeTest11", SourceDpdkPortableDecodeTest11);
+}
+#endif
+
 #ifndef HAVE_DPDK
 
 TmEcode NoDPDKSupportExit(ThreadVars *, const void *, void **);
@@ -460,68 +650,127 @@ static inline Packet *PacketInitFromMbuf(DPDKThreadVars *ptv, struct rte_mbuf *m
     return p;
 }
 
-/**
- * \brief Parse FPGA prefilter header from packet and store pointer to pattern IDs
- *
- * The sender prepends a custom header before the Ethernet frame:
- * | RESERVED (1B) | PATIDs_LEN (2B) | PATID_SIZE (1B) | [PAT_ID (4B)]... | Original Ethernet Header
- *
- * RESERVED: Always 0xff - marker to identify packets with pattern IDs
- * PATIDs_LEN: Native-endian (little-endian on x86), total size in bytes of the pattern IDs array
- * PATID_SIZE: Always 4 - size of each pattern ID in bytes
- * PAT_ID[]: Little-endian uint32_t pattern IDs with flags in upper bits
- *
- * \param p Packet to populate with pointer to pattern IDs
- * \param mbuf The mbuf containing the packet data
- * \return Number of bytes to skip (header size), or 0 if no header present
- */
-static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf)
+static inline void SetFpgaPrefilterOverflow(Packet *p)
 {
-    uint16_t pkt_len = rte_pktmbuf_pkt_len(mbuf);
-    uint8_t *pkt_data = rte_pktmbuf_mtod(mbuf, uint8_t *);
+    p->fpga_prefilter_pids_storage[0] = UINT32_MAX;
+    p->fpga_prefilter_pids_ptr = p->fpga_prefilter_pids_storage;
+    p->fpga_prefilter_pids_cnt = 1;
+}
 
-    /* Initialize to no precomputed patterns */
-    p->fpga_prefilter_pids_ptr = NULL;
-    p->fpga_prefilter_pids_cnt = 0;
-
-    /* Need at least 4 bytes for the header */
+static inline uint16_t ParseExtendedFpgaPrefilterHeader(
+        Packet *p, const uint8_t *pkt_data, const uint16_t pkt_len)
+{
     if (pkt_len < 4) {
+        SCLogError("FPGA prefilter extended header is truncated: packet length %u", pkt_len);
+        SetFpgaPrefilterOverflow(p);
         return 0;
     }
 
-    /* Check for FPGA prefilter header marker: RESERVED=0xff and PATID_SIZE=4 */
-    if (pkt_data[0] != 0xff || pkt_data[3] != 4) {
+    if (pkt_data[0] != 0xFF) {
+        SCLogError("FPGA prefilter extended header has invalid RESERVED byte 0x%02x", pkt_data[0]);
+        SetFpgaPrefilterOverflow(p);
         return 0;
     }
 
-    /* Parse PATIDs_LEN - use memcpy to avoid unaligned access at odd offset */
-    uint16_t patids_len;
-    memcpy(&patids_len, pkt_data + 1, sizeof(uint16_t));
-    uint16_t header_size = 4 + patids_len;
+    const uint16_t patids_len = ReadU16LE(pkt_data + 1);
+    const uint8_t patid_size = pkt_data[3];
+    if (patid_size != sizeof(uint32_t)) {
+        SCLogError("FPGA prefilter extended header has invalid PATID_SIZE %u", patid_size);
+        SetFpgaPrefilterOverflow(p);
+        return 0;
+    }
+    if ((patids_len % sizeof(uint32_t)) != 0) {
+        SCLogError("FPGA prefilter extended header PATIDs_LEN %u is not divisible by %zu",
+                patids_len, sizeof(uint32_t));
+        SetFpgaPrefilterOverflow(p);
+        return 0;
+    }
 
-    /* Validate header size doesn't exceed packet length */
+    const uint16_t header_size = 4 + patids_len;
     if (header_size > pkt_len) {
-        FatalError("FPGA prefilter header size (%u) exceeds packet length (%u)",
+        SCLogError("FPGA prefilter extended header size (%u) exceeds packet length (%u)",
                 header_size, pkt_len);
+        SetFpgaPrefilterOverflow(p);
         return 0;
     }
 
-    uint16_t num_patterns = patids_len / 4;
+    const uint16_t num_patterns = patids_len / sizeof(uint32_t);
+    if (num_patterns > MATCHED_SIDS_ARR_LEN_THRESH) {
+        SCLogError("FPGA prefilter extended header has %u IDs, exceeding local limit %u",
+                num_patterns, MATCHED_SIDS_ARR_LEN_THRESH);
+        SetFpgaPrefilterOverflow(p);
+        return header_size;
+    }
 
-    if (num_patterns != 0) {
-        /* Store pointer to pattern IDs (points into mbuf, valid until mbuf is freed).
-         * The pointer remains valid even after rte_pktmbuf_adj since that only
-         * moves the data offset, doesn't free memory. */
-        p->fpga_prefilter_pids_ptr = (uint32_t *)(pkt_data + 4);
+    if (num_patterns == 1 && ReadU32LE(pkt_data + 4) == UINT32_MAX) {
+        SetFpgaPrefilterOverflow(p);
+        return header_size;
+    }
+
+    for (uint16_t i = 0; i < num_patterns; i++) {
+        p->fpga_prefilter_pids_storage[i] = ReadU32LE(pkt_data + 4 + (i * sizeof(uint32_t)));
+    }
+    if (num_patterns > 0) {
+        p->fpga_prefilter_pids_ptr = p->fpga_prefilter_pids_storage;
         p->fpga_prefilter_pids_cnt = num_patterns;
     }
 
-    SCLogDebug("FPGA prefilter: header found with %u pattern IDs", num_patterns);
-    for (int i = 0; i < num_patterns; i++) {
-        SCLogDebug("Pattern ID %u (raw %u) %s direction, %s context", ~0xC0000000 & p->fpga_prefilter_pids_ptr[i], p->fpga_prefilter_pids_ptr[i], p->fpga_prefilter_pids_ptr[i] & BIT_U32(30) ? "server": "client", p->fpga_prefilter_pids_ptr[i] & BIT_U32(31) ? "payload": "stream");
+    return header_size;
+}
+
+static inline uint16_t ParsePortableFpgaPrefilterHeader(
+        Packet *p, const uint8_t *pkt_data, const uint16_t pkt_len)
+{
+    if (pkt_len < PORTABLE_FORMAT_BYTES) {
+        SCLogError("FPGA prefilter portable header is truncated: packet length %u", pkt_len);
+        SetFpgaPrefilterOverflow(p);
+        return 0;
     }
 
-    return header_size;
+    uint16_t decoded_cnt = 0;
+    const bool overflow = DecodePortablePrefilterPids(
+            pkt_data, p->fpga_prefilter_pids_storage, &decoded_cnt);
+    if (overflow) {
+        SetFpgaPrefilterOverflow(p);
+    } else if (decoded_cnt > 0) {
+        p->fpga_prefilter_pids_ptr = p->fpga_prefilter_pids_storage;
+        p->fpga_prefilter_pids_cnt = decoded_cnt;
+    }
+    return 0;
+}
+
+/**
+ * \brief Parse FPGA prefilter metadata according to detect.results-format.
+ *
+ * extended: parse prepended variable-size header and return bytes to skip.
+ * portable: decode slots from 12-byte MAC area and keep frame pointer unchanged.
+ */
+static inline uint16_t ParseFpgaPrefilterHeader(Packet *p, struct rte_mbuf *mbuf)
+{
+    const uint16_t pkt_len = rte_pktmbuf_pkt_len(mbuf);
+    const uint8_t *pkt_data = rte_pktmbuf_mtod(mbuf, uint8_t *);
+
+    p->fpga_prefilter_pids_ptr = NULL;
+    p->fpga_prefilter_pids_cnt = 0;
+
+    uint16_t header_skip = 0;
+    if (g_results_format == RESULTS_FORMAT_PORTABLE) {
+        header_skip = ParsePortableFpgaPrefilterHeader(p, pkt_data, pkt_len);
+    } else {
+        header_skip = ParseExtendedFpgaPrefilterHeader(p, pkt_data, pkt_len);
+    }
+
+    if (p->fpga_prefilter_pids_cnt > 0) {
+        static thread_local uint16_t max_seen = 0;
+        if (p->fpga_prefilter_pids_cnt > max_seen) {
+            max_seen = p->fpga_prefilter_pids_cnt;
+            SCLogConfig("detect.results-format observed max pattern IDs per packet: %u", max_seen);
+        }
+    }
+
+    SCLogDebug("FPGA prefilter parsed %u pattern IDs (skip=%u)",
+            p->fpga_prefilter_pids_cnt, header_skip);
+    return header_skip;
 }
 
 static inline void DPDKSegmentedMbufWarning(struct rte_mbuf *mbuf)

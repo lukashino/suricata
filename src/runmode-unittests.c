@@ -93,6 +93,7 @@
 
 #include "util-mpm-ac.h"
 #include "util-mpm-hs.h"
+#include "source-dpdk.h"
 
 #include "conf.h"
 #include "conf-yaml-loader.h"
@@ -141,6 +142,7 @@ static void RegisterUnittests(void)
     PoolRegisterTests();
     ByteRegisterTests();
     MpmRegisterTests();
+    SourceDpdkRegisterTests();
     FlowBitRegisterTests();
     HostBitRegisterTests();
     IPPairBitRegisterTests();

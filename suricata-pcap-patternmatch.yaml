@@ -1659,6 +1659,13 @@ decoder:
 # If the argument specified is 0, the engine uses an internally defined
 # default limit.  When a value is not specified, there are no limits on the recursion.
 detect:
+  # Required format of precomputed MPM results embedded in packets.
+  # Must match the PREPARE pipeline output.
+  # Values:
+  #   portable: 6 uint16_t slots overwrite the 12-byte dst+src MAC area.
+  #   extended: prepended variable-length header with uint32 pattern IDs.
+  # No auto-detection is performed in evaluator mode.
+  results-format: portable
   profile: medium
   custom-values:
     toclient-groups: 3
