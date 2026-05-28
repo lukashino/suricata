@@ -316,20 +316,16 @@ static inline void DPDKDumpCounters(DPDKThreadVars *ptv)
 }
 
 /**
- * \brief Prepend pattern IDs to packet using headroom
+ * \brief Extended results format writer.
  *
- * Packet format after prepending:
- * | RESERVED (1B, 0xff) | PATIDs_LEN (2B) | PATID_SIZE (1B) | [PAT_ID (4B)]... | Original Ethernet Header | IP...
+ * Prepends a variable-length header to the packet via DPDK mbuf headroom:
+ *   | RESERVED (1B, 0xff) | PATIDs_LEN (2B) | PATID_SIZE (1B) | [PAT_ID (4B)]... |
+ *   | Original Ethernet | IP | ...
  *
- * Where PATIDs_LEN is the total size in bytes of the pattern IDs array.
+ * On insufficient headroom, logs a warning and leaves the packet unchanged.
  */
-static void DPDKReleasePacket(Packet *p)
+static void WriteExtendedPids(Packet *p)
 {
-    int retval;
-
-    /* Calculate space needed for pattern ID header:
-     * 1 byte RESERVED (0xff) + 2 bytes PATIDs_LEN + 1 byte PATID_SIZE + N*4 bytes pattern IDs
-     */
     uint16_t pattern_ids_cnt = p->matched_pids_cnt;
     if (p->matched_pids[0] == UINT32_MAX) {
         pattern_ids_cnt = 1;
@@ -338,35 +334,27 @@ static void DPDKReleasePacket(Packet *p)
     uint16_t header_size = 4; /* RESERVED + PATIDs_LEN + PATID_SIZE */
     uint16_t prepend_size = header_size + pattern_ids_bytes;
 
-    /* Try to prepend space for pattern IDs using headroom */
     uint8_t *prepend_ptr = (uint8_t *)rte_pktmbuf_prepend(p->dpdk_v.mbuf, prepend_size);
-
     if (prepend_ptr != NULL) {
-        /* Successfully prepended - write the header */
-        prepend_ptr[0] = 0xff; /* RESERVED marker */
-        /* PATIDs_LEN: 2 bytes, use memcpy to avoid unaligned access */
+        prepend_ptr[0] = 0xff;
         memcpy(prepend_ptr + 1, &pattern_ids_bytes, sizeof(uint16_t));
-        prepend_ptr[3] = sizeof(uint32_t); /* PATID_SIZE = 4 bytes */
-
-        /* Write pattern IDs after the header.
-         * header_size is 4, so prepend_ptr + 4 is 4-byte aligned if prepend_ptr is aligned. */
+        prepend_ptr[3] = sizeof(uint32_t);
         for (uint32_t i = 0; i < pattern_ids_cnt; i++) {
             memcpy(prepend_ptr + header_size + i * sizeof(uint32_t),
                     &p->matched_pids[i], sizeof(uint32_t));
         }
     } else {
-        /* Not enough headroom - log warning and continue without pattern IDs */
         SCLogWarning("Insufficient headroom for %u pattern IDs (need %u bytes), "
                      "try to increase mbuf size in your primary application",
                      p->matched_pids_cnt, prepend_size);
     }
+}
 
-//printf("\n");
-//    for (uint32_t i = 0; i < prepend_size; i++) {
-//        printf("%02x ", prepend_ptr[i]);
-//    }
-//    printf("\n");
+static void DPDKReleasePacket(Packet *p)
+{
+    int retval;
 
+    WriteExtendedPids(p);
 
     /* Need to be in copy mode and need to detect early release
        where Ethernet header could not be set (and pseudo packet)
