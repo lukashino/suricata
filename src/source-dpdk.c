@@ -337,6 +337,7 @@ static void WriteExtendedPids(Packet *p)
     uint8_t *prepend_ptr = (uint8_t *)rte_pktmbuf_prepend(p->dpdk_v.mbuf, prepend_size);
     if (prepend_ptr != NULL) {
         prepend_ptr[0] = 0xff;
+        /* memcpy to avoid an unaligned 16-bit store at prepend_ptr+1 */
         memcpy(prepend_ptr + 1, &pattern_ids_bytes, sizeof(uint16_t));
         prepend_ptr[3] = sizeof(uint32_t);
         for (uint32_t i = 0; i < pattern_ids_cnt; i++) {
