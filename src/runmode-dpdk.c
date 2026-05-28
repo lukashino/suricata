@@ -854,6 +854,13 @@ static int ConfigLoad(DPDKIfaceConfig *iconf, const char *iface)
     g_max_mpm_pattern_ids = iconf->max_mpm_pattern_ids;
     SCLogConfig("%s: max-mpm-pattern-ids set to %u (global limit updated)", iconf->iface, iconf->max_mpm_pattern_ids);
 
+    if (g_results_format == RESULTS_FORMAT_PORTABLE && iconf->max_mpm_pattern_ids > 6) {
+        FatalError("%s: detect.results-format=portable but max-mpm-pattern-ids=%u "
+                   "exceeds the 6-slot limit of the portable format. "
+                   "Lower max-mpm-pattern-ids to <=6 or use results-format=extended.",
+                   iconf->iface, iconf->max_mpm_pattern_ids);
+    }
+
     SCReturnInt(0);
 }
 
