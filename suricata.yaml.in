@@ -1733,6 +1733,24 @@ decoder:
 # If the argument specified is 0, the engine uses an internally defined
 # default limit.  When a value is not specified, there are no limits on the recursion.
 detect:
+  # Format used to embed MPM pattern-match results into outgoing packets
+  # (for downstream FPGA/external parsers).
+  #
+  #   portable: 6 uint16_t pattern IDs overwrite the 12-byte src+dst MAC
+  #             area. No header bytes are added; packet layout is preserved
+  #             so external parsers continue to see normal Ethernet/IP/...
+  #             Per-pid bits (little-endian): bit15 = PAYLOAD_FN,
+  #             bit14 = TOSERVER, low 14 bits = pid (max id 16383,
+  #             max 6 pids per packet). Overflow (count>6 or pid>=2^14)
+  #             produces all 12 MAC bytes set to 0xFF as a sentinel.
+  #
+  #   extended: variable-length header prepended to the packet
+  #             (RESERVED(0xff) | LEN(2B) | SIZE(1B) | [pid u32]...).
+  #             Carries up to max-mpm-pattern-ids pids with full 30-bit
+  #             pid space, but changes the on-wire packet layout.
+  #
+  # REQUIRED -- Suricata exits at startup if this key is missing.
+  results-format: portable
   sgh-reverse-matching: yes
   save-mpm-stream-results: yes
   # Maximum MPM fast pattern length for FPGA pattern truncation experiment.
