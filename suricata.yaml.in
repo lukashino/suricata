@@ -2383,16 +2383,25 @@ firewall:
 
   # Default policies
   #
-  # Choose a default policy for each firewall hook.
-  # It is also possible to specify policies by app-layer protocol.
-  # DNS example: Drop and alert on all DNS requests that are not allowed in firewall.rules, accept all responses.
+  # Each firewall hook has a policy applied to traffic that no firewall rule
+  # handled. A `default-policy` may be set at three levels, the most specific 
+  # setting wins.
   #
   #policies:
-  #  packet-filter: ["drop:packet"]
-  #  dns:
-  #    request-started: ["accept:hook"]
-  #    request-complete: ["drop:flow", "alert"]
-  #    response-started: ["accept:tx"]
+  #  default-policy: ["accept:hook"]   # global fallback for every hook
+  #  packet:
+  #    default-policy: ["drop:packet"] # fallback for packet hooks
+  #    filter:     ["drop:packet"]
+  #    pre-flow:   ["accept:hook"]
+  #    pre-stream: ["accept:hook"]
+  #  app:
+  #    default-policy: ["drop:flow"]   # fallback for all app hooks
+  #    dns:
+  #      default-policy: ["drop:flow"] # fallback for dns hooks
+  #      request-started: ["accept:hook"]
+  #      request-complete: ["drop:flow", "alert"]
+  #      response-started: ["accept:tx"]
+  #    # tls omitted -> app.default-policy -> policies.default-policy
 
 ##
 ## Include other configs
