@@ -111,7 +111,10 @@ typedef struct SignatureParser_ {
 
 const char *DetectListToHumanString(int list)
 {
-#define CASE_CODE_STRING(E, S)  case E: return S; break
+#define CASE_CODE_STRING(E, S)                                                                     \
+    case E:                                                                                        \
+        return S;                                                                                  \
+        break
     switch (list) {
         CASE_CODE_STRING(DETECT_SM_LIST_MATCH, "packet");
         CASE_CODE_STRING(DETECT_SM_LIST_PMATCH, "payload");
@@ -4138,6 +4141,10 @@ static int AddAppPolicySignature(struct DetectFirewallAppPolicy *pol)
     return 0;
 }
 
+/**
+ * \brief Parse a policy config key into a DetectFirewallPolicy struct.
+ * \return 1 if a policy was found and parsed, 0 if no policy was configured, -1 on parse error
+ */
 static int DoParsePolicy(const char *policy_name, struct DetectFirewallPolicy *pol)
 {
     SCConfNode *policy_actions = SCConfGetNode(policy_name);
@@ -4210,7 +4217,7 @@ static int DoParseAppSubStatePolicy(const char *prefix, const AppProto app_proto
         FatalError("internal error: insert policy into hash table");
     }
     /* for policies with an alert action, create a policy sig */
-    if (r == 1 && app_pol->policy.action & ACTION_ALERT) {
+    if (r == 1 && (app_pol->policy.action & ACTION_ALERT)) {
         SCLogDebug("adding policy signature");
         return AddAppPolicySignature(app_pol);
     }
@@ -4299,7 +4306,7 @@ static int DoParseAppPolicy(const char *prefix, const AppProto app_proto, const 
     }
 
     /* for policies with an alert action, create a policy sig */
-    if (r == 1 && app_pol->policy.action & ACTION_ALERT) {
+    if (r == 1 && (app_pol->policy.action & ACTION_ALERT)) {
         SCLogDebug("adding policy signature");
         return AddAppPolicySignature(app_pol);
     }
@@ -4461,7 +4468,7 @@ int DetectFirewallLoadDefaultPolicies(DetectEngineCtx *de_ctx)
 #include "detect-engine-alert.h"
 #include "packet.h"
 
-static int SigParseTest01 (void)
+static int SigParseTest01(void)
 {
     int result = 1;
     Signature *sig = NULL;
