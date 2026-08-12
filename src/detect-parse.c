@@ -122,6 +122,22 @@ static const uint8_t fw_app_hook_scopes[] = {
     ACTION_SCOPE_HOOK,
 };
 
+/** \brief max length of a firewall.policies config path */
+#define FW_POLICY_PATH_MAX 320
+/** \brief max length of a single path segment: a hook or sub state name */
+#define FW_POLICY_NAME_MAX 64
+/** \brief max number of config paths consulted to resolve one policy */
+#define FW_POLICY_CHAIN_MAX 6
+
+/**
+ * \brief Ordered, most-specific-first list of config paths a single policy can
+ *        be configured at.
+ */
+typedef struct FirewallPolicyChain {
+    char path[FW_POLICY_CHAIN_MAX][FW_POLICY_PATH_MAX];
+    uint8_t len;
+} FirewallPolicyChain;
+
 const char *DetectListToHumanString(int list)
 {
 #define CASE_CODE_STRING(E, S)  case E: return S; break
@@ -4234,42 +4250,69 @@ static void ATTR_FMT_PRINTF(3, 4)
     va_list ap;
     va_start(ap, fmt);
     int r = vsnprintf(out_buf, out_buf_sz, fmt, ap);
+    if (r < 0 || (size_t)r >= out_buf_sz) {
+        FatalError("%s: firewall policy config path too long", out_buf);
+    }
     va_end(ap);
-    if (r < 0 || (size_t)r >= out_buf_sz)
-        FatalError("Failed to assemble firewall policy config string");
 }
 
 /**
- * \brief Resolve a firewall policy from the list of config paths.
+ * \brief Append an inheritance tier to the chain of firewall policies to query.
+ */
+static void ATTR_FMT_PRINTF(2, 3)
+        FirewallPolicyChainAdd(FirewallPolicyChain *chain, const char *fmt, ...)
+{
+    char path[FW_POLICY_PATH_MAX];
+    va_list ap;
+    va_start(ap, fmt);
+    int r = vsnprintf(path, sizeof(path), fmt, ap);
+    if (r < 0 || (size_t)r >= sizeof(path)) {
+        FatalError("%s: firewall policy config path too long", path);
+    }
+    va_end(ap);
+
+    for (uint8_t i = 0; i < chain->len; i++) {
+        if (strcmp(chain->path[i], path) == 0)
+            return;
+    }
+    if (chain->len >= FW_POLICY_CHAIN_MAX) {
+        FatalError("%s: too many firewall policy config paths", path);
+    }
+    r = strlcpy(chain->path[chain->len++], path, FW_POLICY_PATH_MAX);
+    if (r >= FW_POLICY_PATH_MAX) {
+        FatalError("%s: firewall policy config path too long", path);
+    }
+}
+
+/**
+ * \brief Resolve a firewall policy from its config path chain.
  *
- * Paths are most-specific-first. The first path that has a policy configured
- * wins with its action scope validated against the target hook class.
+ * The first path in the chain that has a policy configured wins, with its
+ * action scope validated against the target hook class.
  *
  * \retval 1 a config source was used and stored in \p out
  * \retval 0 no source present, \p out is unmodified
  * \retval -1 parse error, e.g. an empty policy, or invalid scope for the target class
  */
 static int ResolveFirewallPolicy(struct DetectFirewallPolicy *out,
-        enum DetectFirewallPolicyClass pol_class, const char *const *paths, const int npaths)
+        enum DetectFirewallPolicyClass pol_class, const FirewallPolicyChain *chain)
 {
-    for (int i = 0; i < npaths; i++) {
-        if (paths[i] == NULL || paths[i][0] == '\0') {
-            continue;
-        }
+    for (uint8_t i = 0; i < chain->len; i++) {
+        const char *path = chain->path[i];
         struct DetectFirewallPolicy tmp = { 0 };
-        int r = DoParsePolicy(paths[i], &tmp);
+        int r = DoParsePolicy(path, &tmp);
         if (r < 0) {
             return -1;
         }
         if (r == 1) {
             if (tmp.action == 0) {
-                SCLogError("%s: policy is set but empty", paths[i]);
+                SCLogError("%s: policy is set but empty", path);
                 return -1;
             }
             if (!FirewallScopeValidForClass(tmp.action_scope, pol_class)) {
                 char hint[32];
                 FirewallScopeHintForClass(pol_class, hint, sizeof(hint));
-                SCLogError("%s: action scope (\"%s\") is not valid.  Valid scopes: %s", paths[i],
+                SCLogError("%s: action scope (\"%s\") is not valid.  Valid scopes: %s", path,
                         ActionScopeToString(tmp.action_scope), hint);
                 return -1;
             }
@@ -4296,7 +4339,9 @@ static const char *FirewallAppGenericHookName(
 
 static void FirewallHookNameConvertUnderscoreToDash(const char *in, char *out, size_t out_size)
 {
-    strlcpy(out, in, out_size);
+    if (strlcpy(out, in, out_size) >= out_size) {
+        FatalError("%s: firewall policy config name too long", in);
+    }
     for (size_t i = 0; out[i] != '\0'; i++) {
         if (out[i] == '_')
             out[i] = '-';
@@ -4307,8 +4352,7 @@ static void FirewallHookNameConvertUnderscoreToDash(const char *in, char *out, s
  *  \brief Resolve and store one app-layer hook default policy.
  *
  *  Handles both plain hooks (\p sub_state_name NULL) and sub state hooks, which
- *  only differ by an extra path segment. The policy is resolved most-specific
- *  first.
+ *  only differ by an extra path segment.
  */
 static int DoParseAppPolicy(const char *prefix, const AppProto app_proto, const uint8_t sub_state,
         const char *sub_state_name, const char *hookname, const uint8_t state,
@@ -4322,55 +4366,41 @@ static int DoParseAppPolicy(const char *prefix, const AppProto app_proto, const 
     }
 
     const char *generic_hook = FirewallAppGenericHookName(state, complete_state, direction);
-    char primary_hook[hookname ? strlen(hookname) + 1 : 1] = { 0 };
+    char hook[FW_POLICY_NAME_MAX] = "";
     if (hookname != NULL) {
-        FirewallHookNameConvertUnderscoreToDash(hookname, primary_hook, sizeof(primary_hook));
+        FirewallHookNameConvertUnderscoreToDash(hookname, hook, sizeof(hook));
+    } else if (generic_hook == NULL) {
+        SCLogDebug("%s: no config name for state %u, not addressable", app_proto_str, state);
+        DEBUG_VALIDATE_BUG_ON(1);
+        return 0;
     }
-    
-    char primary_key[320], generic_key[320], hook_dflt[320], proto_dflt[320], app_dflt[320],
-            global_dflt[320];
 
-    char sub[sub_state_name ? strlen(sub_state_name) + 1 : 1] = { 0 };
-    // +8 for fixed segments and dots
-    char scope[strlen(prefix) + strlen(app_proto_str) + strlen(sub) + 8] = { 0 };
+    char scope[FW_POLICY_PATH_MAX];
     if (sub_state_name != NULL) {
+        char sub[FW_POLICY_NAME_MAX];
         FirewallHookNameConvertUnderscoreToDash(sub_state_name, sub, sizeof(sub));
         FirewallPolicyPath(scope, sizeof(scope), "%s.app.%s.%s", prefix, app_proto_str, sub);
     } else {
         FirewallPolicyPath(scope, sizeof(scope), "%s.app.%s", prefix, app_proto_str);
     }
 
-    if (primary_hook[0] == '\0' && generic_hook == NULL) {
-        SCLogError("No hook name for firewall policy %s", scope);
-        return -1;
+    FirewallPolicyChain chain = { .len = 0 };
+    if (hookname != NULL) {
+        /* <prefix>.app.<proto>[.<sub state>].<hook> */
+        FirewallPolicyChainAdd(&chain, "%s.%s", scope, hook);
     }
-
-    FirewallPolicyPath(primary_key, sizeof(primary_key), "%s.%s", scope, primary_hook);
     if (generic_hook != NULL) {
-        FirewallPolicyPath(generic_key, sizeof(generic_key), "%s.%s", scope, generic_hook);
-    } else {
-        generic_key[0] = '\0';
+        /* <prefix>.app.<proto>[.<sub state>].<generic hook alias> */
+        FirewallPolicyChainAdd(&chain, "%s.%s", scope, generic_hook);
     }
-    FirewallPolicyPath(hook_dflt, sizeof(hook_dflt), "%s.default-policy", scope);
-    FirewallPolicyPath(
-            proto_dflt, sizeof(proto_dflt), "%s.app.%s.default-policy", prefix, app_proto_str);
-    FirewallPolicyPath(app_dflt, sizeof(app_dflt), "%s.app.default-policy", prefix);
-    FirewallPolicyPath(global_dflt, sizeof(global_dflt), "%s.default-policy", prefix);
-
-    const char *paths[] = {
-        // <prefix>.app.<proto>[.<sub state>].<hook>
-        primary_key,
-        // <prefix>.app.<proto>[.<sub state>].<generic hook alias>
-        generic_key,
-        // <prefix>.app.<proto>[.<sub state>].default-policy
-        hook_dflt,
-        // <prefix>.app.<proto>.default-policy
-        proto_dflt,
-        // <prefix>.app.default-policy
-        app_dflt,
-        // <prefix>.default-policy
-        global_dflt,
-    };
+    /* <prefix>.app.<proto>[.<sub state>].default-policy */
+    FirewallPolicyChainAdd(&chain, "%s.default-policy", scope);
+    /* <prefix>.app.<proto>.default-policy */
+    FirewallPolicyChainAdd(&chain, "%s.app.%s.default-policy", prefix, app_proto_str);
+    /* <prefix>.app.default-policy */
+    FirewallPolicyChainAdd(&chain, "%s.app.default-policy", prefix);
+    /* <prefix>.default-policy */
+    FirewallPolicyChainAdd(&chain, "%s.default-policy", prefix);
 
     struct DetectFirewallAppPolicy *app_pol = SCCalloc(1, sizeof(*app_pol));
     if (app_pol == NULL)
@@ -4380,13 +4410,10 @@ static int DoParseAppPolicy(const char *prefix, const AppProto app_proto, const 
     app_pol->sub_state = sub_state;
     app_pol->progress = state;
     app_pol->direction = (uint8_t)direction;
-    /* built-in default, overwritten by ResolveFirewallPolicy if any of the
-     * config paths above has a policy. */
     app_pol->policy.action = ACTION_DROP;
     app_pol->policy.action_scope = ACTION_SCOPE_FLOW;
 
-    int r = ResolveFirewallPolicy(
-            &app_pol->policy, DETECT_FIREWALL_POLICY_CLASS_APP, paths, (int)ARRAY_SIZE(paths));
+    int r = ResolveFirewallPolicy(&app_pol->policy, DETECT_FIREWALL_POLICY_CLASS_APP, &chain);
     if (r < 0) {
         SCFree(app_pol);
         return -1;
@@ -4437,15 +4464,17 @@ int DetectFirewallInitDefaultPolicies(DetectEngineCtx *de_ctx)
 static int DetectFirewallLoadPacketPolicy(struct DetectFirewallPolicies *fw_policies,
         const char *prefix, enum DetectFirewallPacketPolicies id, const char *leaf)
 {
-    char specific[256], pkt_dflt[256], global_dflt[256];
-    FirewallPolicyPath(specific, sizeof(specific), "%s.packet.%s", prefix, leaf);
-    FirewallPolicyPath(pkt_dflt, sizeof(pkt_dflt), "%s.packet.default-policy", prefix);
-    FirewallPolicyPath(global_dflt, sizeof(global_dflt), "%s.default-policy", prefix);
+    /* inheritance tiers, most specific first */
+    FirewallPolicyChain chain = { .len = 0 };
+    /* <prefix>.packet.<hook> */
+    FirewallPolicyChainAdd(&chain, "%s.packet.%s", prefix, leaf);
+    /* <prefix>.packet.default-policy */
+    FirewallPolicyChainAdd(&chain, "%s.packet.default-policy", prefix);
+    /* <prefix>.default-policy */
+    FirewallPolicyChainAdd(&chain, "%s.default-policy", prefix);
 
     struct DetectFirewallPolicy *pol = &fw_policies->pkt[id]; // built-in default
-    const char *paths[] = { specific, pkt_dflt, global_dflt };
-    int r = ResolveFirewallPolicy(
-            pol, DETECT_FIREWALL_POLICY_CLASS_PACKET, paths, (int)ARRAY_SIZE(paths));
+    int r = ResolveFirewallPolicy(pol, DETECT_FIREWALL_POLICY_CLASS_PACKET, &chain);
     if (r < 0) {
         return -1;
     }
