@@ -1169,14 +1169,12 @@ static bool IsBuiltIn(const char *n)
 void DetectRegisterAppLayerHookLists(void)
 {
     for (AppProto a = ALPROTO_FAILED + 1; a < g_alproto_max; a++) {
-        const char *alproto_name = AppProtoToString(a);
-        if (strcmp(alproto_name, "http") == 0)
-            alproto_name = "http1";
+        const char *alproto_name = AppProtoToStringRaw(a);
         SCLogDebug("alproto %u/%s", a, alproto_name);
 
         if (AppLayerParserSupportsSubStates(a)) {
             uint8_t max_sub_state = AppLayerParserGetMaxSubState(a);
-            SCLogDebug("%s: max sub state for %u is %u", AppProtoToString(a), a, max_sub_state);
+            SCLogDebug("%s: max sub state for %u is %u", alproto_name, a, max_sub_state);
             for (uint8_t s = 1; s <= max_sub_state; s++) {
                 const uint8_t max_state = AppLayerParserGetSubStateCompletion(
                         a, s); // TODO allow different completion per direction?
@@ -4255,7 +4253,7 @@ static int ResolveFirewallPolicy(struct DetectFirewallPolicy *out,
         enum DetectFirewallPolicyClass pol_class, const char *const *paths, const int npaths)
 {
     for (int i = 0; i < npaths; i++) {
-        if (paths[i] == NULL) {
+        if (paths[i] == NULL || paths[i][0] == '\0') {
             continue;
         }
         struct DetectFirewallPolicy tmp = { 0 };
@@ -4310,53 +4308,52 @@ static void FirewallHookNameConvertUnderscoreToDash(const char *in, char *out, s
  *
  *  Handles both plain hooks (\p sub_state_name NULL) and sub state hooks, which
  *  only differ by an extra path segment. The policy is resolved most-specific
- *  first, e.g. for a sub state hook:
- *
- *    <prefix>.app.<proto>.<sub state>.<hook>
- *    <prefix>.app.<proto>.<sub state>.<generic hook alias>
- *    <prefix>.app.<proto>.<sub state>.default-policy
- *    <prefix>.app.<proto>.default-policy
- *    <prefix>.app.default-policy
- *    <prefix>.default-policy
+ *  first.
  */
 static int DoParseAppPolicy(const char *prefix, const AppProto app_proto, const uint8_t sub_state,
         const char *sub_state_name, const char *hookname, const uint8_t state,
         const uint8_t complete_state, const int direction,
         struct DetectFirewallPolicies *fw_policies)
 {
-    const char *app_name = (app_proto == ALPROTO_HTTP1) ? "http1" : AppProtoToString(app_proto);
-    // Generic serves for the first and the last state, NULL otherwise
-    const char *generic = FirewallAppGenericHookName(state, complete_state, direction);
+    const char *app_proto_str = AppProtoToStringRaw(app_proto);
+    if (app_proto_str == NULL) {
+        SCLogError("Unknown app proto %u", (unsigned)app_proto);
+        return -1;
+    }
 
-    char primary[64];
+    const char *generic_hook = FirewallAppGenericHookName(state, complete_state, direction);
+    char primary_hook[hookname ? strlen(hookname) + 1 : 1] = { 0 };
     if (hookname != NULL) {
-        FirewallHookNameConvertUnderscoreToDash(hookname, primary, sizeof(primary));
-    } else if (generic != NULL) {
-        strlcpy(primary, generic, sizeof(primary));
-    } else {
-        return 0;
+        FirewallHookNameConvertUnderscoreToDash(hookname, primary_hook, sizeof(primary_hook));
     }
-
-    char scope[256];
-    if (sub_state_name != NULL) {
-        char sub[64];
-        FirewallHookNameConvertUnderscoreToDash(sub_state_name, sub, sizeof(sub));
-        FirewallPolicyPath(scope, sizeof(scope), "%s.app.%s.%s", prefix, app_name, sub);
-    } else {
-        FirewallPolicyPath(scope, sizeof(scope), "%s.app.%s", prefix, app_name);
-    }
-
+    
     char primary_key[320], generic_key[320], hook_dflt[320], proto_dflt[320], app_dflt[320],
             global_dflt[320];
-    FirewallPolicyPath(primary_key, sizeof(primary_key), "%s.%s", scope, primary);
-    if (generic != NULL && strcmp(primary, generic) != 0) {
-        FirewallPolicyPath(generic_key, sizeof(generic_key), "%s.%s", scope, generic);
+
+    char sub[sub_state_name ? strlen(sub_state_name) + 1 : 1] = { 0 };
+    // +8 for fixed segments and dots
+    char scope[strlen(prefix) + strlen(app_proto_str) + strlen(sub) + 8] = { 0 };
+    if (sub_state_name != NULL) {
+        FirewallHookNameConvertUnderscoreToDash(sub_state_name, sub, sizeof(sub));
+        FirewallPolicyPath(scope, sizeof(scope), "%s.app.%s.%s", prefix, app_proto_str, sub);
+    } else {
+        FirewallPolicyPath(scope, sizeof(scope), "%s.app.%s", prefix, app_proto_str);
+    }
+
+    if (primary_hook[0] == '\0' && generic_hook == NULL) {
+        SCLogError("No hook name for firewall policy %s", scope);
+        return -1;
+    }
+
+    FirewallPolicyPath(primary_key, sizeof(primary_key), "%s.%s", scope, primary_hook);
+    if (generic_hook != NULL) {
+        FirewallPolicyPath(generic_key, sizeof(generic_key), "%s.%s", scope, generic_hook);
     } else {
         generic_key[0] = '\0';
     }
     FirewallPolicyPath(hook_dflt, sizeof(hook_dflt), "%s.default-policy", scope);
     FirewallPolicyPath(
-            proto_dflt, sizeof(proto_dflt), "%s.app.%s.default-policy", prefix, app_name);
+            proto_dflt, sizeof(proto_dflt), "%s.app.%s.default-policy", prefix, app_proto_str);
     FirewallPolicyPath(app_dflt, sizeof(app_dflt), "%s.app.default-policy", prefix);
     FirewallPolicyPath(global_dflt, sizeof(global_dflt), "%s.default-policy", prefix);
 
@@ -4364,11 +4361,11 @@ static int DoParseAppPolicy(const char *prefix, const AppProto app_proto, const 
         // <prefix>.app.<proto>[.<sub state>].<hook>
         primary_key,
         // <prefix>.app.<proto>[.<sub state>].<generic hook alias>
-        generic_key[0] != '\0' ? generic_key : NULL,
+        generic_key,
         // <prefix>.app.<proto>[.<sub state>].default-policy
         hook_dflt,
         // <prefix>.app.<proto>.default-policy
-        sub_state_name != NULL ? proto_dflt : NULL,
+        proto_dflt,
         // <prefix>.app.default-policy
         app_dflt,
         // <prefix>.default-policy
