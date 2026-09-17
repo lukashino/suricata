@@ -204,7 +204,8 @@ IDS (none) mode uses no TX descriptors and does not create any TX queues by
 default. IPS and TAP mode uses the same number of TX descriptors as RX
 descriptors.
 The size of each queue's mempool and its cache is then derived from the count
-of descriptors and an allowance for in-flight packets.
+of descriptors, the configured RX backlog, and an allowance for in-flight
+packets.
 
 Rx (and Tx) descriptors are set to the highest possible value to allow more
 buffer room when traffic spikes occur. However, it requires more memory.
@@ -212,6 +213,107 @@ Individual properties can still be set manually if needed.
 
 .. note:: Mellanox ConnectX-4 NICs may not support auto-configuration of
   ``RX /TX descriptors``. Instead it can be set to a fixed value (e.g. 16384).
+
+.. _dpdk-rx-backlog:
+
+Per-worker RX backlog
+---------------------
+
+The optional ``rx-backlog-size`` interface setting allows a worker to drain
+its NIC RX queue into a bounded software FIFO before processing the packets.
+Each RSS RX queue remains owned by one worker, which both receives and
+processes its packets. The backlog does not add receive threads or dispatch
+packets to other workers.
+
+.. code-block:: yaml
+
+  dpdk:
+    interfaces:
+      - interface: 0000:05:00.1
+        rx-backlog-size: 65536
+
+The value is the number of packets (mbufs) **per RX queue / worker**. Zero
+disables the backlog and is the default when the setting is absent from both
+the interface and the default interface configuration. The supplied
+``suricata.yaml`` template explicitly sets it to ``131072``. A nonzero value
+must be a power of two of at least 32. Suricata requires DPDK 21.11 or newer. Every
+configured slot is usable; there is no reserved high watermark.
+
+When the FIFO is empty, the worker polls for 32 packets. A shorter burst is
+processed immediately. A full burst is staged, after which the worker drains
+up to another 1024 packets into the FIFO. Draining normally receives directly
+into ring storage. When fewer than eight contiguous slots remain at wraparound,
+an eight-packet receive uses the existing receive array before appending the
+returned packets in FIFO order. Receive requests are limited by free FIFO
+slots and rounded down to a multiple of eight. Draining stops after a short
+receive, after consuming the 1024-packet budget, or when
+fewer than eight slots remain. The worker then processes up to eight oldest
+packets and returns to receiving. New packets always append at the tail.
+
+Under sustained overload, processing creates room for subsequent receives
+and the FIFO remains near capacity. The NIC RX ring remains the final bounded
+queue where packets can be dropped. Interrupt mode does not enter its idle
+or sleep heuristic while software-backlog packets remain queued.
+
+Each successful receive call records one acquisition timestamp, which is
+assigned to every packet from that call. Packets staged in the FIFO retain
+this timestamp, so software queueing delay does not change their capture
+time. The backlog stores mbufs and timestamps; Suricata ``Packet`` objects
+are created when the worker processes the packets. Unprocessed backlog
+mbufs are freed on shutdown rather than processed before exit.
+
+The backlog supports ``copy-mode: none``, ``tap``, and ``ips``. TAP and IPS
+can experience extra forwarding latency in exchange for fewer packet drops
+during bursts. The backlog cannot compensate for a sustained processing
+rate below the arrival rate.
+
+Memory requirements
+~~~~~~~~~~~~~~~~~~~
+
+Backlog entries hold live mbufs, so both ``mempool-size: auto`` and validation
+of a manually configured mempool include the backlog. The base requirement
+per queue is::
+
+  RX descriptors + TX descriptors + rx-backlog-size + 32 in-flight mbufs
+
+Suricata applies its existing ``2^q - 1`` sizing convention and bonding
+adjustments to this requirement. A manual ``mempool-size`` remains an
+interface-wide total, distributed among queues; auto sizing calculates each
+queue's mempool. Increasing the number of workers multiplies the total
+backlog and mbuf requirement. Allocate enough hugepages for these mempools
+and the software rings. The FIFO also uses a timestamp array for each
+worker. Exact-capacity DPDK rings use twice the configured number of pointer
+slots internally when the capacity is a power of two, while admitting only
+the configured number of packets.
+
+Statistics
+~~~~~~~~~~
+
+The following counters are registered only when the backlog is enabled.
+Workers publish their local values through the existing approximately
+once-per-second DPDK statistics update.
+
+.. list-table:: RX backlog counters
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Counter
+     - Meaning
+   * - ``capture.dpdk.backlog.current``
+     - Last sampled occupancy, summed across workers.
+   * - ``capture.dpdk.backlog.max``
+     - Highest occupancy reached by any single worker since startup.
+   * - ``capture.dpdk.backlog.enqueued``
+     - Cumulative number of packets staged in the FIFO.
+   * - ``capture.dpdk.backlog.capacity_hits``
+     - Cumulative episodes with fewer than eight free slots. An episode
+       ends after at least 32 free slots become available.
+   * - ``capture.dpdk.backlog.drain_budget_hits``
+     - Cumulative drain turns that received all 1024 budgeted packets.
+
+After freeing staged packets during shutdown, workers publish
+``capture.dpdk.backlog.current`` as zero and retain their cumulative and
+maximum values.
 
 .. _dpdk-link-state-change-timeout:
 

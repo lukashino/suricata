@@ -94,6 +94,7 @@ TmEcode NoDPDKSupportExit(ThreadVars *tv, const void *initdata, void **data)
 #include "util-dpdk-mlx5.h"
 #include "util-dpdk-bonding.h"
 #include <numa.h>
+#include <rte_ring_elem.h>
 
 // interrupt mode constants
 #define MIN_ZERO_POLL_COUNT          10U
@@ -136,6 +137,22 @@ typedef struct DPDKThreadVars_ {
     int32_t port_socket_id;
     struct rte_mbuf *received_mbufs[DPDK_RX_BURST_SIZE];
     DPDKWorkerSync *workers_sync;
+    struct rte_ring *rx_backlog;
+    SCTime_t *backlog_timestamps;
+    uint32_t backlog_size;
+    uint32_t backlog_head;
+    uint32_t backlog_tail;
+    uint32_t backlog_current;
+    uint32_t backlog_max;
+    uint64_t backlog_enqueued;
+    uint64_t backlog_capacity_hits;
+    uint64_t backlog_drain_budget_hits;
+    bool backlog_capacity_limited;
+    StatsCounterId capture_dpdk_backlog_current;
+    StatsCounterMaxId capture_dpdk_backlog_max;
+    StatsCounterId capture_dpdk_backlog_enqueued;
+    StatsCounterId capture_dpdk_backlog_capacity_hits;
+    StatsCounterId capture_dpdk_backlog_drain_budget_hits;
 } DPDKThreadVars;
 
 static TmEcode ReceiveDPDKThreadInit(ThreadVars *, const void *, void **);
@@ -273,8 +290,50 @@ void TmModuleDecodeDPDKRegister(void)
     tmm_modules[TMM_DECODEDPDK].flags = TM_FLAG_DECODE_TM;
 }
 
+static inline void DPDKDumpBacklogCounters(DPDKThreadVars *ptv)
+{
+    if (ptv->rx_backlog == NULL) {
+        return;
+    }
+
+    StatsCounterSetI64(
+            &ptv->tv->stats, ptv->capture_dpdk_backlog_current, ptv->backlog_current);
+    StatsCounterMaxUpdateI64(&ptv->tv->stats, ptv->capture_dpdk_backlog_max, ptv->backlog_max);
+    StatsCounterSetI64(
+            &ptv->tv->stats, ptv->capture_dpdk_backlog_enqueued, ptv->backlog_enqueued);
+    StatsCounterSetI64(&ptv->tv->stats, ptv->capture_dpdk_backlog_capacity_hits,
+            ptv->backlog_capacity_hits);
+    StatsCounterSetI64(&ptv->tv->stats, ptv->capture_dpdk_backlog_drain_budget_hits,
+            ptv->backlog_drain_budget_hits);
+}
+
+static void DPDKBacklogClear(DPDKThreadVars *ptv)
+{
+    if (ptv->rx_backlog == NULL) {
+        return;
+    }
+
+    unsigned int count;
+    while ((count = rte_ring_sc_dequeue_burst(ptv->rx_backlog,
+                    (void **)ptv->received_mbufs, DPDK_RX_BURST_SIZE, NULL)) != 0) {
+        DPDKFreeMbufArray(ptv->received_mbufs, count, 0);
+    }
+    ptv->backlog_head = ptv->backlog_tail;
+    ptv->backlog_current = 0;
+}
+
+static void DPDKBacklogFree(DPDKThreadVars *ptv)
+{
+    DPDKBacklogClear(ptv);
+    rte_ring_free(ptv->rx_backlog);
+    ptv->rx_backlog = NULL;
+    SCFree(ptv->backlog_timestamps);
+    ptv->backlog_timestamps = NULL;
+}
+
 static inline void DPDKDumpCounters(DPDKThreadVars *ptv)
 {
+    DPDKDumpBacklogCounters(ptv);
     /* Some NICs (e.g. Intel) do not support queue statistics and the drops can be fetched only on
      * the port level. Therefore setting it to the first worker to have at least continuous update
      * on the dropped packets. */
@@ -477,6 +536,212 @@ static inline void DPDKSegmentedMbufWarning(struct rte_mbuf *mbuf)
     }
 }
 
+static inline TmEcode DPDKProcessMbuf(
+        DPDKThreadVars *ptv, struct rte_mbuf *mbuf, SCTime_t timestamp)
+{
+    Packet *p = PacketInitFromMbuf(ptv, mbuf, timestamp);
+    if (p == NULL) {
+        rte_pktmbuf_free(mbuf);
+        return TM_ECODE_OK;
+    }
+    DPDKSegmentedMbufWarning(mbuf);
+    PacketSetData(p, rte_pktmbuf_mtod(mbuf, uint8_t *), rte_pktmbuf_pkt_len(mbuf));
+    /* The processing pipeline releases the Packet on both success and failure. */
+    return TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+}
+
+static inline TmEcode DPDKProcessMbufArray(
+        DPDKThreadVars *ptv, uint16_t nb_rx, SCTime_t timestamp)
+{
+    for (uint16_t i = 0; i < nb_rx; i++) {
+        if (DPDKProcessMbuf(ptv, ptv->received_mbufs[i], timestamp) != TM_ECODE_OK) {
+            DPDKFreeMbufArray(ptv->received_mbufs, nb_rx, i + 1);
+            return TM_ECODE_FAILED;
+        }
+    }
+    return TM_ECODE_OK;
+}
+
+static inline void DPDKBacklogUpdateCapacity(DPDKThreadVars *ptv)
+{
+    uint32_t free_slots = ptv->backlog_size - ptv->backlog_current;
+    if (free_slots >= DPDK_RX_BURST_SIZE) {
+        ptv->backlog_capacity_limited = false;
+    } else if (free_slots < DPDK_RX_BURST_ALIGNMENT && !ptv->backlog_capacity_limited) {
+        ptv->backlog_capacity_hits++;
+        ptv->backlog_capacity_limited = true;
+    }
+}
+
+static inline void DPDKBacklogRecordBurst(
+        DPDKThreadVars *ptv, uint16_t count, SCTime_t timestamp)
+{
+    for (uint16_t i = 0; i < count; i++) {
+        ptv->backlog_timestamps[ptv->backlog_tail & (ptv->backlog_size - 1)] = timestamp;
+        ptv->backlog_tail++;
+    }
+    ptv->backlog_current += count;
+    ptv->backlog_enqueued += count;
+    ptv->backlog_max = MAX(ptv->backlog_max, ptv->backlog_current);
+    DPDKBacklogUpdateCapacity(ptv);
+}
+
+static inline void DPDKBacklogEnqueueBurst(
+        DPDKThreadVars *ptv, uint16_t count, SCTime_t timestamp)
+{
+    struct rte_ring_zc_data zcd;
+    unsigned int reserved = rte_ring_enqueue_zc_bulk_start(ptv->rx_backlog, count, &zcd, NULL);
+    BUG_ON(reserved != count);
+    memcpy(zcd.ptr1, ptv->received_mbufs, zcd.n1 * sizeof(struct rte_mbuf *));
+    if (zcd.n1 < count) {
+        memcpy(zcd.ptr2, ptv->received_mbufs + zcd.n1,
+                (count - zcd.n1) * sizeof(struct rte_mbuf *));
+    }
+    DPDKBacklogRecordBurst(ptv, count, timestamp);
+    rte_ring_enqueue_zc_finish(ptv->rx_backlog, count);
+}
+
+/** Receive into ring storage, using the receive array only for an unaligned wrap. */
+static inline uint16_t DPDKBacklogReceive(DPDKThreadVars *ptv, uint16_t *request)
+{
+    struct rte_ring_zc_data zcd;
+    unsigned int reserved = rte_ring_enqueue_zc_bulk_start(ptv->rx_backlog, *request, &zcd, NULL);
+    BUG_ON(reserved != *request);
+    struct rte_mbuf **rx = zcd.ptr1;
+
+    if (zcd.n1 >= DPDK_RX_BURST_ALIGNMENT) {
+        *request = MIN(*request, zcd.n1) & ~(DPDK_RX_BURST_ALIGNMENT - 1);
+    } else {
+        /* A short RX can leave 1..7 slots at the end of ring storage. Use
+         * the receive array for one aligned burst, then copy its pointers
+         * into the two reserved spans in FIFO order. */
+        BUG_ON(zcd.ptr2 == NULL);
+        *request = DPDK_RX_BURST_ALIGNMENT;
+        rx = ptv->received_mbufs;
+    }
+
+    uint16_t nb_rx = rte_eth_rx_burst(ptv->port_id, ptv->queue_id, rx, *request);
+    if (nb_rx > 0) {
+        SCTime_t timestamp = TimeGet();
+        if (rx == ptv->received_mbufs) {
+            unsigned int first = MIN(nb_rx, zcd.n1);
+            memcpy(zcd.ptr1, rx, first * sizeof(*rx));
+            if (nb_rx > first) {
+                memcpy(zcd.ptr2, rx + first, (nb_rx - first) * sizeof(*rx));
+            }
+        }
+        DPDKBacklogRecordBurst(ptv, nb_rx, timestamp);
+    }
+    rte_ring_enqueue_zc_finish(ptv->rx_backlog, nb_rx);
+    ptv->pkts += nb_rx;
+    return nb_rx;
+}
+
+static inline void DPDKBacklogDrain(DPDKThreadVars *ptv)
+{
+    uint16_t drained = 0;
+    while (drained < DPDK_RX_DRAIN_BUDGET) {
+        uint32_t free_slots = ptv->backlog_size - ptv->backlog_current;
+        if (free_slots < DPDK_RX_BURST_ALIGNMENT) {
+            break;
+        }
+        uint16_t request = MIN(free_slots, DPDK_RX_DRAIN_BUDGET - drained) &
+                           ~(DPDK_RX_BURST_ALIGNMENT - 1);
+        if (request == 0) {
+            break;
+        }
+        uint16_t nb_rx = DPDKBacklogReceive(ptv, &request);
+        drained += nb_rx;
+        if (nb_rx < request) {
+            break;
+        }
+    }
+    if (drained == DPDK_RX_DRAIN_BUDGET) {
+        ptv->backlog_drain_budget_hits++;
+    }
+}
+
+static inline TmEcode DPDKBacklogProcess(DPDKThreadVars *ptv)
+{
+    unsigned int count = rte_ring_sc_dequeue_burst(ptv->rx_backlog,
+            (void **)ptv->received_mbufs, DPDK_BACKLOG_PROCESS_QUANTUM, NULL);
+    uint32_t head = ptv->backlog_head;
+    ptv->backlog_head += count;
+    ptv->backlog_current -= count;
+    DPDKBacklogUpdateCapacity(ptv);
+    for (unsigned int i = 0; i < count; i++) {
+        SCTime_t timestamp = ptv->backlog_timestamps[(head + i) & (ptv->backlog_size - 1)];
+        if (DPDKProcessMbuf(ptv, ptv->received_mbufs[i], timestamp) != TM_ECODE_OK) {
+            DPDKFreeMbufArray(ptv->received_mbufs, count, i + 1);
+            return TM_ECODE_FAILED;
+        }
+    }
+    return TM_ECODE_OK;
+}
+
+static inline TmEcode DPDKBacklogPoll(DPDKThreadVars *ptv)
+{
+    if (ptv->backlog_current == 0) {
+        uint16_t nb_rx = rte_eth_rx_burst(
+                ptv->port_id, ptv->queue_id, ptv->received_mbufs, DPDK_RX_BURST_SIZE);
+        SCTime_t timestamp = { 0 };
+        if (nb_rx > 0) {
+            timestamp = TimeGet();
+        }
+        /* The idle heuristic is only reachable with an empty backlog. */
+        if (RXPacketCountHeuristic(ptv->tv, ptv, nb_rx)) {
+            return TM_ECODE_OK;
+        }
+        ptv->pkts += nb_rx;
+        if (nb_rx < DPDK_RX_BURST_SIZE) {
+            return DPDKProcessMbufArray(ptv, nb_rx, timestamp);
+        }
+        DPDKBacklogEnqueueBurst(ptv, nb_rx, timestamp);
+    }
+    DPDKBacklogDrain(ptv);
+    return DPDKBacklogProcess(ptv);
+}
+
+static TmEcode DPDKBacklogInit(DPDKThreadVars *ptv, uint32_t size)
+{
+    if (size == 0) {
+        return TM_ECODE_OK;
+    }
+
+    char name[RTE_RING_NAMESIZE];
+    snprintf(name, sizeof(name), "suricata_rx_%u_%u", ptv->port_id, ptv->queue_id);
+    ptv->rx_backlog = rte_ring_create(name, size, ptv->port_socket_id,
+            RING_F_SP_ENQ | RING_F_SC_DEQ | RING_F_EXACT_SZ);
+    if (ptv->rx_backlog == NULL) {
+        SCLogError("%s-Q%u: failed to allocate RX backlog: %s", ptv->livedev->dev,
+                ptv->queue_id, rte_strerror(rte_errno));
+        return TM_ECODE_FAILED;
+    }
+    if (rte_ring_get_capacity(ptv->rx_backlog) != size) {
+        SCLogError("%s-Q%u: unexpected RX backlog ring capacity", ptv->livedev->dev,
+                ptv->queue_id);
+        return TM_ECODE_FAILED;
+    }
+    ptv->backlog_timestamps = SCCalloc(size, sizeof(*ptv->backlog_timestamps));
+    if (ptv->backlog_timestamps == NULL) {
+        SCLogError("%s-Q%u: failed to allocate RX backlog timestamps", ptv->livedev->dev,
+                ptv->queue_id);
+        return TM_ECODE_FAILED;
+    }
+    ptv->backlog_size = size;
+    ptv->capture_dpdk_backlog_current =
+            StatsRegisterCounter("capture.dpdk.backlog.current", &ptv->tv->stats);
+    ptv->capture_dpdk_backlog_max =
+            StatsRegisterMaxCounter("capture.dpdk.backlog.max", &ptv->tv->stats);
+    ptv->capture_dpdk_backlog_enqueued =
+            StatsRegisterCounter("capture.dpdk.backlog.enqueued", &ptv->tv->stats);
+    ptv->capture_dpdk_backlog_capacity_hits =
+            StatsRegisterCounter("capture.dpdk.backlog.capacity_hits", &ptv->tv->stats);
+    ptv->capture_dpdk_backlog_drain_budget_hits =
+            StatsRegisterCounter("capture.dpdk.backlog.drain_budget_hits", &ptv->tv->stats);
+    return TM_ECODE_OK;
+}
+
 static void PrintDPDKPortXstats(uint16_t port_id, const char *port_name)
 {
     int ret = rte_eth_xstats_get(port_id, NULL, 0);
@@ -526,6 +791,7 @@ cleanup:
 static void HandleShutdown(DPDKThreadVars *ptv)
 {
     SCLogDebug("Stopping Suricata!");
+    DPDKBacklogClear(ptv);
     SC_ATOMIC_ADD(ptv->workers_sync->worker_checked_in, 1);
     while (SC_ATOMIC_GET(ptv->workers_sync->worker_checked_in) < ptv->workers_sync->worker_cnt) {
         rte_delay_us(10);
@@ -533,6 +799,7 @@ static void HandleShutdown(DPDKThreadVars *ptv)
     // Dump counters while device is still running - some drivers (e.g. BNXT) fail
     // to report stats after the device is stopped
     DPDKDumpCounters(ptv);
+    StatsSyncCounters(&ptv->tv->stats);
     if (ptv->queue_id == 0) {
         PrintDPDKPortXstats(ptv->port_id, ptv->livedev->dev);
         rte_delay_us(20); // wait for all threads to get out of the sync loop
@@ -581,6 +848,17 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
             break;
         }
 
+        if (ptv->rx_backlog != NULL) {
+            if (DPDKBacklogPoll(ptv) != TM_ECODE_OK) {
+                DPDKBacklogClear(ptv);
+                DPDKDumpBacklogCounters(ptv);
+                StatsSyncCounters(&tv->stats);
+                SCReturnInt(TM_ECODE_FAILED);
+            }
+            PeriodicDPDKDumpCounters(ptv);
+            StatsSyncCountersIfSignalled(&tv->stats);
+            continue;
+        }
         uint16_t nb_rx =
                 rte_eth_rx_burst(ptv->port_id, ptv->queue_id, ptv->received_mbufs, burst_size);
         SCTime_t timestamp = { 0 };
@@ -592,19 +870,8 @@ static TmEcode ReceiveDPDKLoop(ThreadVars *tv, void *data, void *slot)
         }
 
         ptv->pkts += (uint64_t)nb_rx;
-        for (uint16_t i = 0; i < nb_rx; i++) {
-            Packet *p = PacketInitFromMbuf(ptv, ptv->received_mbufs[i], timestamp);
-            if (p == NULL) {
-                rte_pktmbuf_free(ptv->received_mbufs[i]);
-                continue;
-            }
-            DPDKSegmentedMbufWarning(ptv->received_mbufs[i]);
-            PacketSetData(p, rte_pktmbuf_mtod(p->dpdk_v.mbuf, uint8_t *),
-                    rte_pktmbuf_pkt_len(p->dpdk_v.mbuf));
-            if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
-                DPDKFreeMbufArray(ptv->received_mbufs, nb_rx, i + 1);
-                SCReturnInt(TM_ECODE_FAILED);
-            }
+        if (DPDKProcessMbufArray(ptv, nb_rx, timestamp) != TM_ECODE_OK) {
+            SCReturnInt(TM_ECODE_FAILED);
         }
 
         PeriodicDPDKDumpCounters(ptv);
@@ -678,6 +945,10 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     uint16_t queue_id = SC_ATOMIC_ADD(dpdk_config->queue_id, 1);
     ptv->queue_id = queue_id;
 
+    if (DPDKBacklogInit(ptv, dpdk_config->rx_backlog_size) != TM_ECODE_OK) {
+        goto fail;
+    }
+
     // the last thread starts the device
     if (queue_id == dpdk_config->threads - 1) {
         retval = rte_eth_dev_start(ptv->port_id);
@@ -749,10 +1020,13 @@ static TmEcode ReceiveDPDKThreadInit(ThreadVars *tv, const void *initdata, void 
     SCReturnInt(TM_ECODE_OK);
 
 fail:
-    if (dpdk_config != NULL)
+    if (dpdk_config != NULL) {
         dpdk_config->DerefFunc(dpdk_config);
-    if (ptv != NULL)
+    }
+    if (ptv != NULL) {
+        DPDKBacklogFree(ptv);
         SCFree(ptv);
+    }
     SCReturnInt(TM_ECODE_FAILED);
 }
 
@@ -765,6 +1039,11 @@ static TmEcode ReceiveDPDKThreadDeinit(ThreadVars *tv, void *data)
 {
     SCEnter();
     DPDKThreadVars *ptv = (DPDKThreadVars *)data;
+
+    DPDKBacklogClear(ptv);
+    DPDKDumpBacklogCounters(ptv);
+    StatsSyncCounters(&tv->stats);
+    DPDKBacklogFree(ptv);
 
     if (ptv->queue_id == 0) {
         struct rte_eth_dev_info dev_info;
