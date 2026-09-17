@@ -117,23 +117,28 @@ static uint16_t BondingMemberDevCountFromDevargs(const struct rte_eth_dev_info *
     return ret == 0 ? count : 0;
 }
 
-uint32_t BondingMempoolSizeCalculate(
-        uint16_t bond_pid, const struct rte_eth_dev_info *dev_info, uint32_t curr_mempool_size)
+/**
+ * \brief Multiply a per-port descriptor count by the number of bond members.
+ *
+ * \return the count for all member ports, unchanged when the member count is unknown
+ */
+uint32_t BondingDescriptorsCalculate(
+        uint16_t bond_pid, const struct rte_eth_dev_info *dev_info, uint32_t descriptors)
 {
-    if (curr_mempool_size == 0) {
+    if (descriptors == 0) {
         return 0;
     }
 
     uint16_t cnt = BondingMemberDevCountFromDevargs(dev_info);
     if (cnt == 0) {
         // don't adjust if unable to determine the number of bonded devices
-        return curr_mempool_size;
-    } else if (curr_mempool_size > UINT32_MAX / cnt) {
-        FatalError("%s: mempool size too large to adjust for %u bonded devices",
+        return descriptors;
+    } else if (descriptors > UINT32_MAX / cnt) {
+        FatalError("%s: descriptor count too large to adjust for %u bonded devices",
                 DPDKGetPortNameByPortID(bond_pid), cnt);
     }
 
-    return curr_mempool_size * cnt;
+    return descriptors * cnt;
 }
 
 int32_t BondingAllDevicesSameDriver(uint16_t bond_pid)

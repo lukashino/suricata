@@ -529,22 +529,26 @@ static int ConfigSetTxQueues(
     SCReturnInt(0);
 }
 
-static uint32_t MempoolSizeCalculateAutosize(
-        const DPDKIfaceConfig *iconf, const struct rte_eth_dev_info *dev_info)
+static int MempoolSizeCalculate(
+        const DPDKIfaceConfig *iconf, const struct rte_eth_dev_info *dev_info, uint32_t *size)
 {
-    uint32_t next_p2 =
-            rte_align32pow2(iconf->nb_rx_desc + iconf->nb_tx_desc +
-                            1); // + 1 in case number of descriptors is already a power of 2
-
-    uint32_t mp_size = next_p2;
-    if (dev_info != NULL) {
-        if (strcmp(dev_info->driver_name, "net_bonding") == 0) {
-            mp_size = BondingMempoolSizeCalculate(iconf->port_id, dev_info, mp_size);
-        }
+    uint32_t descriptors = (uint32_t)iconf->nb_rx_desc + iconf->nb_tx_desc;
+    if (dev_info != NULL && strcmp(dev_info->driver_name, "net_bonding") == 0) {
+        /* Every member port fills its own descriptors from the worker's mempool. */
+        descriptors = BondingDescriptorsCalculate(iconf->port_id, dev_info, descriptors);
     }
 
-    return mp_size -
-           1; // mempool size should be n = (2^q - 1) to have all descriptors available for use
+    /* The RX burst in flight is held once per worker. */
+    const uint64_t required = (uint64_t)descriptors + DPDK_RX_BURST_SIZE;
+    /* Add one so that rounding to 2^q - 1 still covers a power-of-two requirement. */
+    const uint64_t next_p2 = rte_align64pow2(required + 1);
+    if (next_p2 - 1 > UINT32_MAX) {
+        SCLogError("%s: mempool requirement exceeds the supported per-queue size", iconf->iface);
+        return -ERANGE;
+    }
+
+    *size = (uint32_t)(next_p2 - 1);
+    return 0;
 }
 
 static uint32_t MempoolSizeDistributeToQueues(uint32_t global_mp_size, uint16_t nic_queues)
@@ -558,24 +562,10 @@ static uint32_t MempoolSizeDistributeToQueues(uint32_t global_mp_size, uint16_t 
         return 0;
     }
 
-    uint32_t next_p2 = rte_align32pow2(mp_size_per_queue);
-    return (mp_size_per_queue == next_p2 || mp_size_per_queue == next_p2 - 1)
-                   ? next_p2 - 1
-                   : (next_p2 >> 1) - 1; // we must fit in the globally specified mempool size
-}
-
-static uint32_t MempoolSizeCalculateMinimal(
-        const DPDKIfaceConfig *iconf, const struct rte_eth_dev_info *dev_info)
-{
-    uint32_t mp_size =
-            rte_align32pow2(iconf->nb_rx_desc + iconf->nb_tx_desc +
-                            1); // + 1 in case number of descriptors is already a power of 2
-    if (dev_info != NULL) {
-        if (strcmp(dev_info->driver_name, "net_bonding") == 0) {
-            mp_size = BondingMempoolSizeCalculate(iconf->port_id, dev_info, mp_size);
-        }
-    }
-    return mp_size - 1;
+    uint64_t next_p2 = rte_align64pow2(mp_size_per_queue);
+    return (uint32_t)((mp_size_per_queue == next_p2 || mp_size_per_queue == next_p2 - 1)
+                              ? next_p2 - 1
+                              : (next_p2 >> 1) - 1); // fit in the globally specified mempool size
 }
 
 static int ConfigSetMempoolSize(
@@ -583,9 +573,6 @@ static int ConfigSetMempoolSize(
 {
     SCEnter();
     if (entry_str == NULL || entry_str[0] == '\0' || strcmp(entry_str, "auto") == 0) {
-        // calculate the mempool size based on the number of:
-        //   - RX / TX queues
-        //   - RX / TX descriptors
         bool err = false;
         if (iconf->nb_rx_queues == 0) {
             // in IDS mode, we don't need TX queues
@@ -603,8 +590,8 @@ static int ConfigSetMempoolSize(
             SCReturnInt(-EINVAL);
         }
 
-        iconf->queue_mempool_size = MempoolSizeCalculateAutosize(iconf, dev_info);
-        SCReturnInt(0);
+        int retval = MempoolSizeCalculate(iconf, dev_info, &iconf->queue_mempool_size);
+        SCReturnInt(retval);
     }
 
     uint32_t global_mempool_size;
@@ -616,12 +603,17 @@ static int ConfigSetMempoolSize(
 
     iconf->queue_mempool_size =
             MempoolSizeDistributeToQueues(global_mempool_size, iconf->nb_rx_queues);
-    uint32_t required_mp_size = MempoolSizeCalculateMinimal(iconf, dev_info);
+    uint32_t required_mp_size;
+    int retval = MempoolSizeCalculate(iconf, dev_info, &required_mp_size);
+    if (retval < 0) {
+        SCReturnInt(retval);
+    }
+
     if (required_mp_size > iconf->queue_mempool_size) {
-        uint32_t required_global_mp_size =
-                required_mp_size * iconf->nb_rx_queues + iconf->nb_rx_queues - 1;
-        SCLogError("%s: mempool size is likely too small for the number of descriptors and queues, "
-                   "set to \"auto\" or adjust to the value of \"%" PRIu32 "\"",
+        uint64_t required_global_mp_size =
+                (uint64_t)required_mp_size * iconf->nb_rx_queues + iconf->nb_rx_queues - 1;
+        SCLogError("%s: mempool size is too small; set to \"auto\" or adjust "
+                   "to the value of \"%" PRIu64 "\"",
                 iconf->iface, required_global_mp_size);
         SCReturnInt(-ERANGE);
     }
