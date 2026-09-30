@@ -1303,6 +1303,25 @@ void *DetectGetInnerTx(void *tx_ptr, AppProto alproto, AppProto engine_alproto, 
  *  \retval  0 partial incomplete match
  *  \retval -1 failed to match
  */
+static void DetectRunTxBothDirMirror(
+        DetectTransaction *tx, const Signature *s, const int direction, const uint32_t inspect_flags)
+{
+    DetectEngineState *des = ((AppLayerTxData *)tx->tx_data_ptr)->de_state;
+    if (des == NULL) {
+        return;
+    }
+    DetectEngineStateDirection *ds = &des->dir_state[direction ^ 1];
+    SigIntId cnt = 0;
+    for (DeStateStore *st = ds->head; st != NULL && cnt < ds->cnt; st = st->next) {
+        for (int i = 0; i < DE_STATE_CHUNK_SIZE && cnt < ds->cnt; i++, cnt++) {
+            if (st->store[i].sid == s->iid) {
+                st->store[i].flags |= inspect_flags;
+                return;
+            }
+        }
+    }
+}
+
 static int DetectRunTxInspectRule(ThreadVars *tv, DetectEngineCtx *de_ctx,
         DetectEngineThreadCtx *det_ctx, Packet *p, Flow *f,
         const uint8_t in_flow_flags, // direction, EOF, etc
@@ -1503,6 +1522,9 @@ static int DetectRunTxInspectRule(ThreadVars *tv, DetectEngineCtx *de_ctx,
 
     if (stored_flags) {
         *stored_flags = inspect_flags;
+        if (s->flags & SIG_FLAG_TXBOTHDIR) {
+            DetectRunTxBothDirMirror(tx, s, direction, inspect_flags);
+        }
         TRACE_SID_TXS(s->id, tx, "continue inspect flags %08x", inspect_flags);
     } else {
         // store... or? If tx is done we might not want to come back to this tx
@@ -1533,7 +1555,8 @@ static int DetectRunTxInspectRule(ThreadVars *tv, DetectEngineCtx *de_ctx,
                 DetectRunStoreStateTx(scratch->sgh, f, tx->tx_ptr, tx->tx_id, s,
                         inspect_flags, flow_flags, file_no_match);
             }
-        } else if ((inspect_flags & DE_STATE_FLAG_FULL_INSPECT) == 0 && mpm_in_progress) {
+        } else if ((inspect_flags & DE_STATE_FLAG_FULL_INSPECT) == 0 && mpm_in_progress &&
+                   !(other_dir_pending && total_matches)) {
             TRACE_SID_TXS(s->id, tx, "no need to store no-match sig, "
                     "mpm will revisit it");
             return -1; /* no match */
