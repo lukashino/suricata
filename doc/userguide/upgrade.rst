@@ -187,6 +187,9 @@ Other Changes
 
 - `alert pkthdr` is now only available for decoder event rules. Previously it acted
   like `alert ip`.
+- The unix socket answers commands only once the engine has started.
+  Previously, commands were also answered while Suricata was still starting up.
+  A client that connects during that time now waits for the reply.
 - ``ldap`` has bound the maximum number of responses per transaction
   to 1024 by default.
 

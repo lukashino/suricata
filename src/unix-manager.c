@@ -1163,13 +1163,16 @@ static TmEcode UnixManager(ThreadVars *th_v, void *thread_data)
 
     TmThreadsSetFlag(th_v, THV_INIT_DONE | THV_RUNNING);
 
+    /* commands read thread state that is only stable once the threads are set up */
+    const bool run = TmThreadsWaitForUnpause(th_v);
+
     while (1) {
-        int ret = UnixMain(&command);
+        int ret = run ? UnixMain(&command) : 1;
         if (ret == 0) {
             SCLogError("Fatal error on unix socket");
         }
 
-        if ((ret == 0) || (TmThreadsCheckFlag(th_v, THV_KILL))) {
+        if ((ret == 0) || !run || (TmThreadsCheckFlag(th_v, THV_KILL))) {
             UnixClient *item;
             UnixClient *titem;
             TAILQ_FOREACH_SAFE(item, &(&command)->clients, next, titem) {

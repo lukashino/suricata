@@ -23,6 +23,9 @@ The ``filename`` variable can be used to set an alternate socket
 filename. The filename is always relative to the local state base
 directory.
 
+Suricata answers commands once the engine has started. A client that
+connects while Suricata is still starting up waits for the reply.
+
 Clients are implemented for some programming languages and can be used as code
 example to write custom scripts:
 
