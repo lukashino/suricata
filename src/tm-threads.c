@@ -2307,6 +2307,9 @@ bool TmThreadsTimeSubsysIsReady(void)
 {
     static SCTime_t nullts = SCTIME_INITIALIZER;
     bool ready = true;
+    /* the flow manager polls this before the store is sealed, while registering a
+     * thread can still realloc the array */
+    SCMutexLock(&thread_store_lock);
     for (size_t s = 0; s < thread_store.threads_size; s++) {
         Thread *t = &thread_store.threads[s];
         if (!t->in_use) {
@@ -2324,6 +2327,7 @@ bool TmThreadsTimeSubsysIsReady(void)
         }
         SCSpinUnlock(&t->spin);
     }
+    SCMutexUnlock(&thread_store_lock);
     return ready;
 }
 
